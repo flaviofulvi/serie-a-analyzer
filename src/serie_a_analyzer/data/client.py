@@ -113,8 +113,13 @@ class ApiFootballClient:
         )
 
         payload = self._fetch(endpoint, params)
+        # Si spacchetta PRIMA di salvare: `_unwrap` solleva se la risposta e'
+        # un errore, e un errore in cache con TTL_FOREVER congelerebbe per
+        # sempre un guasto temporaneo — o un limite di piano poi rimosso —
+        # senza che nessuna richiesta futura possa piu' correggerlo.
+        result = self._unwrap(payload, endpoint)
         self.cache.set(endpoint, params, payload)
-        return self._unwrap(payload, endpoint)
+        return result
 
     def _fetch(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         headers = {self.key_header: self.api_key, **self.extra_headers}

@@ -28,9 +28,9 @@ contraddica l'Over/Under, perche' vengono dalla stessa sorgente.
 | Incremento | Contenuto | Stato |
 |---|---|---|
 | 1 | Motore statistico + test | ✅ completo e verificato |
-| 2 | Schema DB + ingestione API-Football | ✅ completo, in attesa di chiave API |
+| 2 | Schema DB + ingestione API-Football | ✅ completo, verificato su dati veri |
 | 3 | Persistenza su Supabase | ⬜ |
-| 4 | Backtest e calibrazione su stagioni passate | ⬜ |
+| 4 | Backtest e calibrazione su stagioni passate | ✅ primo giro fatto (vedi sotto) |
 | 5 | Hub partite (FastAPI + Jinja2 + HTMX) | ⬜ |
 | 6 | Strato giocatori (probabilita' marcatore) | ⬜ |
 | 7 | Pipeline di fine partita e tracking | ⬜ |
@@ -62,6 +62,14 @@ python scripts/predict_next_round.py
 Il piano gratuito di API-Football concede 100 richieste al giorno. Non e' un
 dettaglio operativo, e' un vincolo di progetto — e l'architettura e' costruita
 intorno a un fatto molto favorevole:
+
+> **Limite piu' serio del budget: le stagioni.** Il piano gratuito espone solo le
+> stagioni **2022, 2023 e 2024** (verificato il 18/08/2026). L'endpoint
+> `/leagues` le elenca tutte, ma richiedere il 2025 o il 2026 risponde
+> `Free plans do not have access to this season, try from 2022 to 2024`.
+> Basta per addestrare e validare il modello; **non** basta per pronosticare la
+> giornata in corso, che e' lo scopo dell'applicazione. Serve un piano a
+> pagamento o una seconda fonte per il solo calendario corrente.
 
 **Il modello di squadra costa quasi nulla.** L'endpoint `/fixtures` con lega e
 stagione restituisce tutte le ~380 partite con i risultati, e i nomi delle
@@ -120,6 +128,33 @@ da' gia' circa il 45%. Le metriche sono **Brier score**, **curva di calibrazione
 (quando dico 30%, succede il 30% delle volte?) e confronto con le quote di
 chiusura come baseline. Lo schema prevede questo fin dall'inizio.
 
+### Risultati del backtest (stagione 2024/25)
+
+`scripts/backtest.py` rigioca la stagione giornata per giornata: per ogni
+giornata stima il modello **solo** sulle partite concluse prima del primo calcio
+d'inizio, poi pronostica. Il modello non vede mai il futuro, nemmeno di un'ora.
+377 partite pronosticate, 38 giornate, zero richieste API (legge dalla cache).
+
+| 1X2 | Brier | guadagno del modello |
+|---|---|---|
+| **Modello Dixon-Coles** | **0.5862** | — |
+| sempre 1/3 - 1/3 - 1/3 | 0.6667 | 12.1% |
+| sempre le frequenze di lega | 0.6602 | 11.2% |
+
+Log loss 0.9798. Esito piu' probabile azzeccato nel 52.0% dei casi.
+
+**Sull'1X2 il modello aggiunge informazione reale.** Sui gol totali no: Over 2.5
+sta a 0.2530 contro una baseline di 0.2496, Gol/NoGol a 0.2556 contro 0.2498 —
+cioe' leggermente **peggio** che dire sempre la media di campionato. La
+distribuzione dei gol totali e' quasi tutta rumore in Serie A; sapere chi e' piu'
+forte sposta il *chi vince*, non il *quanti gol*. E' un limite del modello, non
+un bug, e va detto invece che nascosto dietro il buon numero dell'1X2.
+
+La calibrazione dell'1X2 e' buona nella fascia centrale (scarti dell'1-3%) e
+peggiora agli estremi, dove i campioni sono piccoli. Manca ancora il confronto
+con le quote di chiusura, che e' la baseline seria: senza quello sappiamo di
+battere l'ignoranza, non il mercato.
+
 ## Struttura
 
 ```
@@ -140,6 +175,7 @@ src/serie_a_analyzer/
 tests/               92 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
+  backtest.py            il modello contro una stagione vera, giornata per giornata
   predict_next_round.py  pronostici sui dati reali
 ```
 
