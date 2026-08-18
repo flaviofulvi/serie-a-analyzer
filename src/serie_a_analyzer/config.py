@@ -25,6 +25,8 @@ class Settings:
     daily_request_limit: int
     cache_dir: Path
     budget_file: Path
+    store_dir: Path              # archivio della stagione in corso
+    journal_file: Path           # registro dei giorni raccolti
     database_url: str | None
     league_id: int
     seasons: tuple[int, ...]     # stagioni su cui stimare il modello
@@ -55,6 +57,8 @@ def load_settings() -> Settings:
         daily_request_limit=int(os.getenv("DAILY_REQUEST_LIMIT", "100")),
         cache_dir=Path(os.getenv("CACHE_DIR", data_dir / "cache")),
         budget_file=Path(os.getenv("BUDGET_FILE", data_dir / "budget.json")),
+        store_dir=Path(os.getenv("STORE_DIR", data_dir / "serie_a")),
+        journal_file=Path(os.getenv("JOURNAL_FILE", data_dir / "journal.json")),
         database_url=os.getenv("DATABASE_URL") or None,
         league_id=int(os.getenv("LEAGUE_ID", "135")),
         seasons=_parse_seasons(os.getenv("SEASONS", "2022,2023,2024")),
@@ -76,3 +80,11 @@ def build_client(settings: Settings | None = None):
     if settings.api_provider == "rapidapi":
         return ApiFootballClient.for_rapidapi(settings.api_key, cache, budget)
     return ApiFootballClient(api_key=settings.api_key, cache=cache, budget=budget)
+
+
+def build_store(settings: Settings | None = None):
+    """Archivio della stagione in corso e diario della raccolta."""
+    from .data.store import DayJournal, SeasonStore
+
+    settings = settings or load_settings()
+    return SeasonStore(root=settings.store_dir), DayJournal(path=settings.journal_file)

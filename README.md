@@ -29,6 +29,7 @@ contraddica l'Over/Under, perche' vengono dalla stessa sorgente.
 |---|---|---|
 | 1 | Motore statistico + test | ✅ completo e verificato |
 | 2 | Schema DB + ingestione API-Football | ✅ completo, verificato su dati veri |
+| 2b | Raccolta giornaliera della stagione in corso | ✅ pronta, in attesa del 22/08 |
 | 3 | Persistenza su Supabase | ⬜ |
 | 4 | Backtest e calibrazione su stagioni passate | ✅ primo giro fatto (vedi sotto) |
 | 5 | Hub partite (FastAPI + Jinja2 + HTMX) | ⬜ |
@@ -43,7 +44,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
 
-pytest                          # 92 test
+pytest                          # 127 test
 python scripts/demo_engine.py   # dimostrazione su dati sintetici
 ```
 
@@ -64,12 +65,11 @@ dettaglio operativo, e' un vincolo di progetto — e l'architettura e' costruita
 intorno a un fatto molto favorevole:
 
 > **Limite piu' serio del budget: le stagioni.** Il piano gratuito espone solo le
-> stagioni **2022, 2023 e 2024** (verificato il 18/08/2026). L'endpoint
-> `/leagues` le elenca tutte, ma richiedere il 2025 o il 2026 risponde
-> `Free plans do not have access to this season, try from 2022 to 2024`.
-> Basta per addestrare e validare il modello; **non** basta per pronosticare la
-> giornata in corso, che e' lo scopo dell'applicazione. Serve un piano a
-> pagamento o una seconda fonte per il solo calendario corrente.
+> stagioni **2022, 2023 e 2024** (verificato il 18/08/2026). Richiedere il 2025
+> o il 2026 risponde `Free plans do not have access to this season, try from
+> 2022 to 2024`. Bastano per addestrare e validare il modello, non per
+> pronosticare la stagione in corso. La via d'uscita e' la
+> [raccolta giornaliera](#la-stagione-in-corso-si-raccoglie-un-giorno-alla-volta).
 
 **Il modello di squadra costa quasi nulla.** L'endpoint `/fixtures` con lega e
 stagione restituisce tutte le ~380 partite con i risultati, e i nomi delle
@@ -91,6 +91,59 @@ Tre meccanismi tengono insieme la cosa:
 La riserva e' la parte che conta davvero: senza, un backfill lanciato di sabato
 mattina lascia l'applicazione a secco la domenica alle 14:30, cioe' quando
 escono le formazioni ufficiali e i pronostici diventano interessanti.
+
+## La stagione in corso si raccoglie un giorno alla volta
+
+Il piano gratuito nega la stagione corrente **per stagione**, non per data. Una
+richiesta senza il parametro `league` passa:
+
+```
+/fixtures?league=135&season=2026   ->  bloccato
+/fixtures?date=2026-08-22          ->  OK, tutte le leghe, risultati inclusi
+```
+
+Aggiungere `league` obbliga l'API a pretendere anche `season`, e li' si viene
+bloccati. Chiedendo la sola data la risposta arriva completa e **la Serie A si
+filtra in locale**, gratis.
+
+La finestra concessa e' di tre giorni — ieri, oggi, domani — e questo divide i
+dati in due categorie con proprieta' opposte:
+
+| | Come si legge | Se lo perdi |
+|---|---|---|
+| **Id delle partite** | solo entro la finestra di 3 giorni | **perso per sempre** |
+| Formazioni, statistiche, eventi | dall'id della partita, senza scadenza | si recuperano con calma |
+
+Verificato: i dettagli di una partita giocata *ieri*, stagione in corso,
+arrivano completi. E' il motivo per cui `daily.py` separa nettamente le due
+cose. La raccolta giornaliera deve **sempre** catturare gli id; se il budget
+finisce a meta' di una giornata di campionato, `backfill_details` completa il
+resto domani senza che si sia perso nulla.
+
+```bash
+python scripts/daily_collect.py       # ieri, oggi, domani + dettagli mancanti
+.\scripts\schedule_windows.ps1        # registra 4 esecuzioni al giorno
+```
+
+Un giorno le cui partite sono tutte in stato definitivo viene marcato
+**chiuso** sul `DayJournal` e non viene piu' richiesto: le esecuzioni
+successive costano zero. Un giorno mai raccolto compare come buco nel resoconto
+— non per rifarlo, perche' non si puo', ma per sapere quanto fidarsi delle
+statistiche costruite sopra.
+
+> ⚠️ **`data/serie_a/` e' l'unica copia esistente della stagione in corso.**
+> Non e' una cache: cancellarla significa perdere i giorni gia' passati, che
+> l'API non restituira' mai piu'. Finche' non c'e' la persistenza su Supabase
+> (incremento 3), quella cartella va trattata come un archivio da salvare
+> altrove, non come dati rigenerabili.
+
+### Cosa resta fuori portata
+
+- Il calendario oltre domani: la scheda squadra non puo' mostrare "tutti i
+  prossimi incontri" (Fase 3, punto 5).
+- I pronostici escono ~24 ore prima della partita, non con giorni di anticipo.
+- La stagione 2025/26 non e' recuperabile in nessun modo: resta un buco fra lo
+  storico 2022-2024 e la raccolta che parte adesso.
 
 ## Il modello
 
@@ -172,11 +225,16 @@ src/serie_a_analyzer/
     budget.py        contabilita' delle richieste giornaliere
     parsers.py       JSON di API-Football -> oggetti del dominio
     ingest.py        orchestrazione dell'ingestione
-tests/               92 test
+    daily.py         raccolta giornaliera della stagione in corso
+    store.py         archivio della stagione e diario dei giorni raccolti
+tests/               127 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata
   predict_next_round.py  pronostici sui dati reali
+  daily_collect.py       raccolta giornaliera (da schedulare)
+  run_daily.ps1          wrapper con log, per l'Utilita' di pianificazione
+  schedule_windows.ps1   registra l'attivita' pianificata
 ```
 
 ## Regola non negoziabile dello schema

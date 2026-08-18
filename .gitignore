@@ -7,3 +7,6 @@ __pycache__/
 data/cache/
 *.db
 data/budget.json
+data/logs/
+data/serie_a/
+data/journal.json

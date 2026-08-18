@@ -179,11 +179,36 @@ class ApiFootballClient:
         params = {"league": league, "season": season, **extra}
         return self.get("fixtures", params, ttl=TTL_UPCOMING_FIXTURES)
 
-    def fixtures_by_date(self, day: str, league: int = SERIE_A_LEAGUE_ID, season: int | None = None):
-        params: dict[str, Any] = {"league": league, "date": day}
-        if season is not None:
-            params["season"] = season
-        return self.get("fixtures", params, ttl=TTL_LIVE, priority=Priority.CRITICAL)
+    def fixtures_on_date(
+        self,
+        day: str,
+        ttl: int | None = TTL_LIVE,
+        priority: Priority = Priority.NORMAL,
+        force_refresh: bool = False,
+    ):
+        """Tutte le partite del mondo in una data, senza filtro di lega.
+
+        L'assenza del parametro ``league`` non e' una dimenticanza: e' l'unico
+        modo di leggere la stagione in corso sul piano gratuito. Aggiungendo
+        ``league`` l'API pretende anche ``season``, e la stagione corrente e'
+        bloccata ("Free plans do not have access to this season"). Chiedendo la
+        sola data la risposta arriva completa — risultati inclusi — e la Serie A
+        si filtra in locale, gratis.
+
+        Il piano gratuito copre una finestra scorrevole di tre giorni: ieri,
+        oggi e domani. Fuori da quella non si torna indietro, ed e' il motivo
+        per cui la raccolta giornaliera non puo' saltare un giorno.
+        """
+        return self.get(
+            "fixtures", {"date": day}, ttl=ttl, priority=priority, force_refresh=force_refresh
+        )
+
+    def fixture_events(self, fixture_id: int):
+        """Gol, cartellini e sostituzioni di una partita."""
+        return self.get(
+            "fixtures/events", {"fixture": fixture_id},
+            ttl=TTL_FOREVER, priority=Priority.BACKFILL,
+        )
 
     def teams(self, season: int, league: int = SERIE_A_LEAGUE_ID):
         return self.get("teams", {"league": league, "season": season}, ttl=TTL_STATIC)
