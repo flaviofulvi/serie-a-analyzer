@@ -21,6 +21,7 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\backtest.py            # walk-forward, legge dalla cache
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py       # raccolta giornaliera (spende budget)
 .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py   # la raccolta e' sana? (non spende)
+.\.venv\Scripts\python.exe .\scripts\storico_pronostici.py  # cosa c'e' nel registro dei pronostici
 .\scripts\schedule_windows.ps1                              # 4 esecuzioni al giorno
 ```
 
@@ -72,6 +73,15 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   saltare.
 - `dataset.py` — unisce storico 2022-2024 (dalla cache) e archivio corrente in
   un unico `Dataset`, che è ciò che il modello e il web consumano.
+- `predictions.py` — registro dei pronostici in SQLite (`data/pronostici.db`).
+  Append-only: `UPDATE` e `DELETE` sono **vietati da trigger**, non solo per
+  convenzione. Si salva la matrice dei risultati, da cui ogni mercato si può
+  riderivare mesi dopo, più i mercati materializzati per le query di
+  calibrazione. Due regole nel codice: non si registra una partita già
+  iniziata (sarebbe barare: il modello è stimato su quella partita), e si
+  scrive **una riga per partita e versione del modello** — l'impronta dei
+  parametri stimati dice se il modello è cambiato, così ricaricare l'hub non
+  moltiplica righe identiche.
 - `parsers.py` — JSON di API-Football → oggetti di dominio. I test coprono i
   parser con payload reali riprodotti in `tests/conftest.py`, così nessun test
   spende richieste.
@@ -85,8 +95,10 @@ cancellarla né suggerire di rigenerarla.
 `web/engine.py` tiene dati e modello caldi in uno `Snapshot`, ricostruito solo
 quando cambia l'impronta dell'archivio (mtime+size di `fixtures.json`), non a
 ogni richiesta HTTP — la stima costa un paio di secondi. Un lock protegge da
-stime duplicate su richieste concorrenti. `web/views.py` traduce il dominio in
-ciò che i template disegnano; `web/app.py` espone hub, scheda partita, `/stato`
+stime duplicate su richieste concorrenti. Quando il modello viene
+ristimato — l'unico momento in cui i pronostici possono cambiare — l'engine
+congela i pronostici delle partite in programma nel registro. `web/views.py`
+traduce il dominio in ciò che i template disegnano; `web/app.py` espone hub, scheda partita, `/stato`
 (JSON: cosa sa il sistema, budget residuo) e `/aggiorna` (forza la ricostruzione).
 
 ## Vincoli di progetto

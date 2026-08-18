@@ -69,6 +69,11 @@ class FittedModel:
     effective_sample_size: float
     fitted_on: date
     converged: bool
+    # Iperparametri della stima. Conservarli qui e' cio' che rende una
+    # versione del modello riproducibile: senza, un pronostico salvato non
+    # sarebbe piu' ricostruibile a distanza di mesi.
+    half_life_days: float = DEFAULT_HALF_LIFE_DAYS
+    regularization: float = DEFAULT_REGULARIZATION
 
     def expected_goals(self, home: str, away: str) -> tuple[float, float]:
         """Gol attesi di casa e trasferta per un accoppiamento."""
@@ -252,4 +257,6 @@ def fit_dixon_coles(
         effective_sample_size=float(weights.sum()),
         fitted_on=reference,
         converged=bool(result.success),
+        half_life_days=half_life_days,
+        regularization=regularization,
     )

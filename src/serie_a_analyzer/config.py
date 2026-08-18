@@ -27,6 +27,7 @@ class Settings:
     budget_file: Path
     store_dir: Path              # archivio della stagione in corso
     journal_file: Path           # registro dei giorni raccolti
+    predictions_db: Path         # storico immutabile dei pronostici
     database_url: str | None
     league_id: int
     seasons: tuple[int, ...]     # stagioni su cui stimare il modello
@@ -59,6 +60,7 @@ def load_settings() -> Settings:
         budget_file=Path(os.getenv("BUDGET_FILE", data_dir / "budget.json")),
         store_dir=Path(os.getenv("STORE_DIR", data_dir / "serie_a")),
         journal_file=Path(os.getenv("JOURNAL_FILE", data_dir / "journal.json")),
+        predictions_db=Path(os.getenv("PREDICTIONS_DB", data_dir / "pronostici.db")),
         database_url=os.getenv("DATABASE_URL") or None,
         league_id=int(os.getenv("LEAGUE_ID", "135")),
         seasons=_parse_seasons(os.getenv("SEASONS", "2022,2023,2024")),
@@ -88,3 +90,11 @@ def build_store(settings: Settings | None = None):
 
     settings = settings or load_settings()
     return SeasonStore(root=settings.store_dir), DayJournal(path=settings.journal_file)
+
+
+def build_prediction_store(settings: Settings | None = None):
+    """Storico dei pronostici. Si crea da solo alla prima apertura."""
+    from .data.predictions import PredictionStore
+
+    settings = settings or load_settings()
+    return PredictionStore(path=settings.predictions_db)

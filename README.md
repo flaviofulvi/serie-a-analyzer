@@ -251,6 +251,7 @@ src/serie_a_analyzer/
     parsers.py       JSON di API-Football -> oggetti del dominio
     ingest.py        orchestrazione dell'ingestione
     daily.py         raccolta giornaliera della stagione in corso
+    predictions.py   storico immutabile dei pronostici (SQLite)
     store.py         archivio della stagione e diario dei giorni raccolti
     dataset.py       unione di storico e archivio corrente
   web/
@@ -266,6 +267,7 @@ scripts/
   predict_next_round.py  pronostici sui dati reali
   daily_collect.py       raccolta giornaliera (da schedulare)
   verifica_raccolta.py   controllo di prontezza, senza spendere richieste
+  storico_pronostici.py  cosa c'e' nel registro dei pronostici
   run_daily.ps1          wrapper con log, per l'Utilita' di pianificazione
   schedule_windows.ps1   registra l'attivita' pianificata
   serve.py               avvia l'applicazione web

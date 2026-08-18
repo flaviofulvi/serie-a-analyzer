@@ -88,6 +88,7 @@ def motore(tmp_path):
         budget_file=tmp_path / "budget.json",
         store_dir=tmp_path / "serie_a",
         journal_file=tmp_path / "journal.json",
+        predictions_db=tmp_path / "pronostici.db",
         database_url=None,
         league_id=135,
         # Nessuna stagione storica: niente rete, l'archivio basta.
@@ -142,6 +143,7 @@ def test_l_hub_dice_quando_non_c_e_niente(tmp_path, monkeypatch):
         api_key="k", api_provider="apisports", daily_request_limit=100,
         cache_dir=tmp_path / "c", budget_file=tmp_path / "b.json",
         store_dir=tmp_path / "s", journal_file=tmp_path / "j.json",
+        predictions_db=tmp_path / "pronostici.db",
         database_url=None, league_id=135, seasons=(),
     )
     monkeypatch.setattr(app_module, "_engine", Engine(settings))
@@ -223,3 +225,35 @@ def test_aggiorna_forza_la_ricostruzione(client, motore):
     primo = motore.snapshot()
     assert client.get("/aggiorna").status_code == 200
     assert motore.snapshot() is not primo
+
+
+# ---- storico dei pronostici -------------------------------------------------
+
+
+def test_i_pronostici_delle_partite_in_programma_vengono_registrati(motore):
+    """Se non restassero scritti da qualche parte, non sarebbero misurabili."""
+    motore.snapshot()
+
+    assert motore.pronostici.conteggi()["pronostici"] == 2
+    for fixture_id in (9001, 9002):
+        riga = motore.pronostici.ultimo_per_partita(fixture_id)
+        assert riga is not None, f"partita {fixture_id} senza pronostico"
+        assert riga["lambda_home"] > 0
+
+
+def test_ricaricare_le_pagine_non_moltiplica_i_pronostici(motore):
+    """L'hub rigenera i pronostici a ogni visita: lo storico non deve gonfiarsi."""
+    motore.snapshot()
+    for _ in range(5):
+        motore.snapshot(force=True)
+
+    assert motore.pronostici.conteggi()["pronostici"] == 2
+
+
+def test_le_partite_gia_giocate_non_finiscono_nello_storico(motore):
+    """Il modello e' stato stimato su quelle: pronosticarle sarebbe barare."""
+    motore.snapshot()
+
+    with motore.pronostici._connessione() as conn:
+        righe = conn.execute("select fixture_id from predictions").fetchall()
+    assert {r["fixture_id"] for r in righe} == {9001, 9002}

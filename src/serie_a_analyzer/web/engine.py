@@ -18,8 +18,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..config import Settings, build_client, build_store, load_settings
+from ..config import (
+    Settings, build_client, build_prediction_store, build_store, load_settings,
+)
 from ..data.dataset import Dataset, load_dataset
+from ..data.predictions import registra_partite
 from ..model.dixon_coles import FittedModel, fit_dixon_coles
 from ..model.markets import MatchProbabilities
 
@@ -48,6 +51,7 @@ class Engine:
         self.settings = settings or load_settings()
         self.client = build_client(self.settings)
         self.store, self.journal = build_store(self.settings)
+        self.pronostici = build_prediction_store(self.settings)
         self._snapshot: Snapshot | None = None
         # Le pagine possono arrivare in parallelo: senza lucchetto due
         # richieste simultanee stimerebbero il modello due volte.
@@ -87,9 +91,33 @@ class Engine:
 
         logger.info("stima del modello su %d partite", len(partite))
         modello = fit_dixon_coles(partite)
+        self._registra_pronostici(dataset, modello)
         return Snapshot(
             dataset=dataset, model=modello, built_at=adesso, archive_signature=firma
         )
+
+    def _registra_pronostici(self, dataset: Dataset, modello: FittedModel) -> None:
+        """Congela i pronostici delle partite in programma, con questo modello.
+
+        Il momento e' questo e non un altro: appena il modello e' stato
+        ristimato, cioe' l'unico istante in cui i pronostici possono essere
+        cambiati. Farlo a ogni richiesta HTTP scriverebbe migliaia di righe
+        identiche; farlo piu' tardi vorrebbe dire registrare un pronostico che
+        ha gia' visto qualcosa in piu' di quanto dichiara.
+
+        Un problema del registro non deve impedire di mostrare le pagine: la
+        pagina senza storico e' un disservizio, la pagina che non si apre e'
+        un guasto.
+        """
+        try:
+            esito = registra_partite(
+                self.pronostici, modello, dataset.upcoming(), dataset.name
+            )
+        except Exception as exc:  # il registro non deve mai far cadere il web
+            logger.warning("storico dei pronostici non aggiornato: %s", exc)
+            return
+        if esito["nuovi"]:
+            logger.info("pronostici registrati: %d nuovi", esito["nuovi"])
 
     # ---- pronostici --------------------------------------------------------
 
@@ -123,6 +151,12 @@ class Engine:
 
     # ---- stato per l'interfaccia ------------------------------------------
 
+    def _conteggio_pronostici(self) -> int:
+        try:
+            return self.pronostici.conteggi()["pronostici"]
+        except Exception:
+            return 0
+
     def health(self) -> dict:
         """Cosa sa e cosa non sa il sistema, in forma mostrabile all'utente."""
         snap = self.snapshot()
@@ -137,6 +171,7 @@ class Engine:
             "modello_pronto": snap.ready,
             "modello_partite": snap.model.n_matches if snap.model else 0,
             "aggiornato_alle": snap.built_at,
+            "pronostici_registrati": self._conteggio_pronostici(),
             "budget_usato": self.client.budget.used,
             "budget_limite": self.settings.daily_request_limit,
             "errore": snap.error,
