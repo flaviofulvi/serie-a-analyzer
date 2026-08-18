@@ -115,6 +115,30 @@ create table if not exists prediction_outcomes (
     resolved_at          text    not null
 );
 
+-- Le quote del mercato: il metro di paragone del modello. Non sono un
+-- pronostico ma un'osservazione, e si conservano tutte le letture: la
+-- "chiusura" e' l'ultima prima del calcio d'inizio, non un campo che l'API
+-- dichiari.
+create table if not exists odds (
+    id            integer primary key,
+    fixture_id    integer not null,
+    bookmaker     text    not null,
+    market        text    not null,
+    selection     text    not null,
+    decimal_odds  real    not null check (decimal_odds > 1),
+    -- Probabilita' implicita gia' ripulita dal margine del banco.
+    probability   real    not null check (probability between 0 and 1),
+    kickoff_utc   text    not null,
+    collected_at  text    not null,
+    -- Minuti che mancavano al fischio d'inizio: ordina le letture e rende
+    -- riconoscibile la chiusura anche se una raccolta e' saltata.
+    minuti_al_via integer not null,
+    unique (fixture_id, bookmaker, market, selection, collected_at)
+);
+
+create index if not exists idx_odds_fixture
+    on odds(fixture_id, market, minuti_al_via);
+
 -- I pronostici sono immutabili, e non per convenzione: il database rifiuta.
 create trigger if not exists predictions_sono_immutabili
 before update on predictions
@@ -461,6 +485,75 @@ class PredictionStore:
                 )
             ]
 
+    # ---- quote del mercato --------------------------------------------------
+
+    def salva_quote(
+        self,
+        *,
+        fixture_id: int,
+        kickoff_utc: datetime,
+        quote: Iterable[Any],
+        now: datetime | None = None,
+    ) -> int:
+        """Archivia una lettura delle quote. Le letture si accumulano, non si sostituiscono."""
+        adesso = now or _adesso()
+        minuti = int((kickoff_utc - adesso).total_seconds() // 60)
+        istante = adesso.isoformat(timespec="seconds")
+
+        with self._connessione() as conn:
+            prima = conn.total_changes
+            conn.executemany(
+                "insert or ignore into odds (fixture_id, bookmaker, market, selection, "
+                "decimal_odds, probability, kickoff_utc, collected_at, minuti_al_via) "
+                "values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (fixture_id, q.bookmaker, q.market, q.selection,
+                     float(q.decimal_odds), float(q.probabilita),
+                     kickoff_utc.isoformat(), istante, minuti)
+                    for q in quote
+                ],
+            )
+            return conn.total_changes - prima
+
+    def quote_di_chiusura(self, fixture_id: int | None = None) -> list[dict]:
+        """L'ultima lettura prima del fischio d'inizio, per esito e bookmaker.
+
+        "Ultima prima" e non "ultima": una lettura raccolta a partita iniziata
+        — per un ritardo, un fuso sbagliato, un recupero anticipato — non e'
+        una quota di chiusura e non deve entrare nel confronto.
+        """
+        condizione = "where o.minuti_al_via >= 0"
+        parametri: list[Any] = []
+        if fixture_id is not None:
+            condizione += " and o.fixture_id = ?"
+            parametri.append(fixture_id)
+
+        with self._connessione() as conn:
+            return [
+                dict(r) for r in conn.execute(
+                    "select o.fixture_id, o.bookmaker, o.market, o.selection, "
+                    "       o.decimal_odds, o.probability, o.minuti_al_via "
+                    "from odds o "
+                    "join (select fixture_id, bookmaker, market, selection, "
+                    "             min(minuti_al_via) as vicino "
+                    "      from odds where minuti_al_via >= 0 "
+                    "      group by fixture_id, bookmaker, market, selection) ultima "
+                    "  on ultima.fixture_id = o.fixture_id "
+                    " and ultima.bookmaker = o.bookmaker "
+                    " and ultima.market = o.market "
+                    " and ultima.selection = o.selection "
+                    " and ultima.vicino = o.minuti_al_via "
+                    + condizione,
+                    parametri,
+                )
+            ]
+
+    def partite_quotate(self) -> list[int]:
+        with self._connessione() as conn:
+            return [
+                int(r[0]) for r in conn.execute("select distinct fixture_id from odds")
+            ]
+
     def conteggi(self) -> dict[str, int]:
         with self._connessione() as conn:
             def quanti(tabella: str) -> int:
@@ -470,6 +563,10 @@ class PredictionStore:
                 "versioni_modello": quanti("model_versions"),
                 "mercati": quanti("prediction_markets"),
                 "esiti_risolti": quanti("prediction_outcomes"),
+                "quote": quanti("odds"),
+                "partite_quotate": int(conn.execute(
+                    "select count(distinct fixture_id) from odds"
+                ).fetchone()[0]),
             }
 
 

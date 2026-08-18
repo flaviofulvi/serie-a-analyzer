@@ -30,6 +30,7 @@ from serie_a_analyzer.data.outcomes import (  # noqa: E402
     accuratezza_per_selezione,
     brier_1x2_multiclasse,
     calibrazione,
+    confronto_col_mercato,
 )
 from serie_a_analyzer.web.engine import Engine  # noqa: E402
 
@@ -114,6 +115,30 @@ def main() -> int:
         print(f"\n1X2 contato per partita, come nel backtest: {multi['brier']:.4f} "
               f"su {multi['n_partite']} partite "
               f"(tirare a caso vale {multi['baseline_caso']:.4f}).")
+
+    confronto = confronto_col_mercato(store)
+    if confronto["totale"]:
+        titolo("Il modello contro il mercato")
+        print("Le quote di chiusura sono il metro di paragone vero: incorporano")
+        print("infortuni, formazioni e il denaro di chi scommette. Pareggiare con")
+        print(f"loro e' gia' un buon risultato.  ({confronto['partite']} partite)\n")
+        print(f"{'Mercato':<24}{'esiti':>7}{'modello':>10}{'mercato':>10}{'differenza':>13}  verdetto")
+        print("-" * 84)
+        for v in confronto["mercati"]:
+            if not v["significativo"]:
+                verdetto = f"pochi dati (<{SOGLIA_SIGNIFICATIVITA})"
+            elif v["batte_il_mercato"]:
+                verdetto = "meglio del mercato"
+            else:
+                verdetto = "il mercato fa meglio"
+            print(f"{ETICHETTE.get(v['mercato'], v['mercato']):<24}{v['n']:>7}"
+                  f"{v['brier_modello']:>10.4f}{v['brier_mercato']:>10.4f}"
+                  f"{v['scarto']:>+13.4f}  {verdetto}")
+        t = confronto["totale"]
+        print("-" * 84)
+        print(f"{'TUTTI I MERCATI':<24}{t['n']:>7}{t['brier_modello']:>10.4f}"
+              f"{t['brier_mercato']:>10.4f}{t['scarto']:>+13.4f}")
+        print("\nDifferenza negativa = il modello ha fatto meglio delle quote.")
 
     fasce = calibrazione(store, market=args.mercato, selection=args.selezione, n_bin=args.bin)
     if fasce:

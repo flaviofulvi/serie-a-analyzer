@@ -248,6 +248,23 @@ quasi sempre e la 4.5 quasi mai, e mescolarle darebbe al modello un muro molto
 piu' basso di quello vero. Sotto i 30 esiti misurati il verdetto dice "troppi
 pochi dati" invece di un numero: a inizio stagione e' l'unica risposta onesta.
 
+### Il confronto con le quote
+
+Battere le baseline dice che il modello sa qualcosa; battere il **mercato**
+direbbe che sa qualcosa che gli altri non sanno. Le quote di chiusura
+incorporano infortuni, formazioni e il denaro di chi scommette, e pareggiare
+con loro e' gia' un ottimo esito.
+
+La raccolta giornaliera legge le quote delle partite che si giocano entro 48
+ore (una richiesta per partita, con un tetto) e le archivia tutte: la
+"chiusura" e' l'ultima lettura prima del fischio d'inizio. Le quote **non si
+recuperano** — API-Football non le tiene — quindi questo confronto si
+costruisce solo in avanti, partita dopo partita, e all'inizio sara' vuoto.
+
+Il margine del banco viene tolto normalizzando dentro ogni gruppo esaustivo, e
+fra i bookmaker si prende la mediana. Il confronto e' ristretto agli esiti per
+cui esistono entrambe le cose: pronostico congelato prima del via e quota.
+
 ## Struttura
 
 ```
@@ -268,6 +285,7 @@ src/serie_a_analyzer/
     daily.py         raccolta giornaliera della stagione in corso
     predictions.py   storico immutabile dei pronostici (SQLite)
     outcomes.py      confronto fra pronostico e risultato, Brier e calibrazione
+    odds.py          quote dei bookmaker: il metro di paragone del modello
     store.py         archivio della stagione e diario dei giorni raccolti
     dataset.py       unione di storico e archivio corrente
   web/

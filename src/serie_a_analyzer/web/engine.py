@@ -25,6 +25,7 @@ from ..data.dataset import Dataset, load_dataset
 from ..data.outcomes import (
     accuratezza_per_mercato,
     brier_1x2_multiclasse,
+    confronto_col_mercato,
     risolvi_pronostici,
 )
 from ..data.predictions import registra_partite
@@ -153,10 +154,11 @@ class Engine:
             return {
                 "mercati": accuratezza_per_mercato(self.pronostici),
                 "uno_x_due": brier_1x2_multiclasse(self.pronostici),
+                "mercato": confronto_col_mercato(self.pronostici),
             }
         except Exception as exc:
             logger.warning("accuratezza non calcolabile: %s", exc)
-            return {"mercati": [], "uno_x_due": None}
+            return {"mercati": [], "uno_x_due": None, "mercato": None}
 
     # ---- pronostici --------------------------------------------------------
 
@@ -190,17 +192,17 @@ class Engine:
 
     # ---- stato per l'interfaccia ------------------------------------------
 
-    def _conteggio_pronostici(self) -> int:
+    def _conteggio(self, chiave: str) -> int:
         try:
-            return self.pronostici.conteggi()["pronostici"]
+            return self.pronostici.conteggi()[chiave]
         except Exception:
             return 0
 
+    def _conteggio_pronostici(self) -> int:
+        return self._conteggio("pronostici")
+
     def _conteggio_esiti(self) -> int:
-        try:
-            return self.pronostici.conteggi()["esiti_risolti"]
-        except Exception:
-            return 0
+        return self._conteggio("esiti_risolti")
 
     def health(self) -> dict:
         """Cosa sa e cosa non sa il sistema, in forma mostrabile all'utente."""
@@ -218,6 +220,7 @@ class Engine:
             "aggiornato_alle": snap.built_at,
             "pronostici_registrati": self._conteggio_pronostici(),
             "esiti_risolti": self._conteggio_esiti(),
+            "partite_quotate": self._conteggio("partite_quotate"),
             "budget_usato": self.client.budget.used,
             "budget_limite": self.settings.daily_request_limit,
             "errore": snap.error,

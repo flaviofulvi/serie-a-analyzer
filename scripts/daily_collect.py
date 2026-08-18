@@ -23,8 +23,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from serie_a_analyzer.config import ConfigError, build_client, build_store, load_settings
+from serie_a_analyzer.config import (
+    ConfigError,
+    build_client,
+    build_prediction_store,
+    build_store,
+    load_settings,
+)
 from serie_a_analyzer.data.daily import backfill_details, collect_window
+from serie_a_analyzer.data.odds import ORE_DI_RACCOLTA, raccogli_quote
+from serie_a_analyzer.data.parsers import parse_fixtures
 
 logging.basicConfig(level=logging.INFO, format="  %(message)s")
 
@@ -48,6 +56,17 @@ def main() -> int:
         type=int,
         default=None,
         help="tetto di richieste da spendere in dettagli (default: nessuno)",
+    )
+    parser.add_argument(
+        "--no-quote",
+        action="store_true",
+        help="salta le quote dei bookmaker",
+    )
+    parser.add_argument(
+        "--max-quote-requests",
+        type=int,
+        default=15,
+        help="tetto di richieste da spendere in quote (una per partita)",
     )
     args = parser.parse_args()
 
@@ -108,6 +127,26 @@ def main() -> int:
 
     if dettagli:
         print("\nDettagli scaricati: " + ", ".join(f"{k} {v}" for k, v in sorted(dettagli.items())))
+
+    # --- quote del mercato ---------------------------------------------------
+    #
+    # Vanno prese prima della partita e basta: API-Football non le archivia, e
+    # dopo il fischio d'inizio non esistono piu'. Sono il metro di paragone del
+    # modello, quindi valgono qualche richiesta — ma dopo i dati delle partite,
+    # mai prima.
+    if not args.no_quote:
+        partite = parse_fixtures(list(store.load_fixtures().values()))
+        quote = raccogli_quote(
+            client, build_prediction_store(settings), partite,
+            entro_ore=ORE_DI_RACCOLTA,
+            max_richieste=args.max_quote_requests,
+        )
+        if quote["richieste"]:
+            separatore("Quote del mercato")
+            print(f"Partite quotate:    {quote['partite']}")
+            print(f"Quote archiviate:   {quote['quote']}")
+            print(f"Senza quote ancora: {quote['senza_quote']}")
+            print(f"Richieste spese:    {quote['richieste']}")
 
     # --- buchi nell'archivio ------------------------------------------------
     oggi = datetime.now(timezone.utc).date()

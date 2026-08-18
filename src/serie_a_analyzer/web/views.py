@@ -191,3 +191,32 @@ def righe_accuratezza(accuratezza: dict) -> list[dict]:
             "tono": tono,
         })
     return righe
+
+
+def righe_confronto_mercato(accuratezza: dict) -> list[dict]:
+    """Modello contro quote di chiusura, mercato per mercato.
+
+    Le quote sono il metro di paragone vero: chiunque batta "il caso" non ha
+    dimostrato niente. Qui il verdetto e' volutamente severo — pareggiare col
+    mercato e' gia' un buon risultato, e va detto cosi'.
+    """
+    confronto = accuratezza.get("mercato") or {}
+    righe = []
+    for voce in confronto.get("mercati", []):
+        if not voce["significativo"]:
+            verdetto, tono = "troppi pochi dati", "attesa"
+        elif voce["batte_il_mercato"]:
+            verdetto, tono = "meglio del mercato", "ok"
+        else:
+            verdetto, tono = "il mercato fa meglio", "no"
+
+        righe.append({
+            "mercato": ETICHETTE_MERCATI.get(voce["mercato"], voce["mercato"]),
+            "n": voce["n"],
+            "brier_modello": voce["brier_modello"],
+            "brier_mercato": voce["brier_mercato"],
+            "scarto": voce["scarto"],
+            "verdetto": verdetto,
+            "tono": tono,
+        })
+    return righe

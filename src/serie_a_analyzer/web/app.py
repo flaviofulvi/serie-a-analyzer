@@ -23,6 +23,7 @@ from .views import (
     griglia_risultati,
     riga_partita,
     righe_accuratezza,
+    righe_confronto_mercato,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,8 @@ def hub(request: Request):
         "forze": forze,
         "accuratezza": righe_accuratezza(accuratezza),
         "accuratezza_1x2": accuratezza["uno_x_due"],
+        "confronto_mercato": righe_confronto_mercato(accuratezza),
+        "partite_confrontate": (accuratezza.get("mercato") or {}).get("partite", 0),
         "salute": motore.health(),
         "modello": snap.model,
     })

@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from math import log
 from typing import Any, Callable, Iterable
 
+from .odds import consenso_per_partita
 from .predictions import PredictionStore
 
 logger = logging.getLogger(__name__)
@@ -305,6 +306,65 @@ def brier_1x2_multiclasse(store: PredictionStore) -> dict | None:
         "brier": sum(per_pronostico.values()) / len(per_pronostico),
         # Riferimento fisso: 1/3 a testa, cioe' non sapere nulla.
         "baseline_caso": 2 / 3,
+    }
+
+
+def confronto_col_mercato(store: PredictionStore) -> dict:
+    """Modello contro quote di chiusura, sugli stessi identici esiti.
+
+    E' la domanda che conta: battere chi tira a caso non e' un risultato,
+    battere il mercato lo e'. Le quote incorporano infortuni, formazioni e il
+    denaro di chi scommette, e sono difficili da battere — un pareggio con
+    loro sarebbe gia' un ottimo esito.
+
+    Il confronto e' ristretto agli esiti per cui esistono **entrambe** le
+    cose, pronostico risolto e quota di consenso. Confrontare il Brier del
+    modello su tutte le partite con quello del mercato su una meta' diversa
+    darebbe un numero che non significa niente.
+    """
+    quote = consenso_per_partita(store.quote_di_chiusura())
+    if not quote:
+        return {"mercati": [], "totale": None, "partite": 0}
+
+    accoppiati: list[dict] = []
+    for riga in store.esiti_risolti():
+        chiave = (riga["fixture_id"], riga["market"], riga["selection"])
+        if chiave not in quote:
+            continue
+        p_mercato = quote[chiave]
+        accoppiati.append({
+            **riga,
+            "brier_modello": riga["brier"],
+            "brier_mercato": brier(p_mercato, bool(riga["hit"])),
+            "probabilita_mercato": p_mercato,
+        })
+
+    if not accoppiati:
+        return {"mercati": [], "totale": None, "partite": 0}
+
+    def riepiloga(righe: list[dict]) -> dict:
+        n = len(righe)
+        modello = sum(r["brier_modello"] for r in righe) / n
+        mercato = sum(r["brier_mercato"] for r in righe) / n
+        return {
+            "n": n,
+            "brier_modello": modello,
+            "brier_mercato": mercato,
+            "scarto": modello - mercato,
+            "batte_il_mercato": modello < mercato,
+        }
+
+    mercati = [
+        {"mercato": mercato, **riepiloga(righe)}
+        for mercato, righe in _raggruppa(accoppiati, lambda r: r["market"]).items()
+    ]
+    for voce in mercati:
+        voce["significativo"] = voce["n"] >= SOGLIA_SIGNIFICATIVITA
+
+    return {
+        "mercati": sorted(mercati, key=lambda v: -v["n"]),
+        "totale": riepiloga(accoppiati),
+        "partite": len({r["fixture_id"] for r in accoppiati}),
     }
 
 

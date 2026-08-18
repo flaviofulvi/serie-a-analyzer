@@ -170,6 +170,54 @@
   </section>
 {% endif %}
 
+{% if confronto_mercato %}
+  <section>
+    <h2>Il modello contro il mercato</h2>
+    <p class="sottotitolo">
+      Il confronto che conta davvero. Le quote di chiusura dei bookmaker
+      incorporano infortuni, formazioni e il denaro di chi scommette: batterle e'
+      difficile, e <b>pareggiare e' gia' un buon risultato</b>. Il confronto usa
+      solo gli esiti per cui esistono entrambe le cose — pronostico congelato e
+      quota — su {{ partite_confrontate }} partite.
+    </p>
+    <table class="tabella">
+      <thead>
+        <tr>
+          <th>Mercato</th>
+          <th class="destra">Esiti</th>
+          <th class="destra">Modello</th>
+          <th class="destra">Mercato</th>
+          <th class="destra">Differenza</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in confronto_mercato %}
+          <tr>
+            <td>{{ c.mercato }}</td>
+            <td class="destra mono tenue">{{ c.n }}</td>
+            <td class="destra mono forte">{{ "%.4f"|format(c.brier_modello) }}</td>
+            <td class="destra mono">{{ "%.4f"|format(c.brier_mercato) }}</td>
+            <td class="destra mono {{ 'positivo' if c.scarto < 0 else 'negativo' }}">
+              {{ "%+.4f"|format(c.scarto) }}
+            </td>
+            <td>
+              {% if c.tono == "ok" %}<span class="esito ok">{{ c.verdetto }}</span>
+              {% elif c.tono == "no" %}<span class="esito no">{{ c.verdetto }}</span>
+              {% else %}<span class="esito tenue">{{ c.verdetto }}</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="nota">
+      Differenza negativa = il modello ha fatto meglio delle quote su quegli esiti.
+      Le quote sono l'ultima lettura prima del fischio d'inizio, ripulite dal
+      margine del banco e mediate fra i bookmaker.
+    </p>
+  </section>
+{% endif %}
+
 {% if forze %}
   <section>
     <h2>Forza stimata delle squadre</h2>

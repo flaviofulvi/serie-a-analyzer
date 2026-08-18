@@ -93,6 +93,18 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   noti. La **baseline si calcola per singola selezione e poi si media**: su
   Over/Under le linee 0.5 e 4.5 hanno frequenze opposte e mescolarle darebbe
   al modello un muro molto più basso di quello vero.
+- `odds.py` — le quote dei bookmaker, cioè il metro di paragone vero del
+  modello. Tre vincoli danno forma al modulo: le quote **non si recuperano**
+  (API-Football non le archivia: o si prendono prima della partita o sono perse,
+  come gli id), la **chiusura non è un campo ma un momento** (si salva ogni
+  lettura con i minuti che mancavano al via, e la chiusura è l'ultima lettura
+  prima del fischio), e una **quota non è una probabilità** (va tolto il
+  margine del banco, normalizzando dentro ogni gruppo esaustivo — le linee
+  Over/Under si normalizzano una per una, mai tutte insieme). Il consenso fra
+  bookmaker è la **mediana**, che un book fuori linea non sposta. Le selezioni
+  ricavate dalle quote devono combaciare esattamente con quelle di
+  `righe_mercati`: se divergessero il confronto non aggancerebbe nulla e la
+  pagina resterebbe vuota senza errori — un test lo impedisce.
 - `parsers.py` — JSON di API-Football → oggetti di dominio. I test coprono i
   parser con payload reali riprodotti in `tests/conftest.py`, così nessun test
   spende richieste.
@@ -129,6 +141,12 @@ traduce il dominio in ciò che i template disegnano; `web/app.py` espone hub, sc
   pronostici congelati prima del fischio d'inizio. La seconda è la misura
   onesta e all'inizio della stagione sarà povera; sotto i 30 esiti per mercato
   l'interfaccia dichiara che il numero non vale ancora.
+- **Il confronto che conta è con le quote**, non con le baseline: battere chi
+  tira a caso non dimostra nulla, pareggiare col mercato è già un buon
+  risultato. Il confronto usa solo gli esiti per cui esistono *entrambe* le
+  cose, pronostico congelato e quota di consenso — misurare il modello su
+  tutte le partite e il mercato su un sottoinsieme diverso darebbe un numero
+  privo di significato.
 - La stagione 2025/26 è un buco irrecuperabile fra lo storico e la raccolta
   giornaliera; non cercare modi per riempirlo.
 - Servono `.env` con `API_FOOTBALL_KEY` solo per gli script sui dati veri; test
