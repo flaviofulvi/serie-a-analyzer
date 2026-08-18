@@ -45,6 +45,12 @@ Add-Content -Path $Log -Encoding utf8 -Value "`n===== esecuzione $Inizio ====="
 # scrivesse una riga di log. Qui serve il comportamento opposto: raccogliere
 # tutto nel file e giudicare solo dal codice di uscita.
 $ErrorActionPreference = "Continue"
+
+# Senza questo, il riepilogo (stdout, bufferizzato) finisce nel log DOPO le
+# righe di avanzamento (stderr, non bufferizzato): un log da leggere a
+# ritroso, proprio quando serve capire in fretta cosa e' andato storto.
+$env:PYTHONUNBUFFERED = "1"
+
 & $Python $Script 2>&1 | ForEach-Object { $_.ToString() } | Add-Content -Path $Log -Encoding utf8 -PassThru
 $Esito = $LASTEXITCODE
 $ErrorActionPreference = "Stop"

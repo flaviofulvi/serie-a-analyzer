@@ -265,6 +265,7 @@ scripts/
   backtest.py            il modello contro una stagione vera, giornata per giornata
   predict_next_round.py  pronostici sui dati reali
   daily_collect.py       raccolta giornaliera (da schedulare)
+  verifica_raccolta.py   controllo di prontezza, senza spendere richieste
   run_daily.ps1          wrapper con log, per l'Utilita' di pianificazione
   schedule_windows.ps1   registra l'attivita' pianificata
   serve.py               avvia l'applicazione web

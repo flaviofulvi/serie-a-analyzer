@@ -39,13 +39,26 @@ $Trigger = $Orari | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
 $Impostazioni = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -DontStopOnIdleEnd `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -WakeToRun `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
     -RestartInterval (New-TimeSpan -Minutes 15) `
     -RestartCount 3
 
-# -StartWhenAvailable e' la parte importante: se il computer era spento
-# all'orario previsto, l'esecuzione parte appena si riaccende. Senza,
-# un pomeriggio a computer spento diventerebbe un buco nell'archivio.
+# Queste impostazioni non sono cosmetiche: sono i modi in cui una raccolta
+# giornaliera fallisce in silenzio su un portatile.
+#
+#   -StartWhenAvailable        se il computer era spento all'orario previsto,
+#                              l'esecuzione parte appena si riaccende;
+#   -AllowStartIfOnBatteries   altrimenti Windows salta l'esecuzione ogni
+#   -DontStopIfGoingOnBatteries volta che il portatile e' staccato dalla presa,
+#                              ed e' il comportamento predefinito: una domenica
+#                              pomeriggio sul divano diventerebbe un buco;
+#   -WakeToRun                 sveglia il computer sospeso all'ora prevista.
+#
+# Le partite serali finiscono verso le 22:45 e i loro id restano leggibili per
+# poco piu' di 24 ore: nessuna di queste e' una rifinitura.
 
 if (Get-ScheduledTask -TaskName $NomeTask -ErrorAction SilentlyContinue) {
     Write-Host "Attivita' gia' presente: la sostituisco."
