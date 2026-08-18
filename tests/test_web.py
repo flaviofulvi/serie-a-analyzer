@@ -1,0 +1,225 @@
+"""Test delle pagine web.
+
+Il motore viene costruito su un archivio finto in una cartella temporanea e con
+``seasons=()``, cosi' le pagine non toccano mai la rete: l'intero percorso
+archivio -> dataset -> modello -> HTML gira in memoria.
+
+Cio' che si verifica non e' l'aspetto grafico ma le tre cose che rompono
+davvero una pagina di pronostici: che i numeri arrivino, che l'assenza di dati
+venga detta invece che nascosta, e che il modello non venga ristimato a ogni
+richiesta.
+"""
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from fastapi.testclient import TestClient
+
+from serie_a_analyzer.config import Settings
+from serie_a_analyzer.web import app as app_module
+from serie_a_analyzer.web.engine import Engine
+
+SQUADRE = {
+    1: "Inter", 2: "Milan", 3: "Juventus",
+    4: "Napoli", 5: "Roma", 6: "Lecce",
+}
+
+ADESSO = datetime.now(timezone.utc)
+
+
+def _nome(team_id):
+    return SQUADRE.get(team_id, f"Squadra {team_id}")
+
+
+def _raw(fid, casa, ospite, quando, gol=None, giornata=1):
+    concluso = gol is not None
+    return {
+        "fixture": {
+            "id": fid,
+            "date": quando.isoformat(),
+            "status": {"short": "FT" if concluso else "NS",
+                       "long": "Match Finished" if concluso else "Not Started"},
+            "venue": {"name": "Stadio"},
+        },
+        "league": {"id": 135, "name": "Serie A", "season": 2026,
+                   "round": f"Regular Season - {giornata}"},
+        "teams": {"home": {"id": casa, "name": _nome(casa)},
+                  "away": {"id": ospite, "name": _nome(ospite)}},
+        "goals": {"home": gol[0] if concluso else None,
+                  "away": gol[1] if concluso else None},
+        "score": {"halftime": {"home": None, "away": None}},
+    }
+
+
+def _campionato_finto():
+    """Girone di andata concluso piu' due partite in programma.
+
+    I risultati non sono casuali: l'Inter vince sempre e il Lecce perde sempre,
+    cosi' il modello ha un segnale netto da trovare e il test puo' affermare
+    qualcosa sull'ordine delle forze invece che solo sui codici HTTP.
+    """
+    partite = []
+    fid = 1000
+    giorno = ADESSO - timedelta(days=120)
+
+    squadre = list(SQUADRE)
+    for i, casa in enumerate(squadre):
+        for ospite in squadre[i + 1:]:
+            for a, b in ((casa, ospite), (ospite, casa)):
+                fid += 1
+                giorno += timedelta(days=2)
+                forza = {1: 3, 2: 2, 3: 2, 4: 1, 5: 1, 6: 0}
+                gol = (forza[a] + 1, forza[b])
+                partite.append(_raw(fid, a, b, giorno, gol=gol))
+
+    # Due partite future: sono quelle che l'hub deve mostrare.
+    partite.append(_raw(9001, 1, 6, ADESSO + timedelta(days=2), giornata=20))
+    partite.append(_raw(9002, 2, 3, ADESSO + timedelta(days=2, hours=3), giornata=20))
+    return partite
+
+
+@pytest.fixture
+def motore(tmp_path):
+    settings = Settings(
+        api_key="chiave-di-prova",
+        api_provider="apisports",
+        daily_request_limit=100,
+        cache_dir=tmp_path / "cache",
+        budget_file=tmp_path / "budget.json",
+        store_dir=tmp_path / "serie_a",
+        journal_file=tmp_path / "journal.json",
+        database_url=None,
+        league_id=135,
+        # Nessuna stagione storica: niente rete, l'archivio basta.
+        seasons=(),
+    )
+    eng = Engine(settings)
+    eng.store.upsert_fixtures(_campionato_finto())
+    return eng
+
+
+@pytest.fixture
+def client(motore, monkeypatch):
+    monkeypatch.setattr(app_module, "_engine", motore)
+    return TestClient(app_module.app)
+
+
+# ---- hub -------------------------------------------------------------------
+
+
+def test_l_hub_mostra_le_partite_in_programma(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "Prossime partite" in r.text
+    assert "Inter" in r.text and "Lecce" in r.text
+
+
+def test_l_hub_mostra_le_probabilita(client):
+    """Senza numeri la pagina non serve a niente."""
+    r = client.get("/")
+    assert "Over 2.5" in r.text
+    assert "Gol/NoGol" in r.text
+    assert "%" in r.text
+
+
+def test_l_hub_mostra_la_tabella_delle_forze(client):
+    r = client.get("/")
+    assert "Forza stimata delle squadre" in r.text
+    assert "Fattore campo" in r.text
+
+
+def test_l_ordine_delle_forze_rispecchia_i_risultati(motore):
+    """L'Inter ha sempre vinto, il Lecce ha sempre perso: si deve vedere."""
+    snap = motore.snapshot()
+    ordine = [squadra for squadra, _, _, _ in snap.model.strength_table()]
+    assert ordine[0] == "Inter"
+    assert ordine[-1] == "Lecce"
+
+
+def test_l_hub_dice_quando_non_c_e_niente(tmp_path, monkeypatch):
+    """Un archivio vuoto deve produrre una spiegazione, non una pagina muta."""
+    settings = Settings(
+        api_key="k", api_provider="apisports", daily_request_limit=100,
+        cache_dir=tmp_path / "c", budget_file=tmp_path / "b.json",
+        store_dir=tmp_path / "s", journal_file=tmp_path / "j.json",
+        database_url=None, league_id=135, seasons=(),
+    )
+    monkeypatch.setattr(app_module, "_engine", Engine(settings))
+    r = TestClient(app_module.app).get("/")
+
+    assert r.status_code == 200
+    assert "Nessuna partita in programma" in r.text
+
+
+# ---- scheda partita --------------------------------------------------------
+
+
+def test_la_scheda_partita_ha_tutti_i_mercati(client):
+    r = client.get("/partita/9001")
+    assert r.status_code == 200
+    for atteso in ("Esito finale", "Doppia chance", "Over / Under",
+                   "Tutti i risultati esatti", "Scontri diretti"):
+        assert atteso in r.text, atteso
+
+
+def test_la_scheda_avvisa_del_limite_sull_over_under(client):
+    """Il backtest dice che su questi esiti il modello non aggiunge nulla.
+
+    Mostrarli senza dirlo sarebbe la cosa piu' disonesta dell'applicazione.
+    """
+    r = client.get("/partita/9001")
+    assert "Attenzione all'Over/Under" in r.text
+
+
+def test_gli_scontri_diretti_escludono_la_partita_stessa(client):
+    r = client.get("/partita/9001")
+    assert r.text.count("campo invertito") >= 1
+
+
+def test_partita_inesistente(client):
+    assert client.get("/partita/424242").status_code == 404
+
+
+def test_squadra_sconosciuta_al_modello(client, motore):
+    """Una neopromossa senza storia: si dice, non si inventa una forza."""
+    motore.store.upsert_fixtures([
+        _raw(9500, 1, 99, ADESSO + timedelta(days=3), giornata=21)
+    ])
+    r = client.get("/partita/9500")
+
+    assert r.status_code == 200
+    assert "Nessun pronostico disponibile" in r.text
+
+
+# ---- stato e cache del modello ---------------------------------------------
+
+
+def test_lo_stato_riporta_numeri_coerenti(client, motore):
+    stato = client.get("/stato").json()
+    assert stato["modello_pronto"] is True
+    assert stato["partite_stagione_corrente"] == len(motore.store.fixture_ids())
+    assert stato["squadre"] == len(SQUADRE)
+
+
+def test_il_modello_non_viene_ristimato_a_ogni_richiesta(motore):
+    """Stimare costa secondi: due visite di fila devono usare lo stesso oggetto."""
+    primo = motore.snapshot()
+    secondo = motore.snapshot()
+    assert primo is secondo
+
+
+def test_il_modello_si_ricostruisce_quando_l_archivio_cambia(motore):
+    primo = motore.snapshot()
+    motore.store.upsert_fixtures([
+        _raw(9600, 3, 4, ADESSO - timedelta(days=1), gol=(5, 0))
+    ])
+    secondo = motore.snapshot()
+
+    assert secondo is not primo
+    assert secondo.model.n_matches == primo.model.n_matches + 1
+
+
+def test_aggiorna_forza_la_ricostruzione(client, motore):
+    primo = motore.snapshot()
+    assert client.get("/aggiorna").status_code == 200
+    assert motore.snapshot() is not primo

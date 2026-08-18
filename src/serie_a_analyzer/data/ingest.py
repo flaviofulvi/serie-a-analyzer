@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from ..model.dixon_coles import (
     DEFAULT_HALF_LIFE_DAYS,
@@ -28,10 +28,26 @@ from ..model.dixon_coles import (
     fit_dixon_coles,
 )
 from .budget import BudgetExhausted, Priority
+from .cache import TTL_FOREVER, TTL_UPCOMING_FIXTURES
 from .client import ApiFootballClient
 from .parsers import FixtureRecord, parse_fixtures, to_model_matches
 
 logger = logging.getLogger(__name__)
+
+# Mese in cui una nuova stagione europea comincia a essere quella "corrente".
+# La Serie A parte a fine agosto; da luglio in poi il calendario nuovo e' gia'
+# quello di riferimento.
+_SEASON_ROLLOVER_MONTH = 7
+
+
+def current_season(today: date | None = None) -> int:
+    """L'anno con cui API-Football etichetta la stagione in corso.
+
+    Una stagione europea sta a cavallo di due anni solari e viene identificata
+    da quello di partenza: la 2026/27 e' la stagione ``2026``.
+    """
+    giorno = today or datetime.now(timezone.utc).date()
+    return giorno.year if giorno.month >= _SEASON_ROLLOVER_MONTH else giorno.year - 1
 
 
 @dataclass
@@ -82,10 +98,18 @@ def collect_seasons(
     tutte: list[SeasonData] = []
     nomi: dict[int, str] = {}
 
+    corrente = current_season()
     for season in seasons:
         kwargs = {"league": league} if league is not None else {}
         try:
-            risposta = client.fixtures(season=season, **kwargs)
+            # Una stagione gia' conclusa non cambiera' mai piu': la sua copia in
+            # cache non deve scadere, o ogni riavvio ricomprerebbe le stesse
+            # partite con le richieste destinate alla giornata in corso.
+            risposta = client.fixtures(
+                season=season,
+                ttl=TTL_FOREVER if season < corrente else TTL_UPCOMING_FIXTURES,
+                **kwargs,
+            )
         except BudgetExhausted:
             logger.warning(
                 "budget esaurito: la stagione %s e le successive non sono state scaricate",

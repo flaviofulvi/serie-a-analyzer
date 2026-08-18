@@ -1,0 +1,1 @@
+"""Interfaccia web dell'applicazione."""

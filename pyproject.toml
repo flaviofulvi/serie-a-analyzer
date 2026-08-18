@@ -8,6 +8,12 @@ dependencies = [
     "scipy>=1.10",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "jinja2>=3.1",
+    # Windows non porta con se' il database dei fusi orari: senza, convertire
+    # gli orari UTC di API-Football in ora italiana fallisce.
+    "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

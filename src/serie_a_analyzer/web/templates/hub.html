@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% macro barra_1x2(p) %}
+  <div class="barra-1x2" role="img"
+       aria-label="1 {{ (p.home_win*100)|round }}%, X {{ (p.draw*100)|round }}%, 2 {{ (p.away_win*100)|round }}%">
+    <span class="segmento seg-1" style="width: {{ (p.home_win*100)|round(2) }}%"></span>
+    <span class="segmento seg-x" style="width: {{ (p.draw*100)|round(2) }}%"></span>
+    <span class="segmento seg-2" style="width: {{ (p.away_win*100)|round(2) }}%"></span>
+  </div>
+  <div class="legenda-1x2">
+    <span><b>1</b> {{ (p.home_win*100)|round|int }}%</span>
+    <span><b>X</b> {{ (p.draw*100)|round|int }}%</span>
+    <span><b>2</b> {{ (p.away_win*100)|round|int }}%</span>
+  </div>
+{% endmacro %}
+
+{% block contenuto %}
+
+{% if prossime %}
+  <section>
+    <h1>Prossime partite</h1>
+    <p class="sottotitolo">
+      {{ prossime|length }} incontr{{ "o" if prossime|length == 1 else "i" }} in programma.
+      Le percentuali vengono tutte dalla stessa matrice dei risultati esatti,
+      quindi non possono contraddirsi fra loro.
+    </p>
+
+    <div class="griglia-partite">
+      {% for p in prossime %}
+        <a class="scheda-partita" href="/partita/{{ p.id }}">
+          <div class="scheda-quando">
+            {{ p.quando }}
+            {% if p.giornata %}<span class="pillola">giornata {{ p.giornata }}</span>{% endif %}
+          </div>
+          <div class="scheda-squadre">
+            <span class="squadra">{{ p.casa }}</span>
+            <span class="contro">-</span>
+            <span class="squadra">{{ p.ospite }}</span>
+          </div>
+
+          {% if p.ha_pronostico %}
+            {{ barra_1x2(p.prob) }}
+            <div class="scheda-numeri">
+              <div><span class="etichetta">Gol attesi</span>
+                   <b>{{ "%.2f"|format(p.gol_attesi_casa) }} - {{ "%.2f"|format(p.gol_attesi_ospite) }}</b></div>
+              <div><span class="etichetta">Over 2.5</span>
+                   <b>{{ (p.prob.over[2.5]*100)|round|int }}%</b></div>
+              <div><span class="etichetta">Gol/NoGol</span>
+                   <b>{{ (p.prob.btts*100)|round|int }}%</b></div>
+              <div><span class="etichetta">Risultato</span>
+                   <b>{{ p.risultato_probabile }}</b></div>
+            </div>
+          {% else %}
+            <p class="avviso-piccolo">
+              Nessun pronostico: almeno una delle due squadre non ha ancora
+              storia sufficiente nel modello.
+            </p>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+{% else %}
+  <section class="riquadro-vuoto">
+    <h1>Nessuna partita in programma</h1>
+    <p>
+      L'archivio non contiene incontri futuri. Sul piano gratuito il calendario
+      della stagione in corso si legge un giorno alla volta, quindi le partite
+      compaiono qui al massimo <strong>un giorno prima</strong> del calcio d'inizio.
+    </p>
+    <p class="nota">
+      Ultimo giorno raccolto: <strong>{{ salute.ultimo_giorno_raccolto or "nessuno" }}</strong>.
+      La raccolta gira quattro volte al giorno; se questa data e' vecchia di piu'
+      di un giorno, c'e' qualcosa che non va nell'attivita' pianificata.
+    </p>
+  </section>
+{% endif %}
+
+{% if recenti %}
+  <section>
+    <h2>Ultimi risultati</h2>
+    <p class="sottotitolo">
+      Il pronostico mostrato e' quello che il modello <em>attuale</em> darebbe oggi,
+      non quello che aveva dato prima della partita: serve a farsi un'idea, non
+      a misurare l'accuratezza. La misura vera arriva con lo storico
+      pronostico-realta'.
+    </p>
+    <table class="tabella">
+      <thead>
+        <tr>
+          <th>Quando</th><th>Partita</th><th class="destra">Risultato</th>
+          <th class="destra">1</th><th class="destra">X</th><th class="destra">2</th>
+          <th class="destra">Esito</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in recenti %}
+          <tr>
+            <td class="tenue">{{ p.quando }}</td>
+            <td><a href="/partita/{{ p.id }}">{{ p.casa }} - {{ p.ospite }}</a></td>
+            <td class="destra mono"><b>{{ p.risultato }}</b></td>
+            {% if p.ha_pronostico %}
+              <td class="destra mono {{ 'evidenzia' if p.esito_reale == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
+              <td class="destra mono {{ 'evidenzia' if p.esito_reale == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
+              <td class="destra mono {{ 'evidenzia' if p.esito_reale == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
+              <td class="destra">
+                {% if p.pronostico_azzeccato %}<span class="esito ok">azzeccato</span>
+                {% else %}<span class="esito no">sbagliato</span>{% endif %}
+              </td>
+            {% else %}
+              <td class="destra tenue" colspan="4">—</td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endif %}
+
+{% if forze %}
+  <section>
+    <h2>Forza stimata delle squadre</h2>
+    <p class="sottotitolo">
+      Scostamenti dalla media del campionato, su scala logaritmica.
+      Attacco <b>+0.30</b> significa "segna circa il 35% in piu' della squadra media".
+      Le partite recenti pesano di piu': una di sei mesi fa vale la meta' di una di oggi.
+    </p>
+    <table class="tabella tabella-forze">
+      <thead>
+        <tr>
+          <th>#</th><th>Squadra</th>
+          <th class="destra">Attacco</th><th class="destra">Difesa</th><th class="destra">Netta</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in forze %}
+          <tr>
+            <td class="tenue">{{ f.posizione }}</td>
+            <td>{{ f.squadra }}</td>
+            <td class="destra mono {{ 'positivo' if f.attacco > 0 else 'negativo' }}">{{ "%+.3f"|format(f.attacco) }}</td>
+            <td class="destra mono {{ 'positivo' if f.difesa > 0 else 'negativo' }}">{{ "%+.3f"|format(f.difesa) }}</td>
+            <td class="destra mono forte {{ 'positivo' if f.netta > 0 else 'negativo' }}">{{ "%+.3f"|format(f.netta) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if modello %}
+      <p class="nota">
+        Fattore campo <b>{{ "%+.3f"|format(modello.home_advantage) }}</b> ·
+        rho <b>{{ "%+.3f"|format(modello.rho) }}</b> ·
+        campione efficace <b>{{ modello.effective_sample_size|round|int }}</b> partite
+        su {{ modello.n_matches }} osservate.
+      </p>
+    {% endif %}
+  </section>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titolo %}Serie A Analyzer{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="intestazione">
+    <div class="contenitore intestazione-riga">
+      <a class="marchio" href="/">
+        <span class="marchio-nome">Serie A Analyzer</span>
+        <span class="marchio-sotto">probabilita', non certezze</span>
+      </a>
+      <nav class="navigazione">
+        <a href="/">Partite</a>
+        <a href="/stato">Stato</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="contenitore">
+    {% block contenuto %}{% endblock %}
+  </main>
+
+  <footer class="pie">
+    <div class="contenitore">
+      <div class="pie-griglia">
+        <div>
+          <span class="pie-etichetta">Partite in archivio</span>
+          <strong>{{ salute.partite_totali }}</strong>
+          <span class="pie-nota">{{ salute.partite_stagione_corrente }} dalla raccolta giornaliera</span>
+        </div>
+        <div>
+          <span class="pie-etichetta">Modello stimato su</span>
+          <strong>{{ salute.modello_partite }} partite</strong>
+          <span class="pie-nota">{{ salute.squadre }} squadre conosciute</span>
+        </div>
+        <div>
+          <span class="pie-etichetta">Ultimo giorno raccolto</span>
+          <strong>{{ salute.ultimo_giorno_raccolto or "mai" }}</strong>
+          <span class="pie-nota">{{ salute.giorni_raccolti }} giorni in totale</span>
+        </div>
+        <div>
+          <span class="pie-etichetta">Budget API di oggi</span>
+          <strong>{{ salute.budget_usato }}/{{ salute.budget_limite }}</strong>
+          <span class="pie-nota">si azzera a mezzanotte UTC</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

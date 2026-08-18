@@ -32,7 +32,7 @@ contraddica l'Over/Under, perche' vengono dalla stessa sorgente.
 | 2b | Raccolta giornaliera della stagione in corso | ✅ pronta, in attesa del 22/08 |
 | 3 | Persistenza su Supabase | ⬜ |
 | 4 | Backtest e calibrazione su stagioni passate | ✅ primo giro fatto (vedi sotto) |
-| 5 | Hub partite (FastAPI + Jinja2 + HTMX) | ⬜ |
+| 5 | Hub partite (FastAPI + Jinja2) | ✅ prima versione |
 | 6 | Strato giocatori (probabilita' marcatore) | ⬜ |
 | 7 | Pipeline di fine partita e tracking | ⬜ |
 | 8 | Simulazione stagione, bot Telegram | ⬜ |
@@ -44,7 +44,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
 
-pytest                          # 127 test
+pytest                          # 141 test
 python scripts/demo_engine.py   # dimostrazione su dati sintetici
 ```
 
@@ -145,6 +145,31 @@ statistiche costruite sopra.
 - La stagione 2025/26 non e' recuperabile in nessun modo: resta un buco fra lo
   storico 2022-2024 e la raccolta che parte adesso.
 
+## L'applicazione web
+
+```bash
+python scripts/serve.py        # http://127.0.0.1:8000
+```
+
+Due pagine, per ora:
+
+- **Hub** — le partite in programma con 1X2, Over 2.5, Gol/NoGol e risultato
+  piu' probabile. Quando non c'e' niente in programma mostra gli ultimi
+  risultati e la tabella delle forze, invece di una pagina vuota.
+- **Scheda partita** — tutti gli esiti derivati, la griglia completa dei
+  risultati esatti e gli scontri diretti.
+
+Il modello viene ristimato **solo quando l'archivio della raccolta giornaliera
+cambia**, non a ogni richiesta HTTP: stimarlo costa un paio di secondi e fra
+una visita e l'altra i dati quasi sempre non si sono mossi. `/stato` restituisce
+in JSON cosa sa il sistema e quanto budget resta; `/aggiorna` forza la
+ricostruzione.
+
+Due cose che la pagina dice invece di nascondere: quando una squadra non ha
+storia sufficiente non compare un pronostico inventato ma il motivo, e accanto
+all'Over/Under c'e' l'avvertenza che nel backtest quel mercato non ha battuto
+la media di campionato.
+
 ## Il modello
 
 Dixon-Coles su scala logaritmica:
@@ -227,7 +252,14 @@ src/serie_a_analyzer/
     ingest.py        orchestrazione dell'ingestione
     daily.py         raccolta giornaliera della stagione in corso
     store.py         archivio della stagione e diario dei giorni raccolti
-tests/               127 test
+    dataset.py       unione di storico e archivio corrente
+  web/
+    app.py           rotte FastAPI
+    engine.py        dataset e modello tenuti caldi fra le richieste
+    views.py         dal dominio a cio' che i template disegnano
+    templates/       hub e scheda partita
+    static/          foglio di stile
+tests/               141 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata
@@ -235,6 +267,7 @@ scripts/
   daily_collect.py       raccolta giornaliera (da schedulare)
   run_daily.ps1          wrapper con log, per l'Utilita' di pianificazione
   schedule_windows.ps1   registra l'attivita' pianificata
+  serve.py               avvia l'applicazione web
 ```
 
 ## Regola non negoziabile dello schema

@@ -170,14 +170,25 @@ class ApiFootballClient:
     # I TTL e le priorita' non sono cosmetici: codificano quanto in fretta un
     # dato diventa sbagliato e quanto e' grave restare senza.
 
-    def fixtures(self, season: int, league: int = SERIE_A_LEAGUE_ID, **extra):
+    def fixtures(
+        self,
+        season: int,
+        league: int = SERIE_A_LEAGUE_ID,
+        ttl: int | None = TTL_UPCOMING_FIXTURES,
+        **extra,
+    ):
         """Tutte le partite di una stagione: una sola richiesta per ~380 partite.
 
         E' l'endpoint che rende il modello di squadra praticamente gratuito
         anche sul piano free.
+
+        Il ``ttl`` va passato ``TTL_FOREVER`` per le stagioni concluse: i loro
+        risultati non cambieranno mai piu', e lasciarli scadere ogni sei ore
+        significherebbe rispendere le richieste di addestramento a ogni
+        riavvio dell'applicazione.
         """
         params = {"league": league, "season": season, **extra}
-        return self.get("fixtures", params, ttl=TTL_UPCOMING_FIXTURES)
+        return self.get("fixtures", params, ttl=ttl)
 
     def fixtures_on_date(
         self,

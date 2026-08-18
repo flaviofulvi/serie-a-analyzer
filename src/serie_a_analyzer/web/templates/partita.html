@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block titolo %}{{ p.casa }} - {{ p.ospite }} · Serie A Analyzer{% endblock %}
+
+{% block contenuto %}
+
+<p class="briciole"><a href="/">&larr; Tutte le partite</a></p>
+
+<section class="testata-partita">
+  <div class="testata-quando">
+    {{ p.quando }}
+    {% if p.giornata %}<span class="pillola">giornata {{ p.giornata }}</span>{% endif %}
+  </div>
+  <h1 class="testata-squadre">
+    <span>{{ p.casa }}</span>
+    {% if p.conclusa %}
+      <span class="punteggio">{{ p.gol_casa }} - {{ p.gol_ospite }}</span>
+    {% else %}
+      <span class="contro">contro</span>
+    {% endif %}
+    <span>{{ p.ospite }}</span>
+  </h1>
+  {% if p.conclusa and p.ha_pronostico %}
+    <p class="nota">
+      Partita gia' giocata. Le probabilita' qui sotto sono quelle del modello
+      <em>di oggi</em>, che ha visto anche questo risultato: non sono un
+      pronostico, sono un modo di leggere la partita.
+    </p>
+  {% endif %}
+</section>
+
+{% if not p.ha_pronostico %}
+  <section class="riquadro-vuoto">
+    <h2>Nessun pronostico disponibile</h2>
+    <p>
+      Il modello non conosce almeno una delle due squadre: senza partite
+      giocate non c'e' una forza da stimare. Inventarne una sarebbe peggio che
+      ammettere di non saperlo.
+    </p>
+  </section>
+{% else %}
+
+<section class="pannelli">
+  <div class="pannello">
+    <h2>Esito finale</h2>
+    <div class="barra-1x2 grande">
+      <span class="segmento seg-1" style="width: {{ (p.prob.home_win*100)|round(2) }}%"></span>
+      <span class="segmento seg-x" style="width: {{ (p.prob.draw*100)|round(2) }}%"></span>
+      <span class="segmento seg-2" style="width: {{ (p.prob.away_win*100)|round(2) }}%"></span>
+    </div>
+    <div class="tre-esiti">
+      <div><span class="esito-nome">1 · {{ p.casa }}</span><b>{{ (p.prob.home_win*100)|round(1) }}%</b></div>
+      <div><span class="esito-nome">X · pareggio</span><b>{{ (p.prob.draw*100)|round(1) }}%</b></div>
+      <div><span class="esito-nome">2 · {{ p.ospite }}</span><b>{{ (p.prob.away_win*100)|round(1) }}%</b></div>
+    </div>
+
+    <h3>Doppia chance</h3>
+    <div class="coppie">
+      <div><span>1X</span><b>{{ (p.prob.home_or_draw*100)|round(1) }}%</b></div>
+      <div><span>12</span><b>{{ (p.prob.home_or_away*100)|round(1) }}%</b></div>
+      <div><span>X2</span><b>{{ (p.prob.away_or_draw*100)|round(1) }}%</b></div>
+    </div>
+  </div>
+
+  <div class="pannello">
+    <h2>Gol</h2>
+    <div class="coppie grandi">
+      <div><span>Gol attesi {{ p.casa }}</span><b>{{ "%.2f"|format(p.gol_attesi_casa) }}</b></div>
+      <div><span>Gol attesi {{ p.ospite }}</span><b>{{ "%.2f"|format(p.gol_attesi_ospite) }}</b></div>
+      <div><span>Totale atteso</span><b>{{ "%.2f"|format(p.prob.expected_total_goals) }}</b></div>
+    </div>
+
+    <h3>Over / Under</h3>
+    <table class="tabella compatta">
+      <thead><tr><th>Linea</th><th class="destra">Over</th><th class="destra">Under</th></tr></thead>
+      <tbody>
+        {% for linea in [0.5, 1.5, 2.5, 3.5, 4.5] %}
+          <tr>
+            <td class="mono">{{ linea }}</td>
+            <td class="destra mono">{{ (p.prob.over[linea]*100)|round(1) }}%</td>
+            <td class="destra mono">{{ (p.prob.under[linea]*100)|round(1) }}%</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="coppie">
+      <div><span>Gol/NoGol</span><b>{{ (p.prob.btts*100)|round(1) }}%</b></div>
+      <div><span>Porta inviolata {{ p.casa }}</span><b>{{ (p.prob.clean_sheet_home*100)|round(1) }}%</b></div>
+      <div><span>Porta inviolata {{ p.ospite }}</span><b>{{ (p.prob.clean_sheet_away*100)|round(1) }}%</b></div>
+    </div>
+
+    <p class="avviso">
+      <strong>Attenzione all'Over/Under.</strong> Nel backtest sulla stagione
+      2024/25 il modello su questi esiti non ha battuto la semplice media di
+      campionato. Sull'1X2 si', su questi no: vanno letti con molta prudenza.
+    </p>
+  </div>
+</section>
+
+{% if griglia %}
+<section>
+  <h2>Tutti i risultati esatti</h2>
+  <p class="sottotitolo">
+    E' l'oggetto da cui viene tutto il resto: 1X2, Over/Under e Gol/NoGol sono
+    somme di queste caselle. Piu' scura la casella, piu' probabile il punteggio.
+  </p>
+  <div class="griglia-avvolgente">
+    <table class="griglia-risultati">
+      <thead>
+        <tr>
+          <th class="angolo"><span>{{ p.casa }}</span><span class="freccia">↓</span></th>
+          <th colspan="{{ griglia[0].celle|length }}" class="testa-ospite">{{ p.ospite }} →</th>
+        </tr>
+        <tr>
+          <th></th>
+          {% for c in griglia[0].celle %}<th class="mono">{{ c.ospite }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for riga in griglia %}
+          <tr>
+            <th class="mono">{{ riga.casa }}</th>
+            {% for c in riga.celle %}
+              <td class="cella esito-{{ c.esito }} {{ 'picco' if c.massimo }}"
+                  style="--intensita: {{ c.intensita|round(3) }}"
+                  title="{{ c.casa }}-{{ c.ospite }}: {{ (c.prob*100)|round(1) }}%">
+                {{ (c.prob*100)|round(1) }}
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="legenda-griglia">
+    <span class="chiave esito-1"></span> vittoria {{ p.casa }}
+    <span class="chiave esito-X"></span> pareggio
+    <span class="chiave esito-2"></span> vittoria {{ p.ospite }}
+  </div>
+
+  <h3>I cinque punteggi piu' probabili</h3>
+  <div class="coppie strette">
+    {% for punteggio, prob in p.prob.top_scorelines %}
+      <div><span class="mono">{{ punteggio[0] }}-{{ punteggio[1] }}</span><b>{{ (prob*100)|round(1) }}%</b></div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% endif %}
+
+<section>
+  <h2>Scontri diretti</h2>
+  {% if scontri %}
+    <table class="tabella">
+      <thead><tr><th>Quando</th><th>Partita</th><th class="destra">Risultato</th></tr></thead>
+      <tbody>
+        {% for s in scontri %}
+          <tr>
+            <td class="tenue">{{ s.quando }}</td>
+            <td>{{ s.casa }} - {{ s.ospite }}{% if not s.stessa_direzione %}<span class="pillola tenue">campo invertito</span>{% endif %}</td>
+            <td class="destra mono"><b>{{ s.risultato }}</b></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="nota">
+      Gli scontri diretti sono qui perche' raccontano qualcosa, non perche'
+      entrino nel modello: due partite a stagione sono un campione troppo
+      piccolo perche' il segnale superi il rumore.
+    </p>
+  {% else %}
+    <p class="nota">Nessun precedente fra queste due squadre nei dati disponibili.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

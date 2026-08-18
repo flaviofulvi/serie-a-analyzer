@@ -1,0 +1,326 @@
+/* Serie A Analyzer — foglio di stile unico.
+   Niente framework: la pagina deve restare leggibile e modificabile a mano. */
+
+:root {
+  --sfondo: #f6f7f9;
+  --superficie: #ffffff;
+  --bordo: #e2e5ea;
+  --testo: #16191d;
+  --tenue: #6b727c;
+  --accento: #0b6b4f;
+  --accento-chiaro: #e6f2ee;
+
+  --casa: #1f7a5a;
+  --pareggio: #9aa2ad;
+  --ospite: #b4553b;
+
+  --positivo: #157347;
+  --negativo: #b03a2e;
+
+  --raggio: 10px;
+  --ombra: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sfondo: #14171b;
+    --superficie: #1c2026;
+    --bordo: #2b313a;
+    --testo: #e8eaed;
+    --tenue: #98a0ab;
+    --accento: #4ec49a;
+    --accento-chiaro: #17332a;
+
+    --casa: #4ec49a;
+    --pareggio: #7d8590;
+    --ospite: #e08163;
+
+    --positivo: #4ec49a;
+    --negativo: #e08163;
+
+    --ombra: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--sfondo);
+  color: var(--testo);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.contenitore {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+a { color: var(--accento); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- intestazione ------------------------------------------------------ */
+
+.intestazione {
+  background: var(--superficie);
+  border-bottom: 1px solid var(--bordo);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.intestazione-riga {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.marchio { display: flex; flex-direction: column; color: var(--testo); }
+.marchio:hover { text-decoration: none; }
+.marchio-nome { font-weight: 650; letter-spacing: -.01em; }
+.marchio-sotto { font-size: 12px; color: var(--tenue); }
+
+.navigazione { display: flex; gap: 18px; font-size: 14px; }
+
+/* ---- struttura --------------------------------------------------------- */
+
+main { padding: 32px 20px 56px; }
+section { margin-bottom: 44px; }
+
+h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.02em; }
+h2 { font-size: 19px; margin: 0 0 6px; letter-spacing: -.01em; }
+h3 { font-size: 14px; margin: 22px 0 8px; color: var(--tenue);
+     text-transform: uppercase; letter-spacing: .06em; }
+
+.sottotitolo { color: var(--tenue); font-size: 14px; margin: 0 0 18px; max-width: 68ch; }
+.nota { color: var(--tenue); font-size: 13px; margin-top: 12px; max-width: 68ch; }
+.briciole { font-size: 14px; margin: 0 0 18px; }
+.tenue { color: var(--tenue); }
+.mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.destra { text-align: right; }
+.forte { font-weight: 650; }
+.positivo { color: var(--positivo); }
+.negativo { color: var(--negativo); }
+
+.pillola {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 7px;
+  margin-left: 8px;
+  border-radius: 20px;
+  background: var(--accento-chiaro);
+  color: var(--accento);
+  vertical-align: middle;
+}
+.pillola.tenue { background: transparent; color: var(--tenue); border: 1px solid var(--bordo); }
+
+/* ---- schede partita ---------------------------------------------------- */
+
+.griglia-partite {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 14px;
+}
+
+.scheda-partita {
+  display: block;
+  background: var(--superficie);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  padding: 16px;
+  color: var(--testo);
+  box-shadow: var(--ombra);
+  transition: border-color .12s ease, transform .12s ease;
+}
+.scheda-partita:hover {
+  text-decoration: none;
+  border-color: var(--accento);
+  transform: translateY(-1px);
+}
+
+.scheda-quando { font-size: 12px; color: var(--tenue); margin-bottom: 8px; }
+.scheda-squadre {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 17px; font-weight: 600; margin-bottom: 14px;
+}
+.scheda-squadre .squadra { flex: 1; }
+.scheda-squadre .squadra:last-child { text-align: right; }
+.contro { color: var(--tenue); font-weight: 400; font-size: 13px; }
+
+.scheda-numeri {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px;
+  margin-top: 14px; font-size: 13px;
+}
+.scheda-numeri .etichetta { display: block; color: var(--tenue); font-size: 11px; }
+
+/* ---- barra 1X2 --------------------------------------------------------- */
+
+.barra-1x2 {
+  display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+  background: var(--bordo);
+}
+.barra-1x2.grande { height: 14px; border-radius: 7px; margin: 6px 0 14px; }
+.segmento { display: block; height: 100%; }
+.seg-1 { background: var(--casa); }
+.seg-x { background: var(--pareggio); }
+.seg-2 { background: var(--ospite); }
+
+.legenda-1x2 {
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: var(--tenue); margin-top: 6px;
+}
+.legenda-1x2 b { color: var(--testo); }
+
+.tre-esiti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tre-esiti div { background: var(--sfondo); border-radius: 8px; padding: 10px 12px; }
+.tre-esiti .esito-nome { display: block; font-size: 11px; color: var(--tenue); margin-bottom: 2px; }
+.tre-esiti b { font-size: 19px; }
+
+/* ---- pannelli ---------------------------------------------------------- */
+
+/* align-items:start: senza, i due pannelli si allungano all'altezza del piu'
+   alto e quello corto resta con un vuoto in fondo. */
+.pannelli { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+@media (max-width: 820px) { .pannelli { grid-template-columns: 1fr; } }
+
+.pannello {
+  background: var(--superficie);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  padding: 20px;
+  box-shadow: var(--ombra);
+}
+
+.coppie { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.coppie div {
+  background: var(--sfondo); border-radius: 8px; padding: 9px 12px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+}
+.coppie span { font-size: 12px; color: var(--tenue); }
+.coppie b { font-variant-numeric: tabular-nums; }
+.coppie.grandi b { font-size: 17px; }
+/* Etichette corte (un punteggio, una percentuale): senza un limite di
+   larghezza le due meta' finirebbero ai lati opposti dello schermo. */
+.coppie.strette { grid-template-columns: repeat(auto-fit, minmax(96px, 120px)); }
+
+/* ---- testata partita --------------------------------------------------- */
+
+.testata-partita { margin-bottom: 28px; }
+.testata-quando { font-size: 13px; color: var(--tenue); margin-bottom: 6px; }
+.testata-squadre {
+  display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  font-size: 30px; margin: 0;
+}
+.testata-squadre .punteggio {
+  font-variant-numeric: tabular-nums;
+  background: var(--accento-chiaro); color: var(--accento);
+  padding: 2px 14px; border-radius: 8px;
+}
+
+/* ---- tabelle ----------------------------------------------------------- */
+
+.tabella {
+  width: 100%; border-collapse: collapse;
+  background: var(--superficie);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  overflow: hidden;
+  font-size: 14px;
+}
+.tabella th {
+  text-align: left; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--tenue); font-weight: 600;
+  padding: 10px 12px; border-bottom: 1px solid var(--bordo);
+}
+.tabella th.destra { text-align: right; }
+.tabella td { padding: 9px 12px; border-bottom: 1px solid var(--bordo); }
+.tabella tbody tr:last-child td { border-bottom: none; }
+.tabella tbody tr:hover { background: var(--sfondo); }
+.tabella.compatta { font-size: 13px; }
+.tabella.compatta td, .tabella.compatta th { padding: 6px 10px; }
+
+.evidenzia { background: var(--accento-chiaro); font-weight: 650; }
+
+.esito { font-size: 11px; padding: 2px 8px; border-radius: 20px; }
+.esito.ok { background: var(--accento-chiaro); color: var(--accento); }
+.esito.no { background: transparent; color: var(--tenue); border: 1px solid var(--bordo); }
+
+/* ---- griglia dei risultati esatti -------------------------------------- */
+
+.griglia-avvolgente { overflow-x: auto; }
+
+.griglia-risultati {
+  border-collapse: separate; border-spacing: 3px;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.griglia-risultati th {
+  color: var(--tenue); font-weight: 600; font-size: 11px;
+  padding: 4px 6px; text-align: center;
+}
+.griglia-risultati .angolo { text-align: left; line-height: 1.2; }
+.griglia-risultati .angolo span { display: block; }
+.griglia-risultati .freccia { color: var(--tenue); }
+.griglia-risultati .testa-ospite { text-align: left; }
+
+.cella {
+  width: 54px; height: 34px; text-align: center; border-radius: 5px;
+  color: var(--testo);
+  /* L'opacita' del colore porta l'informazione: piu' e' probabile il
+     punteggio, piu' la casella e' satura. */
+  background-color: color-mix(in srgb, var(--tinta) calc(var(--intensita) * 85%), transparent);
+  border: 1px solid var(--bordo);
+}
+.cella.esito-1 { --tinta: var(--casa); }
+.cella.esito-X { --tinta: var(--pareggio); }
+.cella.esito-2 { --tinta: var(--ospite); }
+.cella.picco { outline: 2px solid var(--accento); outline-offset: -1px; font-weight: 700; }
+
+.legenda-griglia {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px; color: var(--tenue); margin-top: 12px;
+}
+.chiave {
+  display: inline-block; width: 14px; height: 14px; border-radius: 4px;
+  vertical-align: middle; margin-left: 10px;
+}
+.chiave.esito-1 { background: var(--casa); }
+.chiave.esito-X { background: var(--pareggio); }
+.chiave.esito-2 { background: var(--ospite); }
+
+/* ---- riquadri di stato ------------------------------------------------- */
+
+.riquadro-vuoto {
+  background: var(--superficie);
+  border: 1px dashed var(--bordo);
+  border-radius: var(--raggio);
+  padding: 32px;
+  text-align: center;
+}
+.riquadro-vuoto p { color: var(--tenue); max-width: 62ch; margin: 10px auto; font-size: 14px; }
+
+.avviso {
+  margin-top: 18px; padding: 12px 14px;
+  background: var(--sfondo); border-left: 3px solid var(--ospite);
+  border-radius: 4px; font-size: 13px; color: var(--tenue);
+}
+.avviso strong { color: var(--testo); }
+.avviso-piccolo { font-size: 12px; color: var(--tenue); margin: 10px 0 0; }
+
+/* ---- piede ------------------------------------------------------------- */
+
+.pie {
+  border-top: 1px solid var(--bordo);
+  background: var(--superficie);
+  padding: 22px 0;
+  font-size: 13px;
+}
+.pie-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 18px; }
+.pie-etichetta { display: block; font-size: 11px; color: var(--tenue);
+                 text-transform: uppercase; letter-spacing: .06em; }
+.pie strong { display: block; font-size: 16px; }
+.pie-nota { font-size: 12px; color: var(--tenue); }
