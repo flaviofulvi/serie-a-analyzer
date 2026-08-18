@@ -62,7 +62,9 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   leggibili solo entro la finestra e **persi per sempre** se mancati, e i
   dettagli (formazioni, eventi, statistiche), recuperabili in qualsiasi momento
   dall'id via `backfill_details`. La raccolta deve sempre catturare gli id
-  prima di spendere su dettagli.
+  prima di spendere su dettagli. `daily_collect.py` chiude il giro chiedendo
+  anche le **quote** delle partite entro 48 ore (`odds.py`): come gli id, non
+  sono recuperabili dopo — ma sempre *dopo* i dati delle partite, mai prima.
 - `store.py` — archivio della stagione corrente + `DayJournal` dei giorni
   raccolti. Un giorno viene chiuso — cioè non richiesto più — solo se è
   **passato** *e* aveva tutte le partite in stato definitivo. Oggi e domani non
@@ -118,11 +120,19 @@ cancellarla né suggerire di rigenerarla.
 `web/engine.py` tiene dati e modello caldi in uno `Snapshot`, ricostruito solo
 quando cambia l'impronta dell'archivio (mtime+size di `fixtures.json`), non a
 ogni richiesta HTTP — la stima costa un paio di secondi. Un lock protegge da
-stime duplicate su richieste concorrenti. Quando il modello viene
-ristimato — l'unico momento in cui i pronostici possono cambiare — l'engine
-congela i pronostici delle partite in programma nel registro. `web/views.py`
-traduce il dominio in ciò che i template disegnano; `web/app.py` espone hub, scheda partita, `/stato`
-(JSON: cosa sa il sistema, budget residuo) e `/aggiorna` (forza la ricostruzione).
+stime duplicate su richieste concorrenti.
+
+Alla ristima — l'unico momento in cui i pronostici possono cambiare — l'engine
+fa due cose in fila: congela i pronostici delle partite in programma e risolve
+gli esiti di quelle ormai concluse. Entrambe protette da `try/except`: una
+pagina senza storico è un disservizio, una pagina che non si apre è un guasto.
+
+`web/views.py` traduce il dominio in ciò che i template disegnano; `web/app.py`
+espone hub, scheda partita, `/stato` (JSON: cosa sa il sistema, budget residuo,
+pronostici registrati, esiti risolti) e `/aggiorna` (forza la ricostruzione).
+L'hub mostra, sotto le partite: accuratezza per mercato con la sua baseline e
+il confronto con le quote di chiusura — entrambe le sezioni compaiono solo
+quando c'è qualcosa di misurato, e dichiarano quando i dati non bastano.
 
 ## Vincoli di progetto
 
@@ -151,3 +161,11 @@ traduce il dominio in ciò che i template disegnano; `web/app.py` espone hub, sc
   giornaliera; non cercare modi per riempirlo.
 - Servono `.env` con `API_FOOTBALL_KEY` solo per gli script sui dati veri; test
   e demo girano senza.
+
+## Lavori futuri
+
+`DA_FARE.txt` (file locale, volutamente non tracciato) elenca i tre lavori
+concordati con l'utente: pronostici con le formazioni ufficiali, schede
+giocatore, infortuni e squalifiche. Contiene per ognuno cosa esiste già nel
+codice e quali sono le insidie. Se il file non c'è, questa è l'unica traccia
+che rimane di quell'elenco.

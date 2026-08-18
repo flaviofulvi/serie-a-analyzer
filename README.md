@@ -44,7 +44,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
 
-pytest                          # 141 test
+pytest                          # 240 test
 python scripts/demo_engine.py   # dimostrazione su dati sintetici
 ```
 
@@ -294,7 +294,7 @@ src/serie_a_analyzer/
     views.py         dal dominio a cio' che i template disegnano
     templates/       hub e scheda partita
     static/          foglio di stile
-tests/               141 test
+tests/               240 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata
