@@ -22,6 +22,11 @@ from ..config import (
     Settings, build_client, build_prediction_store, build_store, load_settings,
 )
 from ..data.dataset import Dataset, load_dataset
+from ..data.outcomes import (
+    accuratezza_per_mercato,
+    brier_1x2_multiclasse,
+    risolvi_pronostici,
+)
 from ..data.predictions import registra_partite
 from ..model.dixon_coles import FittedModel, fit_dixon_coles
 from ..model.markets import MatchProbabilities
@@ -92,6 +97,7 @@ class Engine:
         logger.info("stima del modello su %d partite", len(partite))
         modello = fit_dixon_coles(partite)
         self._registra_pronostici(dataset, modello)
+        self._risolvi_esiti(dataset)
         return Snapshot(
             dataset=dataset, model=modello, built_at=adesso, archive_signature=firma
         )
@@ -118,6 +124,39 @@ class Engine:
             return
         if esito["nuovi"]:
             logger.info("pronostici registrati: %d nuovi", esito["nuovi"])
+
+    def _risolvi_esiti(self, dataset: Dataset) -> None:
+        """Confronta con la realta' i pronostici delle partite ormai concluse.
+
+        Il momento e' lo stesso della registrazione, e non e' un caso: l'unica
+        cosa che puo' aver reso risolvibile un pronostico e' l'arrivo di
+        risultati nuovi, cioe' proprio cio' che ha fatto ricostruire lo
+        snapshot.
+        """
+        try:
+            esito = risolvi_pronostici(self.pronostici, dataset.finished)
+        except Exception as exc:  # come sopra: mai far cadere una pagina
+            logger.warning("esiti non risolti: %s", exc)
+            return
+        if esito["esiti"]:
+            logger.info(
+                "esiti risolti: %d mercati su %d partite", esito["esiti"], esito["partite"]
+            )
+
+    def accuratezza(self) -> dict:
+        """Quanto valgono i pronostici gia' verificati dalla realta'.
+
+        Vuoto finche' non c'e' nulla di risolto — ed e' giusto che l'interfaccia
+        mostri il vuoto invece di un numero costruito su tre partite.
+        """
+        try:
+            return {
+                "mercati": accuratezza_per_mercato(self.pronostici),
+                "uno_x_due": brier_1x2_multiclasse(self.pronostici),
+            }
+        except Exception as exc:
+            logger.warning("accuratezza non calcolabile: %s", exc)
+            return {"mercati": [], "uno_x_due": None}
 
     # ---- pronostici --------------------------------------------------------
 
@@ -157,6 +196,12 @@ class Engine:
         except Exception:
             return 0
 
+    def _conteggio_esiti(self) -> int:
+        try:
+            return self.pronostici.conteggi()["esiti_risolti"]
+        except Exception:
+            return 0
+
     def health(self) -> dict:
         """Cosa sa e cosa non sa il sistema, in forma mostrabile all'utente."""
         snap = self.snapshot()
@@ -172,6 +217,7 @@ class Engine:
             "modello_partite": snap.model.n_matches if snap.model else 0,
             "aggiornato_alle": snap.built_at,
             "pronostici_registrati": self._conteggio_pronostici(),
+            "esiti_risolti": self._conteggio_esiti(),
             "budget_usato": self.client.budget.used,
             "budget_limite": self.settings.daily_request_limit,
             "errore": snap.error,

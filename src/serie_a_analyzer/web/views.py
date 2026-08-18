@@ -147,3 +147,47 @@ def griglia_risultati(matrice, massimo: int = 5) -> list[dict]:
             })
         righe.append({"casa": casa, "celle": celle})
     return righe
+
+
+# Nomi leggibili dei mercati. I template non devono conoscere le chiavi del
+# database, e "doppia_chance" in pagina non lo capirebbe nessuno.
+ETICHETTE_MERCATI = {
+    "1x2": "Esito finale (1X2)",
+    "doppia_chance": "Doppia chance",
+    "over_under": "Over/Under",
+    "btts": "Gol / NoGol",
+    "clean_sheet": "Porta inviolata",
+    "risultato_esatto": "Risultato esatto",
+}
+
+
+def righe_accuratezza(accuratezza: dict) -> list[dict]:
+    """L'accuratezza misurata, pronta da disegnare — verdetto compreso.
+
+    Il verdetto e' la parte che conta: un Brier da solo non dice niente a chi
+    legge. Accanto sta sempre il confronto con la baseline (dire ogni volta la
+    frequenza media di quell'esito) e, quando i dati sono pochi, il fatto che
+    siano pochi. Nel backtest l'1X2 batte le baseline mentre Over 2.5 e
+    Gol/NoGol fanno leggermente peggio: nascondere lo stesso esito qui
+    trasformerebbe un limite noto del modello in una bugia.
+    """
+    righe = []
+    for voce in accuratezza.get("mercati", []):
+        if not voce["significativo"]:
+            verdetto, tono = "troppi pochi dati", "attesa"
+        elif voce["batte_baseline"]:
+            verdetto, tono = "meglio della baseline", "ok"
+        else:
+            verdetto, tono = "peggio della baseline", "no"
+
+        righe.append({
+            "mercato": ETICHETTE_MERCATI.get(voce["mercato"], voce["mercato"]),
+            "n": voce["n"],
+            "brier": voce["brier"],
+            "baseline": voce["baseline"],
+            "tasso_reale": voce["tasso_reale"],
+            "probabilita_media": voce["probabilita_media"],
+            "verdetto": verdetto,
+            "tono": tono,
+        })
+    return righe

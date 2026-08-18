@@ -249,6 +249,8 @@ h3 { font-size: 14px; margin: 22px 0 8px; color: var(--tenue);
 .esito { font-size: 11px; padding: 2px 8px; border-radius: 20px; }
 .esito.ok { background: var(--accento-chiaro); color: var(--accento); }
 .esito.no { background: transparent; color: var(--tenue); border: 1px solid var(--bordo); }
+/* Non un giudizio ma un'attesa: i dati non bastano ancora per dirlo. */
+.esito.tenue { background: transparent; color: var(--tenue); font-style: italic; }
 
 /* ---- griglia dei risultati esatti -------------------------------------- */
 

@@ -22,6 +22,7 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py       # raccolta giornaliera (spende budget)
 .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py   # la raccolta e' sana? (non spende)
 .\.venv\Scripts\python.exe .\scripts\storico_pronostici.py  # cosa c'e' nel registro dei pronostici
+.\.venv\Scripts\python.exe .\scripts\accuratezza.py         # quanto valgono i pronostici verificati
 .\scripts\schedule_windows.ps1                              # 4 esecuzioni al giorno
 ```
 
@@ -82,6 +83,16 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   scrive **una riga per partita e versione del modello** — l'impronta dei
   parametri stimati dice se il modello è cambiato, così ricaricare l'hub non
   moltiplica righe identiche.
+- `outcomes.py` — il confronto fra pronostico e realtà: a partita conclusa
+  ogni esito registrato prima del fischio d'inizio diventa `hit` + contributo
+  al Brier. Gli esiti si scrivono **una volta sola** (`insert or ignore`): un
+  esito è un fatto osservato, non una previsione, ma ricalcolarlo a ogni giro
+  aprirebbe la porta a riscritture. Ogni mercato salvato deve avere il suo
+  risolutore — un test lo verifica per costruzione, perché un mercato che si
+  sa salvare ma non risolvere resterebbe fuori dal conto senza che nessuno lo
+  noti. La **baseline si calcola per singola selezione e poi si media**: su
+  Over/Under le linee 0.5 e 4.5 hanno frequenze opposte e mescolarle darebbe
+  al modello un muro molto più basso di quello vero.
 - `parsers.py` — JSON di API-Football → oggetti di dominio. I test coprono i
   parser con payload reali riprodotti in `tests/conftest.py`, così nessun test
   spende richieste.
@@ -113,6 +124,11 @@ traduce il dominio in ciò che i template disegnano; `web/app.py` espone hub, sc
   sufficiente: si mostra il motivo, non un pronostico inventato.
 - La valutazione è **Brier score, log loss e calibrazione**, non "percentuale
   di pronostici azzeccati" (predire sempre "1" dà già ~45%).
+- Due misure diverse, da non confondere: il **backtest** rigioca il passato con
+  il modello di oggi, l'**accuratezza** (`/`, `scripts/accuratezza.py`) usa solo
+  pronostici congelati prima del fischio d'inizio. La seconda è la misura
+  onesta e all'inizio della stagione sarà povera; sotto i 30 esiti per mercato
+  l'interfaccia dichiara che il numero non vale ancora.
 - La stagione 2025/26 è un buco irrecuperabile fra lo storico e la raccolta
   giornaliera; non cercare modi per riempirlo.
 - Servono `.env` con `API_FOOTBALL_KEY` solo per gli script sui dati veri; test

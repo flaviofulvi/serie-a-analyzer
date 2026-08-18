@@ -257,3 +257,54 @@ def test_le_partite_gia_giocate_non_finiscono_nello_storico(motore):
     with motore.pronostici._connessione() as conn:
         righe = conn.execute("select fixture_id from predictions").fetchall()
     assert {r["fixture_id"] for r in righe} == {9001, 9002}
+
+
+def test_il_ciclo_si_chiude_quando_la_partita_finisce(motore):
+    """Pronostico prima, risultato dopo, esito misurato: il giro completo."""
+    motore.snapshot()
+    assert motore.pronostici.conteggi()["esiti_risolti"] == 0
+    attesi = len(motore.pronostici.mercati_da_risolvere(9001))
+    assert attesi > 0
+
+    # La partita 9001 si gioca e finisce 2-0.
+    motore.store.upsert_fixtures([_raw(9001, 1, 6, ADESSO + timedelta(days=2), gol=(2, 0))])
+    motore.snapshot(force=True)
+
+    esiti = motore.pronostici.esiti_risolti()
+    assert len(esiti) == attesi
+    assert {e["fixture_id"] for e in esiti} == {9001}
+    # L'Inter ha vinto in casa: fra i tre esiti dell'1X2 ne risulta uno solo.
+    uno_x_due = [e for e in esiti if e["market"] == "1x2"]
+    assert sum(1 for e in uno_x_due if e["hit"]) == 1
+    assert next(e["selection"] for e in uno_x_due if e["hit"]) == "home"
+
+
+def test_l_hub_mostra_l_accuratezza_solo_quando_c_e_qualcosa_da_dire(motore, monkeypatch):
+    motore.snapshot()
+    monkeypatch.setattr(app_module, "_engine", motore)
+    client = TestClient(app_module.app)
+
+    assert "Come stanno andando i pronostici" not in client.get("/").text
+
+    motore.store.upsert_fixtures([_raw(9001, 1, 6, ADESSO + timedelta(days=2), gol=(2, 0))])
+    motore.snapshot(force=True)
+    pagina = client.get("/").text
+
+    assert "Come stanno andando i pronostici" in pagina
+    # Con una sola partita misurata il verdetto deve dirlo, non dare numeri secchi.
+    assert "troppi pochi dati" in pagina
+
+
+def test_lo_stato_conta_pronostici_ed_esiti(motore, monkeypatch):
+    motore.snapshot()
+    motore.store.upsert_fixtures([_raw(9001, 1, 6, ADESSO + timedelta(days=2), gol=(2, 0))])
+    motore.snapshot(force=True)
+
+    monkeypatch.setattr(app_module, "_engine", motore)
+    stato = TestClient(app_module.app).get("/stato").json()
+
+    # Tre e non due: il risultato nuovo ha fatto ristimare il modello, e la
+    # partita ancora da giocare ha ricevuto un pronostico aggiornato accanto
+    # al precedente. E' il comportamento voluto — lo storico tiene entrambi.
+    assert stato["pronostici_registrati"] == 3
+    assert stato["esiti_risolti"] > 0

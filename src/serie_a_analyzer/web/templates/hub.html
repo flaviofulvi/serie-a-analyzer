@@ -82,8 +82,8 @@
     <p class="sottotitolo">
       Il pronostico mostrato e' quello che il modello <em>attuale</em> darebbe oggi,
       non quello che aveva dato prima della partita: serve a farsi un'idea, non
-      a misurare l'accuratezza. La misura vera arriva con lo storico
-      pronostico-realta'.
+      a misurare l'accuratezza. La misura vera e' piu' in basso, e usa i
+      pronostici <em>congelati prima</em> del fischio d'inizio.
     </p>
     <table class="tabella">
       <thead>
@@ -114,6 +114,59 @@
         {% endfor %}
       </tbody>
     </table>
+  </section>
+{% endif %}
+
+{% if accuratezza %}
+  <section>
+    <h2>Come stanno andando i pronostici</h2>
+    <p class="sottotitolo">
+      Solo pronostici congelati <b>prima</b> del fischio d'inizio, confrontati col
+      risultato vero. Il punteggio e' il <b>Brier</b>: <em>piu' basso e' meglio</em>,
+      e misura quanto la fiducia dichiarata era meritata — non la percentuale di
+      azzeccati, che dicendo sempre "1" arriverebbe gia' al 45%.
+      La <b>baseline</b> e' cio' che otterrebbe chi ripete ogni volta la frequenza
+      media di quell'esito senza guardare le squadre: e' il muro da superare.
+    </p>
+    <table class="tabella">
+      <thead>
+        <tr>
+          <th>Mercato</th>
+          <th class="destra">Esiti misurati</th>
+          <th class="destra">Brier</th>
+          <th class="destra">Baseline</th>
+          <th class="destra">Accaduto</th>
+          <th class="destra">Previsto</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in accuratezza %}
+          <tr>
+            <td>{{ a.mercato }}</td>
+            <td class="destra mono tenue">{{ a.n }}</td>
+            <td class="destra mono forte">{{ "%.4f"|format(a.brier) }}</td>
+            <td class="destra mono tenue">{{ "%.4f"|format(a.baseline) }}</td>
+            <td class="destra mono">{{ (a.tasso_reale*100)|round|int }}%</td>
+            <td class="destra mono">{{ (a.probabilita_media*100)|round|int }}%</td>
+            <td>
+              {% if a.tono == "ok" %}<span class="esito ok">{{ a.verdetto }}</span>
+              {% elif a.tono == "no" %}<span class="esito no">{{ a.verdetto }}</span>
+              {% else %}<span class="esito tenue">{{ a.verdetto }}</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if accuratezza_1x2 %}
+      <p class="nota">
+        Sull'1X2, contato per partita come nel backtest:
+        <b>{{ "%.4f"|format(accuratezza_1x2.brier) }}</b>
+        su {{ accuratezza_1x2.n_partite }} partite, contro
+        <b>{{ "%.4f"|format(accuratezza_1x2.baseline_caso) }}</b> di chi tira a caso.
+      </p>
+    {% endif %}
   </section>
 {% endif %}
 

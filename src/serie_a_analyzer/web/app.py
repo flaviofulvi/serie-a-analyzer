@@ -17,7 +17,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .engine import Engine
-from .views import formatta_data, formatta_giorno, griglia_risultati, riga_partita
+from .views import (
+    formatta_data,
+    formatta_giorno,
+    griglia_risultati,
+    riga_partita,
+    righe_accuratezza,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +80,14 @@ def hub(request: Request):
                 "netta": netta,
             })
 
+    accuratezza = motore.accuratezza()
+
     return templates.TemplateResponse(request, "hub.html", {
         "prossime": prossime,
         "recenti": recenti,
         "forze": forze,
+        "accuratezza": righe_accuratezza(accuratezza),
+        "accuratezza_1x2": accuratezza["uno_x_due"],
         "salute": motore.health(),
         "modello": snap.model,
     })

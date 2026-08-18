@@ -233,6 +233,21 @@ peggiora agli estremi, dove i campioni sono piccoli. Manca ancora il confronto
 con le quote di chiusura, che e' la baseline seria: senza quello sappiamo di
 battere l'ignoranza, non il mercato.
 
+### La stessa misura, ma sul campo
+
+Il backtest rigioca il passato con il modello di oggi. In esercizio vale una
+misura piu' severa: ogni pronostico viene **congelato prima** del fischio
+d'inizio e confrontato col risultato vero quando arriva. E' cio' che l'hub
+mostra sotto "Come stanno andando i pronostici" e che
+`scripts/accuratezza.py` stampa in dettaglio, calibrazione compresa.
+
+Accanto a ogni mercato sta la sua **baseline**: il punteggio di chi ripete
+sempre la frequenza media di quell'esito senza guardare le squadre. Si calcola
+per singola selezione e poi si media — su Over/Under la linea 0.5 si avvera
+quasi sempre e la 4.5 quasi mai, e mescolarle darebbe al modello un muro molto
+piu' basso di quello vero. Sotto i 30 esiti misurati il verdetto dice "troppi
+pochi dati" invece di un numero: a inizio stagione e' l'unica risposta onesta.
+
 ## Struttura
 
 ```
@@ -252,6 +267,7 @@ src/serie_a_analyzer/
     ingest.py        orchestrazione dell'ingestione
     daily.py         raccolta giornaliera della stagione in corso
     predictions.py   storico immutabile dei pronostici (SQLite)
+    outcomes.py      confronto fra pronostico e risultato, Brier e calibrazione
     store.py         archivio della stagione e diario dei giorni raccolti
     dataset.py       unione di storico e archivio corrente
   web/
@@ -268,6 +284,7 @@ scripts/
   daily_collect.py       raccolta giornaliera (da schedulare)
   verifica_raccolta.py   controllo di prontezza, senza spendere richieste
   storico_pronostici.py  cosa c'e' nel registro dei pronostici
+  accuratezza.py         quanto valgono i pronostici gia' verificati
   run_daily.ps1          wrapper con log, per l'Utilita' di pianificazione
   schedule_windows.ps1   registra l'attivita' pianificata
   serve.py               avvia l'applicazione web

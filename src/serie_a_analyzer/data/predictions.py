@@ -382,6 +382,85 @@ class PredictionStore:
                 )
             ]
 
+    # ---- esiti -------------------------------------------------------------
+    #
+    # Un esito e' un fatto osservato, non una previsione: puo' essere scritto
+    # dopo la partita. Si scrive pero' una volta sola, e la logica di cosa
+    # significhi "verificato" sta in `outcomes.py`: qui c'e' solo il deposito.
+
+    def partite_da_risolvere(self) -> list[int]:
+        """Le partite con almeno un mercato pronosticato e non ancora risolto."""
+        with self._connessione() as conn:
+            return [
+                int(r[0]) for r in conn.execute(
+                    "select distinct p.fixture_id from predictions p "
+                    "join prediction_markets pm on pm.prediction_id = p.id "
+                    "left join prediction_outcomes po "
+                    "  on po.prediction_market_id = pm.id "
+                    "where po.prediction_market_id is null"
+                )
+            ]
+
+    def mercati_da_risolvere(self, fixture_id: int) -> list[dict]:
+        with self._connessione() as conn:
+            return [
+                dict(r) for r in conn.execute(
+                    "select pm.id, pm.market, pm.selection, pm.probability "
+                    "from prediction_markets pm "
+                    "join predictions p on p.id = pm.prediction_id "
+                    "left join prediction_outcomes po "
+                    "  on po.prediction_market_id = pm.id "
+                    "where p.fixture_id = ? and po.prediction_market_id is null",
+                    (fixture_id,),
+                )
+            ]
+
+    def salva_esiti(
+        self,
+        righe: Iterable[tuple[int, bool, float]],
+        now: datetime | None = None,
+    ) -> int:
+        """Registra ``(id_mercato, verificato, brier)``. Non riscrive mai.
+
+        ``insert or ignore``: ripassare sulle stesse partite non ricalcola
+        nulla, e un esito gia' registrato resta quello che era.
+        """
+        istante = (now or _adesso()).isoformat(timespec="seconds")
+        with self._connessione() as conn:
+            prima = conn.total_changes
+            conn.executemany(
+                "insert or ignore into prediction_outcomes "
+                "(prediction_market_id, hit, brier, resolved_at) values (?, ?, ?, ?)",
+                [(pm_id, int(hit), float(b), istante) for pm_id, hit, b in righe],
+            )
+            return conn.total_changes - prima
+
+    def esiti_risolti(
+        self, market: str | None = None, selection: str | None = None
+    ) -> list[dict]:
+        """Gli esiti gia' confrontati con la realta', pronti per le metriche."""
+        condizioni, parametri = [], []
+        if market is not None:
+            condizioni.append("pm.market = ?")
+            parametri.append(market)
+        if selection is not None:
+            condizioni.append("pm.selection = ?")
+            parametri.append(selection)
+        dove = (" where " + " and ".join(condizioni)) if condizioni else ""
+
+        with self._connessione() as conn:
+            return [
+                dict(r) for r in conn.execute(
+                    "select pm.id, pm.prediction_id, pm.market, pm.selection, "
+                    "       pm.probability, po.hit, po.brier, po.resolved_at, "
+                    "       p.fixture_id "
+                    "from prediction_outcomes po "
+                    "join prediction_markets pm on pm.id = po.prediction_market_id "
+                    "join predictions p on p.id = pm.prediction_id" + dove,
+                    parametri,
+                )
+            ]
+
     def conteggi(self) -> dict[str, int]:
         with self._connessione() as conn:
             def quanti(tabella: str) -> int:
