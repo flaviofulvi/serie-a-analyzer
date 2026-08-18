@@ -123,6 +123,12 @@ def test_i_dettagli_non_si_mescolano_fra_partite_e_tipi(store):
 # ---- diario ----------------------------------------------------------------
 
 
+# Tutte le date dei test sono giudicate rispetto a un "oggi" esplicito: la
+# chiusura di un giorno dipende da quanto e' passato, e un test non puo'
+# cambiare esito a seconda del giorno in cui viene eseguito.
+OGGI = date(2026, 8, 23)
+
+
 def _registra(journal, giorno, fixtures, final):
     journal.record(
         giorno, collected_at="2026-08-22T23:00:00+00:00",
@@ -130,24 +136,50 @@ def _registra(journal, giorno, fixtures, final):
     )
 
 
-def test_un_giorno_con_tutte_le_partite_finite_e_chiuso(journal):
+def test_un_giorno_passato_con_tutte_le_partite_finite_e_chiuso(journal):
     _registra(journal, date(2026, 8, 22), fixtures=3, final=3)
-    assert journal.is_closed(date(2026, 8, 22))
+    assert journal.is_closed(date(2026, 8, 22), today=OGGI)
 
 
 def test_un_giorno_con_partite_in_corso_resta_aperto(journal):
     _registra(journal, date(2026, 8, 22), fixtures=3, final=1)
-    assert not journal.is_closed(date(2026, 8, 22))
+    assert not journal.is_closed(date(2026, 8, 22), today=OGGI)
 
 
-def test_un_giorno_senza_partite_e_chiuso(journal):
-    """Non c'e' nulla che possa ancora arrivare: inutile richiederlo domani."""
+def test_un_giorno_passato_senza_partite_e_chiuso(journal):
+    """Ormai non c'e' nulla che possa ancora arrivare: inutile richiederlo."""
     _registra(journal, date(2026, 8, 20), fixtures=0, final=0)
-    assert journal.is_closed(date(2026, 8, 20))
+    assert journal.is_closed(date(2026, 8, 20), today=OGGI)
+
+
+def test_un_giorno_ancora_da_giocare_non_e_mai_chiuso(journal):
+    """Vuoto oggi non vuol dire vuoto domani: i recuperi si aggiungono dopo."""
+    _registra(journal, date(2026, 8, 24), fixtures=0, final=0)
+    assert not journal.is_closed(date(2026, 8, 24), today=OGGI)
+
+    _registra(journal, date(2026, 8, 25), fixtures=2, final=2)
+    assert not journal.is_closed(date(2026, 8, 25), today=OGGI)
+
+
+def test_oggi_non_e_chiuso_ma_domani_lo_sara(journal):
+    _registra(journal, OGGI, fixtures=2, final=2)
+    assert not journal.is_closed(OGGI, today=OGGI)
+    assert journal.is_closed(OGGI, today=date(2026, 8, 24))
+
+
+def test_una_chiusura_anticipata_gia_scritta_viene_ignorata(journal, tmp_path):
+    """Difesa in lettura: un diario di una versione precedente non fa danni."""
+    import json
+    journal.path.write_text(json.dumps({"days": {"2026-08-24": {
+        "collected_at": "2026-08-23T08:00:00+00:00",
+        "fixtures": 0, "final": 0, "closed": True, "requests_spent": 1,
+    }}}), encoding="utf-8")
+
+    assert not journal.is_closed(date(2026, 8, 24), today=OGGI)
 
 
 def test_un_giorno_mai_visto_non_e_chiuso(journal):
-    assert not journal.is_closed(date(2026, 8, 22))
+    assert not journal.is_closed(date(2026, 8, 22), today=OGGI)
 
 
 def test_i_buchi_vengono_elencati(journal):
@@ -177,4 +209,4 @@ def test_il_diario_sopravvive_a_un_file_corrotto(tmp_path):
     j = DayJournal(path=path)
     assert j.collected_days() == []
     _registra(j, date(2026, 8, 22), fixtures=1, final=1)
-    assert j.is_closed(date(2026, 8, 22))
+    assert j.is_closed(date(2026, 8, 22), today=OGGI)

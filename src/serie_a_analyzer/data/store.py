@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -43,6 +43,11 @@ def _write_json(path: Path, payload: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
+
+
+def _oggi() -> date:
+    """Oggi in UTC, cioe' il fuso in cui l'API espone le date delle partite."""
+    return datetime.now(timezone.utc).date()
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -161,10 +166,21 @@ class SeasonStore:
 class DayJournal:
     """Registro dei giorni raccolti: cosa c'era, cosa manca, cosa e' perso.
 
-    Un giorno viene marcato ``chiuso`` solo quando tutte le sue partite di
-    Serie A sono in uno stato definitivo. Finche' non lo e', il giorno viene
-    richiesto di nuovo alla prossima esecuzione — e' come si recuperano i
-    risultati di una partita che era ancora in corso al momento della raccolta.
+    Un giorno viene marcato ``chiuso`` solo quando sono vere **due** cose:
+    tutte le sue partite di Serie A sono in uno stato definitivo, e il giorno
+    e' ormai passato. Finche' non lo e', il giorno viene richiesto di nuovo
+    alla prossima esecuzione — e' come si recuperano i risultati di una partita
+    che era ancora in corso al momento della raccolta.
+
+    La seconda condizione e' meno ovvia della prima ma pesa di piu'. Un giorno
+    ancora da giocare risulta banalmente "tutto definitivo" quando e' vuoto:
+    zero partite, zero concluse. Chiuderlo per questo significherebbe non
+    richiederlo mai piu' — e il calendario della Serie A **cambia**, con
+    recuperi e anticipi che compaiono anche a pochi giorni di distanza. Un
+    turno aggiunto dopo il nostro sguardo cadrebbe fuori dalla finestra di tre
+    giorni senza che nessuno se ne accorga, cioe' andrebbe perso per sempre.
+    Meglio spendere una richiesta di troppo che scoprire a stagione finita che
+    manca una giornata.
     """
 
     path: Path
@@ -184,14 +200,22 @@ class DayJournal:
         n_fixtures: int,
         n_final: int,
         requests_spent: int,
+        today: date | None = None,   # accettato per simmetria con is_closed
     ) -> None:
+        """Registra cosa si e' visto quel giorno. Non decide se richiederlo ancora.
+
+        Il diario tiene **osservazioni**, non decisioni: ``closed`` qui vuol
+        dire soltanto "tutte le partite viste erano in uno stato definitivo".
+        Se il giorno vada davvero richiesto di nuovo lo stabilisce
+        `is_closed`, che ci aggiunge il passare del tempo. Separare le due cose
+        fa si' che un giorno osservato completo stasera si chiuda da solo
+        domani, senza spendere un'altra richiesta per riscoprirlo.
+        """
         stato = self._load()
         stato.setdefault("days", {})[day.isoformat()] = {
             "collected_at": collected_at,
             "fixtures": n_fixtures,
             "final": n_final,
-            # Un giorno senza partite di Serie A e' comunque chiuso: non c'e'
-            # nulla che possa ancora arrivare.
             "closed": n_fixtures == n_final,
             "requests_spent": requests_spent,
         }
@@ -200,9 +224,21 @@ class DayJournal:
     def entry(self, day: date) -> dict[str, Any] | None:
         return self._load().get("days", {}).get(day.isoformat())
 
-    def is_closed(self, day: date) -> bool:
+    def is_closed(self, day: date, today: date | None = None) -> bool:
+        """Il giorno e' definitivo: non va piu' richiesto.
+
+        Due condizioni, e la seconda e' quella che salva l'archivio: il giorno
+        deve essere **passato**. Oggi e domani non si chiudono mai, per quanto
+        completi sembrino.
+
+        Che la regola stia qui, in lettura, e non nel dato scritto, e' una
+        scelta: rende impossibile che un diario vecchio — o corretto a mano —
+        faccia saltare la raccolta di un giorno che deve ancora arrivare.
+        """
         voce = self.entry(day)
-        return bool(voce and voce.get("closed"))
+        if not voce or not voce.get("closed"):
+            return False
+        return day < (today or _oggi())
 
     def collected_days(self) -> list[date]:
         return sorted(date.fromisoformat(d) for d in self._load().get("days", {}))

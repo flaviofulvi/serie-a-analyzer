@@ -8,7 +8,7 @@ richiesta **non** filtra per lega (aggiungendo ``league`` l'API pretende anche
 Da qui il funzionamento di questo modulo:
 
     per ognuno dei tre giorni della finestra
-        se il giorno e' gia' chiuso -> non si spende nulla
+        se il giorno e' passato ed era gia' completo -> non si spende nulla
         altrimenti scarica tutte le partite di quel giorno (1 richiesta)
         filtra la Serie A in locale
         salva nell'archivio
@@ -18,6 +18,12 @@ Tre giorni invece di uno solo perche' i tre fanno lavori diversi: **domani** e'
 il calendario da cui nascono i pronostici, **oggi** sono i risultati che
 arrivano, **ieri** e' la rete di sicurezza per le partite che erano ancora in
 corso all'ultima esecuzione.
+
+Solo **ieri** puo' essere chiuso. Oggi e domani vengono richiesti a ogni
+esecuzione, anche quando risultano vuoti: il calendario della Serie A cambia,
+e un giorno dichiarato "senza partite" con un giorno di anticipo non verrebbe
+mai piu' guardato. Sono circa nove richieste al giorno su cento: il prezzo di
+non poter perdere un turno.
 
 Un giorno saltato non e' recuperabile. E' il motivo per cui questo modulo
 registra tutto su `DayJournal`: un buco deve essere visibile subito.
@@ -99,6 +105,7 @@ def collect_day(
     with_details: bool = True,
     max_detail_requests: int | None = None,
     ttl: int | None = TTL_LIVE,
+    today: date | None = None,
 ) -> DayReport:
     """Raccoglie un giorno. Un giorno gia' chiuso non costa nulla.
 
@@ -106,11 +113,16 @@ def collect_day(
     valore di default fa da freno contro due esecuzioni ravvicinate; ``0``
     obbliga a rileggere davvero dall'API, che e' cio' che serve quando si sta
     inseguendo una partita in corso.
+
+    ``today`` e' la data rispetto a cui si decide se un giorno puo' essere
+    chiuso: oggi e domani non lo sono mai, perche' il calendario di quei giorni
+    puo' ancora cambiare.
     """
+    oggi = today or datetime.now(timezone.utc).date()
     report = DayReport(day=day)
     prima = client.budget.used
 
-    if journal.is_closed(day):
+    if journal.is_closed(day, today=oggi):
         report.skipped = True
         logger.info("%s: gia' chiuso, nessuna richiesta", day)
         return report
@@ -140,6 +152,7 @@ def collect_day(
         n_fixtures=report.n_serie_a,
         n_final=report.n_final,
         requests_spent=report.requests_spent,
+        today=oggi,
     )
     logger.info(
         "%s: %d partite di Serie A (%d definitive), %d richieste",
@@ -257,8 +270,9 @@ def collect_window(
     ttl: int | None = TTL_LIVE,
 ) -> list[DayReport]:
     """Raccoglie tutti i giorni della finestra. E' l'operazione da schedulare."""
+    oggi = today or datetime.now(timezone.utc).date()
     reports = []
-    for giorno in window_days(today):
+    for giorno in window_days(oggi):
         reports.append(
             collect_day(
                 client, store, journal, giorno,
@@ -266,6 +280,7 @@ def collect_window(
                 with_details=with_details,
                 max_detail_requests=max_detail_requests,
                 ttl=ttl,
+                today=oggi,
             )
         )
     return reports

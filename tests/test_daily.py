@@ -30,6 +30,12 @@ from serie_a_analyzer.data.store import DayJournal, SeasonStore
 
 GIORNO = date(2026, 8, 22)
 
+# Il giorno successivo alla partita. Serve a quasi tutti i test perche' un
+# giorno viene chiuso solo quando e' passato: senza un "oggi" esplicito, le
+# asserzioni sulla chiusura cambierebbero esito a seconda della data in cui la
+# suite viene eseguita.
+IL_GIORNO_DOPO = date(2026, 8, 23)
+
 
 def _fixture(fid, league=135, status="FT", ora="16:30:00", giorno="2026-08-22"):
     return {
@@ -129,7 +135,7 @@ def test_la_serie_a_viene_filtrata_in_locale(client, store, journal, mondo):
         _fixture(4, league=140),   # LaLiga
     ]
 
-    report = collect_day(client, store, journal, GIORNO, with_details=False)
+    report = collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
 
     assert report.n_serie_a == 2
     assert sorted(store.fixture_ids()) == [1, 3]
@@ -138,12 +144,12 @@ def test_la_serie_a_viene_filtrata_in_locale(client, store, journal, mondo):
 def test_un_giorno_senza_serie_a_e_comunque_registrato(client, store, journal, mondo):
     mondo["per_giorno"]["2026-08-22"] = [_fixture(1, league=39)]
 
-    report = collect_day(client, store, journal, GIORNO, with_details=False)
+    report = collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
 
     assert report.n_serie_a == 0
     assert report.requests_spent == 1
     # Registrato e chiuso: senza, sembrerebbe un buco per sempre.
-    assert journal.is_closed(GIORNO)
+    assert journal.is_closed(GIORNO, today=IL_GIORNO_DOPO)
 
 
 # ---- chiusura del giorno ---------------------------------------------------
@@ -151,10 +157,10 @@ def test_un_giorno_senza_serie_a_e_comunque_registrato(client, store, journal, m
 
 def test_un_giorno_chiuso_non_costa_nulla(client, store, journal, mondo):
     mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
-    collect_day(client, store, journal, GIORNO, with_details=False)
+    collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
     speso_prima = client.budget.used
 
-    report = collect_day(client, store, journal, GIORNO, with_details=False)
+    report = collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
 
     assert report.skipped
     assert report.requests_spent == 0
@@ -164,35 +170,35 @@ def test_un_giorno_chiuso_non_costa_nulla(client, store, journal, mondo):
 def test_un_giorno_con_partite_in_corso_viene_ripreso(client, store, journal, mondo):
     """E' cosi' che si recuperano i risultati di una partita ancora aperta."""
     mondo["per_giorno"]["2026-08-22"] = [_fixture(1, status="2H")]
-    primo = collect_day(client, store, journal, GIORNO, with_details=False)
+    primo = collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
     assert not primo.closed
-    assert not journal.is_closed(GIORNO)
+    assert not journal.is_closed(GIORNO, today=IL_GIORNO_DOPO)
 
     # ttl=0: si sta inseguendo una partita in corso, la copia in cache di un
     # minuto fa e' esattamente quella che non serve.
     mondo["per_giorno"]["2026-08-22"] = [_fixture(1, status="FT")]
-    secondo = collect_day(client, store, journal, GIORNO, with_details=False, ttl=0)
+    secondo = collect_day(client, store, journal, GIORNO, with_details=False, ttl=0, today=IL_GIORNO_DOPO)
 
     assert not secondo.skipped
     assert secondo.closed
     assert secondo.updated_fixtures == 1
-    assert journal.is_closed(GIORNO)
+    assert journal.is_closed(GIORNO, today=IL_GIORNO_DOPO)
 
 
 def test_la_cache_frena_due_esecuzioni_ravvicinate(client, store, journal, mondo):
     """Col TTL di default una seconda passata immediata non spende budget."""
     mondo["per_giorno"]["2026-08-22"] = [_fixture(1, status="2H")]
-    collect_day(client, store, journal, GIORNO, with_details=False)
+    collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
     speso = client.budget.used
 
-    collect_day(client, store, journal, GIORNO, with_details=False)
+    collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
 
     assert client.budget.used == speso
 
 
 def test_una_partita_rinviata_tiene_il_giorno_aperto(client, store, journal, mondo):
     mondo["per_giorno"]["2026-08-22"] = [_fixture(1, status="PST")]
-    report = collect_day(client, store, journal, GIORNO, with_details=False)
+    report = collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
     assert not report.closed
 
 
@@ -205,7 +211,7 @@ def test_i_dettagli_si_prendono_solo_per_le_partite_concluse(client, store, jour
     for kind in ("lineups", "players", "events"):
         mondo["dettagli"][(1, kind)] = [{"dato": kind}]
 
-    collect_day(client, store, journal, GIORNO)
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
 
     assert store.has_detail(1, "lineups")
     assert store.load_detail(2, "lineups") is None
@@ -220,13 +226,13 @@ def test_i_dettagli_gia_presenti_non_si_riscaricano(client, store, journal, mond
     for kind in ("lineups", "players", "events"):
         mondo["dettagli"][(1, kind)] = [{"dato": kind}]
 
-    collect_day(client, store, journal, GIORNO, with_details=False)
+    collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
     mondo["per_giorno"]["2026-08-22"] = [_fixture(1, status="FT")]
-    collect_day(client, store, journal, GIORNO)
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
     speso = client.budget.used
 
     # Il giorno e' chiuso: seconda passata a costo zero.
-    collect_day(client, store, journal, GIORNO)
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
     assert client.budget.used == speso
 
 
@@ -236,7 +242,7 @@ def test_il_tetto_di_richieste_per_i_dettagli_viene_rispettato(client, store, jo
         for kind in ("lineups", "players", "events"):
             mondo["dettagli"][(i, kind)] = [{"dato": kind}]
 
-    collect_day(client, store, journal, GIORNO, max_detail_requests=4)
+    collect_day(client, store, journal, GIORNO, max_detail_requests=4, today=IL_GIORNO_DOPO)
 
     # 1 per il giorno + 4 di dettagli, non 1 + 15.
     assert client.budget.used == 5
@@ -259,11 +265,11 @@ def test_se_il_budget_finisce_gli_id_restano_salvati(client, store, journal, mon
     # Si lascia margine solo per la richiesta del giorno.
     client.budget.spend(Priority.CRITICAL, client.budget.daily_limit - 26)
 
-    report = collect_day(client, store, journal, GIORNO)
+    report = collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
 
     assert sorted(store.fixture_ids()) == [1, 2, 3]
     assert report.n_serie_a == 3
-    assert journal.is_closed(GIORNO)
+    assert journal.is_closed(GIORNO, today=IL_GIORNO_DOPO)
 
 
 def test_il_recupero_completa_i_dettagli_rimasti_indietro(client, store, journal, mondo):
@@ -272,7 +278,7 @@ def test_il_recupero_completa_i_dettagli_rimasti_indietro(client, store, journal
         for kind in ("lineups", "players", "events"):
             mondo["dettagli"][(i, kind)] = [{"dato": kind}]
 
-    collect_day(client, store, journal, GIORNO, max_detail_requests=2)
+    collect_day(client, store, journal, GIORNO, max_detail_requests=2, today=IL_GIORNO_DOPO)
     assert not store.has_detail(3, "events")
 
     backfill_details(client, store)
@@ -287,7 +293,7 @@ def test_il_recupero_non_spende_nulla_se_non_manca_niente(client, store, journal
     for kind in ("lineups", "players", "events"):
         mondo["dettagli"][(1, kind)] = [{"dato": kind}]
 
-    collect_day(client, store, journal, GIORNO)
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
     speso = client.budget.used
 
     assert backfill_details(client, store) == {}
@@ -304,7 +310,7 @@ def test_il_recupero_parte_dalle_partite_piu_recenti(client, store, journal, mon
         for kind in ("lineups", "players", "events"):
             mondo["dettagli"][(i, kind)] = [{"dato": kind}]
 
-    collect_day(client, store, journal, GIORNO, with_details=False)
+    collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
     backfill_details(client, store, max_requests=3)
 
     assert store.has_detail(2, "lineups")
@@ -318,11 +324,11 @@ def test_un_errore_dell_api_non_chiude_il_giorno(client, store, journal, mondo):
     """Se il giorno risultasse chiuso, non verrebbe piu' richiesto: perso."""
     mondo["errore"] = {"plan": "Free plans do not have access to this season."}
 
-    report = collect_day(client, store, journal, GIORNO, with_details=False)
+    report = collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
 
     assert report.error is not None
     assert journal.entry(GIORNO) is None
-    assert not journal.is_closed(GIORNO)
+    assert not journal.is_closed(GIORNO, today=IL_GIORNO_DOPO)
 
 
 # ---- finestra completa -----------------------------------------------------
@@ -342,3 +348,62 @@ def test_la_finestra_raccoglie_tutti_e_tre_i_giorni(client, store, journal, mond
     assert journal.collected_days() == [
         date(2026, 8, 21), date(2026, 8, 22), date(2026, 8, 23)
     ]
+
+
+# ---- giorni non ancora passati ---------------------------------------------
+#
+# La finestra guarda anche avanti, e il calendario della Serie A cambia:
+# recuperi e anticipi compaiono a stagione in corso. Un giorno ancora da
+# giocare non va mai chiuso, perche' chiuderlo significa non guardarlo piu' —
+# e quando lo si guarderebbe di nuovo sarebbe gia' fuori finestra.
+
+
+def test_domani_non_viene_chiuso_neanche_se_e_vuoto(client, store, journal, mondo):
+    """E' il caso della pausa estiva: senza partite, tutto sembra definitivo."""
+    mondo["per_giorno"]["2026-08-22"] = []
+
+    report = collect_day(
+        client, store, journal, GIORNO, with_details=False, today=date(2026, 8, 21)
+    )
+
+    assert report.n_serie_a == 0
+    assert journal.entry(GIORNO) is not None, "il giorno va comunque registrato"
+    assert not journal.is_closed(GIORNO, today=date(2026, 8, 21))
+
+
+def test_una_partita_aggiunta_dopo_viene_presa(client, store, journal, mondo):
+    """Il recupero calendarizzato dopo il nostro primo sguardo: il caso che si perde."""
+    mondo["per_giorno"]["2026-08-22"] = []
+    collect_day(client, store, journal, GIORNO, with_details=False, today=date(2026, 8, 21))
+
+    # Il giorno dopo la partita compare in calendario.
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(77, status="NS")]
+    report = collect_day(
+        client, store, journal, GIORNO, with_details=False, ttl=0, today=GIORNO
+    )
+
+    assert not report.skipped, "il giorno era stato chiuso in anticipo"
+    assert store.fixture_ids() == [77]
+
+
+def test_oggi_non_viene_chiuso_neanche_a_partite_finite(client, store, journal, mondo):
+    """Una serale finisce alle 22:45: fino a mezzanotte il giorno resta aperto."""
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1, status="FT")]
+
+    collect_day(client, store, journal, GIORNO, with_details=False, today=GIORNO)
+
+    assert not journal.is_closed(GIORNO, today=GIORNO)
+    # E il giorno dopo si chiude da solo, senza altre richieste.
+    assert journal.is_closed(GIORNO, today=IL_GIORNO_DOPO)
+
+
+def test_la_finestra_chiude_solo_ieri(client, store, journal, mondo):
+    """Il conto delle richieste di una giornata tipo: 1 per ieri, poi oggi e domani."""
+    for giorno in ("2026-08-21", "2026-08-22", "2026-08-23"):
+        mondo["per_giorno"][giorno] = [_fixture(9, giorno=giorno, status="FT")]
+
+    collect_window(client, store, journal, today=GIORNO, with_details=False)
+
+    assert journal.is_closed(date(2026, 8, 21), today=GIORNO)
+    assert not journal.is_closed(GIORNO, today=GIORNO)
+    assert not journal.is_closed(date(2026, 8, 23), today=GIORNO)
