@@ -39,8 +39,15 @@ $Inizio = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 Add-Content -Path $Log -Encoding utf8 -Value "`n===== esecuzione $Inizio ====="
 
-& $Python $Script 2>&1 | Tee-Object -FilePath $Log -Append
+# PowerShell 5.1 trasforma ogni riga che un programma esterno scrive su stderr
+# in un errore vero e proprio: con ErrorActionPreference "Stop" il primo
+# messaggio di avanzamento della raccolta uccideva il wrapper prima ancora che
+# scrivesse una riga di log. Qui serve il comportamento opposto: raccogliere
+# tutto nel file e giudicare solo dal codice di uscita.
+$ErrorActionPreference = "Continue"
+& $Python $Script 2>&1 | ForEach-Object { $_.ToString() } | Add-Content -Path $Log -Encoding utf8 -PassThru
 $Esito = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
 
 if ($Esito -ne 0) {
     Add-Content -Path $Log -Encoding utf8 -Value "ESITO: FALLITO (codice $Esito)"
