@@ -7,6 +7,7 @@
 # Per rimuoverla:
 #
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Raccolta" -Confirm:$false
+#   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Recupero" -Confirm:$false
 #
 # Perche' quattro esecuzioni al giorno e non una sola: la finestra del piano
 # gratuito e' di tre giorni, quindi una singola esecuzione mancata non e'
@@ -18,30 +19,37 @@
 $ErrorActionPreference = "Stop"
 
 $NomeTask = "SerieAAnalyzer-Raccolta"
+$NomeRecupero = "SerieAAnalyzer-Recupero"
 $Radice = Split-Path -Parent $PSScriptRoot
 $Wrapper = Join-Path $Radice "scripts\run_daily.ps1"
+$FileOrari = Join-Path $PSScriptRoot "orari_raccolta.ps1"
 
 if (-not (Test-Path $Wrapper)) {
     Write-Error "Non trovo $Wrapper"
     exit 1
 }
+if (-not (Test-Path $FileOrari)) {
+    Write-Error "Non trovo $FileOrari"
+    exit 1
+}
+
+. $FileOrari
 
 $Azione = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Wrapper`"" `
     -WorkingDirectory $Radice
 
-# 08:00, 14:00, 20:00, 23:45. L'ultima serve a chiudere le partite serali,
-# che in Serie A finiscono verso le 22:45.
-$Orari = @("08:00", "14:00", "20:00", "23:45")
-$Trigger = $Orari | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
+# 08:00, 14:00, 20:00, 23:45 (definiti in orari_raccolta.ps1). L'ultima serve a
+# chiudere le partite serali, che in Serie A finiscono verso le 22:45.
+$Trigger = $OrariRaccolta | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
 
 $Impostazioni = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -DontStopOnIdleEnd `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
-    -WakeToRun `
+    -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
     -RestartInterval (New-TimeSpan -Minutes 15) `
     -RestartCount 3
@@ -55,10 +63,67 @@ $Impostazioni = New-ScheduledTaskSettingsSet `
 #   -DontStopIfGoingOnBatteries volta che il portatile e' staccato dalla presa,
 #                              ed e' il comportamento predefinito: una domenica
 #                              pomeriggio sul divano diventerebbe un buco;
-#   -WakeToRun                 sveglia il computer sospeso all'ora prevista.
+#   -MultipleInstances IgnoreNew  due raccolte in parallelo scriverebbero sullo
+#                              stesso archivio: la seconda non parte.
 #
-# Le partite serali finiscono verso le 22:45 e i loro id restano leggibili per
-# poco piu' di 24 ore: nessuna di queste e' una rifinitura.
+# NON si usa -WakeToRun, ed e' una scelta, non una dimenticanza: accenderebbe
+# il computer da solo all'ora prevista. Il computer e' dell'utente, non della
+# raccolta. Le esecuzioni che cadono a macchina spenta si recuperano dopo,
+# quando la si accende — vedi l'attivita' qui sotto. Se qualcuno rimettesse
+# -WakeToRun, verifica_raccolta.py lo segnala.
+
+# --- attivita' di recupero -------------------------------------------------
+#
+# Senza sveglia, tutto il recupero passa da qui. -StartWhenAvailable da solo
+# non basta: e' Windows a decidere se e quando considerare "mancata" una
+# esecuzione, e il risveglio dalla sospensione non e' un accesso, quindi ci
+# sono risvegli in cui non riprende niente.
+#
+# Questa attivita' non chiede niente a Windows: guarda quando e' finita bene
+# l'ultima raccolta e a che ora sarebbe dovuta partire l'ultima prevista. Se
+# manca qualcosa la rifa', se non manca niente esce senza spendere una
+# richiesta — quindi puo' scattare quante volte vuole, e ogni decisione resta
+# scritta nel log.
+$AzioneRecupero = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Wrapper`" -SoloSeMancata" `
+    -WorkingDirectory $Radice
+
+# All'accesso: copre l'accensione da spento.
+$TriggerAccesso = New-ScheduledTaskTrigger -AtLogOn
+$TriggerAccesso.Delay = "PT3M"   # il tempo che la rete torni su
+
+# Al risveglio dalla sospensione, che non genera nessun accesso. I due eventi
+# non sono equivalenti su tutte le macchine: su alcune il risveglio lascia solo
+# Power-Troubleshooter/1, su altre anche Kernel-Power/107. Si ascoltano
+# entrambi, tanto un doppio scatto e' innocuo.
+$Sottoscrizione = @"
+<QueryList>
+  <Query Id="0" Path="System">
+    <Select Path="System">*[System[Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and (EventID=1)]]</Select>
+    <Select Path="System">*[System[Provider[@Name='Microsoft-Windows-Kernel-Power'] and (EventID=107)]]</Select>
+  </Query>
+</QueryList>
+"@
+
+$TriggerRisveglio = New-CimInstance `
+    -CimClass (Get-CimClass -ClassName MSFT_TaskEventTrigger -Namespace Root/Microsoft/Windows/TaskScheduler) `
+    -ClientOnly
+$TriggerRisveglio.Enabled = $true
+$TriggerRisveglio.Subscription = $Sottoscrizione
+$TriggerRisveglio.Delay = "PT2M"
+
+$ImpostazioniRecupero = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -DontStopOnIdleEnd `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
+    -RestartInterval (New-TimeSpan -Minutes 15) `
+    -RestartCount 3
+
+# --- registrazione ----------------------------------------------------------
 
 if (Get-ScheduledTask -TaskName $NomeTask -ErrorAction SilentlyContinue) {
     Write-Host "Attivita' gia' presente: la sostituisco."
@@ -72,10 +137,23 @@ Register-ScheduledTask `
     -Settings $Impostazioni `
     -Description "Raccolta giornaliera della Serie A da API-Football (finestra di 3 giorni del piano gratuito)." | Out-Null
 
+if (Get-ScheduledTask -TaskName $NomeRecupero -ErrorAction SilentlyContinue) {
+    Write-Host "Attivita' di recupero gia' presente: la sostituisco."
+    Unregister-ScheduledTask -TaskName $NomeRecupero -Confirm:$false
+}
+
+Register-ScheduledTask `
+    -TaskName $NomeRecupero `
+    -Action $AzioneRecupero `
+    -Trigger @($TriggerAccesso, $TriggerRisveglio) `
+    -Settings $ImpostazioniRecupero `
+    -Description "Recupera la raccolta della Serie A saltata mentre il computer era spento o sospeso. Non accende il computer e non spende richieste se non manca niente." | Out-Null
+
 Write-Host ""
 Write-Host "Attivita' registrata: $NomeTask"
-Write-Host "Orari: $($Orari -join ', ')"
+Write-Host "Orari: $($OrariRaccolta -join ', ')  (il computer non viene acceso da solo)"
+Write-Host "Attivita' registrata: $NomeRecupero (all'accesso e al risveglio, solo se manca qualcosa)"
 Write-Host ""
-Write-Host "Verifica:      Get-ScheduledTask -TaskName $NomeTask"
-Write-Host "Prova subito:  Start-ScheduledTask -TaskName $NomeTask"
+Write-Host "Verifica:      .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py"
+Write-Host "Prova subito:  Start-ScheduledTask -TaskName $NomeRecupero"
 Write-Host "Log:           $Radice\data\logs\"
