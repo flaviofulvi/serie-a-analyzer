@@ -31,9 +31,20 @@ from serie_a_analyzer.data.daily import window_days  # noqa: E402
 from serie_a_analyzer.data.store import DayJournal, SeasonStore  # noqa: E402
 
 NOME_TASK = "SerieAAnalyzer-Raccolta"
+NOME_TASK_RECUPERO = "SerieAAnalyzer-Recupero"
 
 # Da quanti giorni indietro cercare buchi. Stesso orizzonte di daily_collect.
 FINESTRA_CONTROLLO_BUCHI = 30
+
+# Windows non segnala il successo solo con 0: i codici SCHED_S_* sono
+# informativi, e leggerli come errori fa gridare al guasto quando non c'e'.
+# 267011 (mai eseguita) non compare qui perche' in quel caso non esiste
+# nemmeno una data di ultima esecuzione da commentare.
+ESITI_NON_FALLIMENTI = {
+    267008: "attivita' pronta",
+    267009: "in esecuzione proprio adesso",
+    267012: "nessuna esecuzione futura in programma",
+}
 
 # Oltre questo ritardo dall'ultima raccolta si e' gia' persa una finestra.
 ORE_MASSIME_SENZA_RACCOLTA = 24
@@ -107,7 +118,7 @@ def controlla_configurazione():
 # sapere dell'attivita' pianificata.
 _QUERY_TASK = """
 $t = Get-ScheduledTask -TaskName "{nome}" -ErrorAction SilentlyContinue
-if (-not $t) {{ "null" }} else {{
+if (-not $t) {{ '{{"assente": true}}' }} else {{
   $i = Get-ScheduledTaskInfo -TaskName "{nome}"
   [pscustomobject]@{{
     abilitata       = [bool]$t.Settings.Enabled
@@ -116,7 +127,8 @@ if (-not $t) {{ "null" }} else {{
     sveglia         = [bool]$t.Settings.WakeToRun
     recupera        = [bool]$t.Settings.StartWhenAvailable
     trigger         = @($t.Triggers | ForEach-Object {{ $_.StartBoundary }})
-    ultima          = if ($i.LastRunTime) {{ $i.LastRunTime.ToString("s") }} else {{ $null }}
+    # 30/11/1999 e' il segnaposto di Windows per "mai eseguita", non una data.
+    ultima          = if ($i.LastRunTime.Year -ge 2000) {{ $i.LastRunTime.ToString("s") }} else {{ $null }}
     esito           = $i.LastTaskResult
     prossima        = if ($i.NextRunTime) {{ $i.NextRunTime.ToString("s") }} else {{ $null }}
   }} | ConvertTo-Json -Compress
@@ -131,7 +143,7 @@ def controlla_attivita_pianificata() -> None:
     if dati is None:
         avviso("stato dell'attivita' pianificata non verificabile da qui")
         return
-    if not isinstance(dati, dict):
+    if not isinstance(dati, dict) or dati.get("assente"):
         problema(
             f"attivita' '{NOME_TASK}' non registrata: la raccolta non parte da sola.\n"
             "       Registrala con:  .\\scripts\\schedule_windows.ps1"
@@ -158,25 +170,74 @@ def controlla_attivita_pianificata() -> None:
     else:
         problema("le esecuzioni perse a computer spento non vengono recuperate")
 
-    if not dati.get("sveglia"):
-        avviso("non sveglia il computer sospeso: l'esecuzione slitta al risveglio")
+    # La sveglia e' spenta apposta: la raccolta non deve accendere il computer
+    # da sola. Se ricompare, qualcuno ha ri-registrato l'attivita' con una
+    # versione vecchia dello script.
+    if dati.get("sveglia"):
+        avviso("l'attivita' accende il computer da sola all'ora prevista: non e' voluto")
 
     ultima, esito = dati.get("ultima"), dati.get("esito")
-    if ultima:
+    if not ultima:
+        # Anche solo ri-registrare l'attivita' ne azzera lo storico: e' lo
+        # stato normale subito dopo schedule_windows.ps1, non un guasto.
+        avviso("mai eseguita da quando e' stata registrata: il primo turno e' quello utile")
+    else:
         quando = datetime.fromisoformat(ultima)
         ritardo = datetime.now() - quando
         testo = f"ultima esecuzione {quando:%d/%m %H:%M} ({_durata(ritardo)} fa)"
         if esito == 0:
             ok(f"{testo}, esito ok")
+        elif esito in ESITI_NON_FALLIMENTI:
+            ok(f"{testo}, {ESITI_NON_FALLIMENTI[esito]}")
         else:
             problema(f"{testo}, esito FALLITO (codice {esito}) — vedi data/logs/")
         if ritardo > timedelta(hours=ORE_MASSIME_SENZA_RACCOLTA):
             problema("l'ultima esecuzione risale a piu' di un giorno fa: finestra persa")
-    else:
-        avviso("l'attivita' non e' mai stata eseguita")
 
     if dati.get("prossima"):
         ok(f"prossima esecuzione: {datetime.fromisoformat(dati['prossima']):%d/%m %H:%M}")
+
+
+def controlla_attivita_recupero() -> None:
+    """L'attivita' che rimedia alle esecuzioni cadute a computer spento.
+
+    Senza sveglia e' l'unica rete rimasta: su un computer che non sta acceso
+    tutto il giorno, un'esecuzione notturna che nessuno recupera e' un giorno
+    di partite perso e basta.
+    """
+    sezione("Recupero all'accensione")
+    dati = powershell(_QUERY_TASK.format(nome=NOME_TASK_RECUPERO))
+
+    if dati is None:
+        avviso("stato dell'attivita' di recupero non verificabile da qui")
+    elif not isinstance(dati, dict) or dati.get("assente"):
+        problema(
+            f"attivita' '{NOME_TASK_RECUPERO}' non registrata: le esecuzioni cadute a\n"
+            "       computer spento non vengono recuperate.\n"
+            "       Registrala con:  .\\scripts\\schedule_windows.ps1"
+        )
+    elif not dati.get("abilitata"):
+        problema("attivita' di recupero registrata ma DISABILITATA")
+    else:
+        ok(f"registrata e abilitata — {len(dati.get('trigger') or [])} trigger "
+           "(accesso e risveglio dalla sospensione)")
+
+    # Il marcatore e' cio' su cui il recupero decide: se manca o non si legge,
+    # la raccolta riparte comunque. Meglio una richiesta in piu' che un giorno
+    # in meno.
+    marcatore = RADICE / "data" / "logs" / "ultima-esecuzione.txt"
+    if not marcatore.exists():
+        avviso("nessuna raccolta riuscita registrata: al prossimo avvio si raccoglie")
+        return
+    try:
+        quando = datetime.strptime(
+            marcatore.read_text(encoding="utf-8-sig").strip(), "%Y-%m-%d %H:%M:%S"
+        )
+    except (ValueError, OSError):
+        avviso(f"{marcatore.name} illeggibile: al prossimo avvio si raccoglie")
+        return
+    ok(f"ultima raccolta riuscita: {quando:%d/%m %H:%M} "
+       f"({_durata(datetime.now() - quando)} fa)")
 
 
 def controlla_ultimo_log() -> None:
@@ -280,6 +341,7 @@ def main() -> int:
 
     settings = controlla_configurazione()
     controlla_attivita_pianificata()
+    controlla_attivita_recupero()
     controlla_ultimo_log()
     if settings is not None:
         journal = controlla_diario(settings)
