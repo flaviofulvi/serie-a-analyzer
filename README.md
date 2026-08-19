@@ -122,7 +122,7 @@ resto domani senza che si sia perso nulla.
 
 ```bash
 python scripts/daily_collect.py       # ieri, oggi, domani + dettagli mancanti
-.\scripts\schedule_windows.ps1        # registra 4 esecuzioni al giorno
+.\scripts\schedule_windows.ps1        # 4 esecuzioni al giorno + recupero all'accensione
 ```
 
 Un giorno le cui partite sono tutte in stato definitivo viene marcato
@@ -130,6 +130,14 @@ Un giorno le cui partite sono tutte in stato definitivo viene marcato
 successive costano zero. Un giorno mai raccolto compare come buco nel resoconto
 — non per rifarlo, perche' non si puo', ma per sapere quanto fidarsi delle
 statistiche costruite sopra.
+
+Il computer non e' sempre acceso, e la raccolta **non lo accende**: le
+esecuzioni che cadono a macchina spenta o sospesa si recuperano dopo, quando
+la si riaccende. Una seconda attivita' pianificata parte all'accesso e al
+risveglio dalla sospensione (che non e' un accesso, e Windows da solo non
+sempre se ne accorge), confronta l'ultima raccolta finita bene con l'ultimo
+orario previsto e raccoglie solo se manca qualcosa: se non manca niente esce
+senza spendere una richiesta.
 
 > ⚠️ **`data/serie_a/` e' l'unica copia esistente della stagione in corso.**
 > Non e' una cache: cancellarla significa perdere i giorni gia' passati, che
@@ -304,7 +312,8 @@ scripts/
   storico_pronostici.py  cosa c'e' nel registro dei pronostici
   accuratezza.py         quanto valgono i pronostici gia' verificati
   run_daily.ps1          wrapper con log, per l'Utilita' di pianificazione
-  schedule_windows.ps1   registra l'attivita' pianificata
+  orari_raccolta.ps1     gli orari, letti da chi registra e da chi recupera
+  schedule_windows.ps1   registra le attivita' pianificate
   serve.py               avvia l'applicazione web
 ```
 

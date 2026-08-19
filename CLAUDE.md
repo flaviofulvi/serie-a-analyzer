@@ -23,7 +23,7 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py   # la raccolta e' sana? (non spende)
 .\.venv\Scripts\python.exe .\scripts\storico_pronostici.py  # cosa c'e' nel registro dei pronostici
 .\.venv\Scripts\python.exe .\scripts\accuratezza.py         # quanto valgono i pronostici verificati
-.\scripts\schedule_windows.ps1                              # 4 esecuzioni al giorno
+.\scripts\schedule_windows.ps1                              # 4 esecuzioni al giorno + recupero
 ```
 
 Nessun linter o formatter configurato. `pytest` usa `pythonpath=["src"]`, quindi
