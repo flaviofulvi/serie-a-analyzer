@@ -107,6 +107,19 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   ricavate dalle quote devono combaciare esattamente con quelle di
   `righe_mercati`: se divergessero il confronto non aggancerebbe nulla e la
   pagina resterebbe vuota senza errori — un test lo impedisce.
+- `players.py` — le schede giocatore, ricavate **senza spendere richieste**:
+  formazioni, tabellini ed eventi sono gia' su disco, pagati dalla raccolta
+  giornaliera. Un dettaglio si legge sempre dalla busta (`load_detail`), e una
+  busta con payload vuoto significa "l'API non lo copre". L'identita' di un
+  giocatore e' l'id numerico, mai il nome — stessa regola delle squadre. I
+  numeri vengono da **una sorgente sola**: minuti, gol, assist, cartellini e
+  voti da `players`, mentre gli eventi raccontano soltanto *quando* si e'
+  segnato; sommare le due cose conterebbe ogni gol due volte. L'archivio sa su
+  quante partite concluse il tabellino esiste davvero e le pagine lo
+  dichiarano: nel conto entrano solo le partite della raccolta giornaliera,
+  perche' lo storico 2022-2024 arriva dalla cache come elenco di risultati e i
+  tabellini non li ha mai avuti — contarlo farebbe sembrare parziale una
+  copertura piena.
 - `parsers.py` — JSON di API-Football → oggetti di dominio. I test coprono i
   parser con payload reali riprodotti in `tests/conftest.py`, così nessun test
   spende richieste.
@@ -127,9 +140,17 @@ fa due cose in fila: congela i pronostici delle partite in programma e risolve
 gli esiti di quelle ormai concluse. Entrambe protette da `try/except`: una
 pagina senza storico è un disservizio, una pagina che non si apre è un guasto.
 
+L'archivio dei giocatori ha invece una vita sua: si costruisce **su richiesta**
+(l'hub non ne ha bisogno) e ha un'impronta separata, `details_signature()`,
+perché i dettagli arrivano dopo le partite — spesso giorni dopo — senza che
+`fixtures.json` si muova di un byte.
+
 `web/views.py` traduce il dominio in ciò che i template disegnano; `web/app.py`
-espone hub, scheda partita, `/stato` (JSON: cosa sa il sistema, budget residuo,
-pronostici registrati, esiti risolti) e `/aggiorna` (forza la ricostruzione).
+espone hub, scheda partita, `/giocatori` (marcatori, assist, voti),
+`/giocatore/<id>`, `/squadra/<id>`, `/stato` (JSON: cosa sa il sistema, budget
+residuo, pronostici registrati, esiti risolti) e `/aggiorna` (forza la
+ricostruzione). La scheda partita mostra anche gol, formazioni e pagelle
+quando i dettagli ci sono, e dice quando non ci sono.
 L'hub mostra, sotto le partite: accuratezza per mercato con la sua baseline e
 il confronto con le quote di chiusura — entrambe le sezioni compaiono solo
 quando c'è qualcosa di misurato, e dichiarano quando i dati non bastano.
@@ -164,8 +185,8 @@ quando c'è qualcosa di misurato, e dichiarano quando i dati non bastano.
 
 ## Lavori futuri
 
-`DA_FARE.txt` (file locale, volutamente non tracciato) elenca i tre lavori
+`DA_FARE.txt` (file locale, volutamente non tracciato) elenca i lavori
 concordati con l'utente: pronostici con le formazioni ufficiali, schede
-giocatore, infortuni e squalifiche. Contiene per ognuno cosa esiste già nel
-codice e quali sono le insidie. Se il file non c'è, questa è l'unica traccia
-che rimane di quell'elenco.
+giocatore (**fatte**, vedi `data/players.py`), infortuni e squalifiche.
+Contiene per ognuno cosa esiste già nel codice e quali sono le insidie. Se il
+file non c'è, questa è l'unica traccia che rimane di quell'elenco.

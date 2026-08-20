@@ -12,13 +12,13 @@
     {% if p.giornata %}<span class="pillola">giornata {{ p.giornata }}</span>{% endif %}
   </div>
   <h1 class="testata-squadre">
-    <span>{{ p.casa }}</span>
+    <a href="/squadra/{{ p.casa_id }}">{{ p.casa }}</a>
     {% if p.conclusa %}
       <span class="punteggio">{{ p.gol_casa }} - {{ p.gol_ospite }}</span>
     {% else %}
       <span class="contro">contro</span>
     {% endif %}
-    <span>{{ p.ospite }}</span>
+    <a href="/squadra/{{ p.ospite_id }}">{{ p.ospite }}</a>
   </h1>
   {% if p.conclusa and p.ha_pronostico %}
     <p class="nota">
@@ -148,6 +148,111 @@
 </section>
 {% endif %}
 
+{% endif %}
+
+{% if gol %}
+<section>
+  <h2>I gol</h2>
+  <table class="tabella compatta">
+    <tbody>
+      {% for g in gol %}
+        <tr>
+          <td class="mono tenue">{{ g.minuto or "?" }}'</td>
+          <td>
+            {% if g.marcatore_id %}
+              <a href="/giocatore/{{ g.marcatore_id }}">{{ g.marcatore }}</a>
+            {% else %}{{ g.marcatore }}{% endif %}
+            {% if g.nota %}<span class="pillola tenue">{{ g.nota }}</span>{% endif %}
+            {% if g.assist %}
+              <span class="tenue">assist
+                {% if g.assist_id %}<a href="/giocatore/{{ g.assist_id }}">{{ g.assist }}</a>
+                {% else %}{{ g.assist }}{% endif %}</span>
+            {% endif %}
+          </td>
+          <td class="destra tenue">{{ g.squadra }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if formazioni %}
+<section>
+  <h2>Formazioni</h2>
+  <p class="sottotitolo">
+    Le formazioni scese in campo, con accanto cosa ha fatto ciascuno. Sono
+    dettagli gia' sul disco: leggerli non costa nessuna richiesta all'API.
+  </p>
+  <div class="pannelli">
+    {% for f in formazioni %}
+      <div class="pannello">
+        <h2><a href="/squadra/{{ f.squadra_id }}">{{ f.squadra }}</a></h2>
+        <p class="sottotitolo">
+          {{ f.modulo or "modulo non disponibile" }}
+          {% if f.allenatore %} · allenatore {{ f.allenatore }}{% endif %}
+        </p>
+        <table class="tabella compatta">
+          <thead>
+            <tr><th>Titolari</th><th class="destra">Min</th><th class="destra">G+A</th><th class="destra">Voto</th></tr>
+          </thead>
+          <tbody>
+            {% for v in f.titolari %}
+              <tr>
+                <td>
+                  <span class="mono tenue">{{ v.numero or "" }}</span>
+                  <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
+                  {% if v.rossi %}<span class="pillola tenue">espulso</span>{% endif %}
+                </td>
+                <td class="destra mono tenue">{{ v.minuti if v.minuti is not none else "—" }}</td>
+                <td class="destra mono {{ 'forte' if v.gol or v.assist }}">
+                  {%- if v.gol or v.assist %}{{ v.gol }}+{{ v.assist }}{% else %}—{% endif -%}
+                </td>
+                <td class="destra mono">{% if v.voto %}{{ "%.1f"|format(v.voto) }}{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {% if f.panchina %}
+          <h3>Panchina</h3>
+          <table class="tabella compatta">
+            <tbody>
+              {% for v in f.panchina %}
+                <tr>
+                  <td>
+                    <span class="mono tenue">{{ v.numero or "" }}</span>
+                    <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
+                  </td>
+                  <td class="destra mono tenue">
+                    {%- if v.sceso_in_campo %}{{ v.minuti }}'{% else %}non entrato{% endif -%}
+                  </td>
+                  <td class="destra mono {{ 'forte' if v.gol or v.assist }}">
+                    {%- if v.gol or v.assist %}{{ v.gol }}+{{ v.assist }}{% endif -%}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  <p class="nota">
+    Minuti, gol e voti vengono dal tabellino della partita; se manca restano i
+    nomi, e le colonne dicono "—" invece di uno zero che sembrerebbe un dato.
+  </p>
+</section>
+{% elif p.conclusa %}
+<section>
+  <h2>Formazioni</h2>
+  <p class="nota">
+    Nessuna formazione nell'archivio per questa partita. I dettagli si
+    recuperano dall'id in qualsiasi momento — non hanno la finestra di tre
+    giorni delle partite — quindi e' solo questione di budget: la raccolta
+    giornaliera ci torna sopra.
+  </p>
+</section>
 {% endif %}
 
 <section>

@@ -153,6 +153,28 @@ class SeasonStore:
             return False
         return int(busta.get("attempts", 0)) < MAX_DETAIL_ATTEMPTS
 
+    def details_signature(self) -> tuple[int, float]:
+        """Impronta dei dettagli: cambia quando ne viene salvato uno nuovo.
+
+        Serve a chi tiene in memoria qualcosa costruito leggendoli — le schede
+        giocatore — per sapere quando rifarlo. Non basta l'impronta di
+        `fixtures.json`: i dettagli arrivano dopo, spesso senza che l'elenco
+        delle partite si muova di un byte.
+
+        Si guardano le cartelle, non i file dentro: sono un ordine di grandezza
+        meno, e la data di una cartella cambia comunque a ogni file scritto al
+        suo interno.
+        """
+        radice = self.root / "details"
+        if not radice.exists():
+            return (0, 0.0)
+        quante = 0
+        ultima = 0.0
+        for voce in radice.iterdir():
+            quante += 1
+            ultima = max(ultima, voce.stat().st_mtime)
+        return (quante, ultima)
+
     def stats(self) -> dict[str, int]:
         fixtures = self.load_fixtures()
         dettagli = self.root / "details"

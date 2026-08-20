@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block titolo %}{{ g.nome }} · Serie A Analyzer{% endblock %}
+
+{% block contenuto %}
+
+<p class="briciole"><a href="/giocatori">&larr; Tutti i giocatori</a></p>
+
+<section class="testata-partita">
+  <div class="testata-quando">
+    {% if g.ruolo %}{{ g.ruolo }} · {% endif %}
+    <a href="/squadra/{{ g.squadra_id }}">{{ g.squadra }}</a>
+    {% if scheda.squadre|length > 1 %}
+      <span class="pillola tenue">ha giocato in {{ scheda.squadre|length }} squadre</span>
+    {% endif %}
+  </div>
+  <h1 class="testata-squadre"><span>{{ g.nome }}</span></h1>
+</section>
+
+<section>
+  <h2>In questa stagione</h2>
+  <div class="coppie grandi">
+    <div><span>Presenze</span><b>{{ g.presenze }}</b></div>
+    <div><span>Da titolare</span><b>{{ g.da_titolare }}</b></div>
+    <div><span>Minuti</span><b>{{ g.minuti }}</b></div>
+    <div><span>Gol</span><b>{{ g.gol }}</b></div>
+    <div><span>Assist</span><b>{{ g.assist }}</b></div>
+    <div><span>Voto medio</span>
+      <b>{% if g.voto_medio %}{{ "%.2f"|format(g.voto_medio) }}{% else %}—{% endif %}</b></div>
+  </div>
+
+  <div class="coppie">
+    <div><span>Ammonizioni</span><b>{{ g.gialli }}</b></div>
+    <div><span>Espulsioni</span><b>{{ g.rossi }}</b></div>
+    <div><span>Minuti per gol</span>
+      <b>{% if g.gol %}{{ (g.minuti // g.gol) }}{% else %}—{% endif %}</b></div>
+  </div>
+
+  <p class="nota">
+    {% if g.partite_con_voto == 0 %}
+      Nessuna delle partite giocate aveva un voto: la media non esiste, e non
+      viene inventata.
+    {% elif g.partite_con_voto < g.presenze %}
+      Il voto medio e' calcolato sulle <b>{{ g.partite_con_voto }}</b> partite in
+      cui un voto c'era, non su tutte quelle giocate: contare le altre come zero
+      abbasserebbe la media di chi ha giocato di piu'.
+    {% else %}
+      Il voto medio e' calcolato su tutte le presenze.
+    {% endif %}
+    Le presenze contano le partite giocate almeno un minuto: chi resta in
+    panchina non compare.
+  </p>
+</section>
+
+<section>
+  <h2>Partita per partita</h2>
+  <table class="tabella">
+    <thead>
+      <tr>
+        <th>Quando</th><th>Avversario</th><th class="destra">Risultato</th>
+        <th class="destra">Minuti</th><th class="destra">Gol</th>
+        <th class="destra">Assist</th><th class="destra">Cartellini</th>
+        <th class="destra">Voto</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in partite %}
+        <tr>
+          <td class="tenue">{{ p.quando }}</td>
+          <td>
+            <a href="/partita/{{ p.fixture_id }}">{{ p.avversario }}</a>
+            <span class="pillola tenue">{{ "in casa" if p.in_casa else "in trasferta" }}</span>
+          </td>
+          <td class="destra mono">{{ p.risultato or "—" }}</td>
+          <td class="destra mono">{{ p.minuti }}{% if not p.titolare %}<span class="pillola tenue">subentrato</span>{% endif %}</td>
+          <td class="destra mono {{ 'forte' if p.gol }}">{{ p.gol or "" }}</td>
+          <td class="destra mono">{{ p.assist or "" }}</td>
+          <td class="destra mono tenue">
+            {%- if p.gialli %}{{ p.gialli }}G{% endif %}{% if p.rossi %} {{ p.rossi }}R{% endif -%}
+          </td>
+          <td class="destra mono">{% if p.voto %}{{ "%.1f"|format(p.voto) }}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="nota">
+    {% if archivio.partite_con_statistiche < archivio.partite_concluse %}
+      Ci sono solo le partite di cui l'archivio ha il tabellino:
+      <b>{{ archivio.partite_con_statistiche }}</b> sulle
+      {{ archivio.partite_concluse }} concluse. Una partita giocata ma senza
+      tabellino non compare qui, e non entra nei totali qui sopra.
+    {% else %}
+      L'archivio ha il tabellino di tutte le
+      {{ archivio.partite_concluse }} partite concluse finora.
+    {% endif %}
+  </p>
+</section>
+
+{% endblock %}

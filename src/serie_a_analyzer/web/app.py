@@ -16,14 +16,19 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..data.players import formazioni_partita, gol_partita, prestazioni_partita
 from .engine import Engine
 from .views import (
+    blocchi_formazione,
     formatta_data,
     formatta_giorno,
     griglia_risultati,
+    riga_giocatore,
     riga_partita,
     righe_accuratezza,
     righe_confronto_mercato,
+    righe_gol,
+    righe_prestazioni,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,9 +124,17 @@ def partita(request: Request, fixture_id: int):
     scontri = snap.dataset.head_to_head(fixture.home_team_id, fixture.away_team_id)
     scontri = [s for s in scontri if s.api_id != fixture.api_id][:8]
 
+    # Formazioni, gol e pagelle: gratis, sono dettagli gia' sul disco. Restano
+    # vuoti finche' la partita non e' finita — prima del fischio d'inizio quei
+    # tre endpoint non rispondono nulla, ed e' un altro lavoro.
+    formazioni = formazioni_partita(motore.store, fixture_id)
+    prestazioni = prestazioni_partita(motore.store, fixture_id, fixture.kickoff_utc)
+
     return templates.TemplateResponse(request, "partita.html", {
         "p": riga,
         "griglia": griglia,
+        "formazioni": blocchi_formazione(formazioni, prestazioni),
+        "gol": righe_gol(gol_partita(motore.store, fixture_id), fixture.home_team_id),
         "scontri": [
             {
                 "quando": formatta_giorno(s.kickoff_utc),
@@ -132,6 +145,64 @@ def partita(request: Request, fixture_id: int):
             }
             for s in scontri
         ],
+        "salute": motore.health(),
+    })
+
+
+@app.get("/giocatori", response_class=HTMLResponse)
+def giocatori(request: Request):
+    """Chi ha fatto cosa: marcatori, assist e voti dalle partite raccolte."""
+    motore = engine()
+    archivio = motore.giocatori()
+
+    return templates.TemplateResponse(request, "giocatori.html", {
+        "marcatori": [riga_giocatore(s) for s in archivio.classifica("gol", limite=20)],
+        "assistenti": [riga_giocatore(s) for s in archivio.classifica("assist", limite=10)],
+        "voti": [riga_giocatore(s) for s in archivio.classifica("voto", limite=10)],
+        "archivio": archivio,
+        "salute": motore.health(),
+    })
+
+
+@app.get("/giocatore/{player_id}", response_class=HTMLResponse)
+def giocatore(request: Request, player_id: int):
+    """Scheda di un giocatore: i totali e la sua stagione partita per partita."""
+    motore = engine()
+    archivio = motore.giocatori()
+
+    scheda = archivio.scheda(player_id)
+    if scheda is None:
+        raise HTTPException(status_code=404, detail="Giocatore non trovato")
+
+    snap = motore.snapshot()
+    return templates.TemplateResponse(request, "giocatore.html", {
+        "g": riga_giocatore(scheda),
+        "scheda": scheda,
+        "partite": righe_prestazioni(scheda, snap.dataset.by_id, snap.dataset.name),
+        "archivio": archivio,
+        "salute": motore.health(),
+    })
+
+
+@app.get("/squadra/{team_id}", response_class=HTMLResponse)
+def squadra(request: Request, team_id: int):
+    """Scheda di una squadra: chi e' sceso in campo e come e' andata finora."""
+    motore = engine()
+    snap = motore.snapshot()
+    archivio = motore.giocatori()
+
+    conosciuta = team_id in snap.dataset.team_names or team_id in archivio.squadre()
+    if not conosciuta:
+        raise HTTPException(status_code=404, detail="Squadra non trovata")
+
+    partite = snap.dataset.team_fixtures(team_id)
+    return templates.TemplateResponse(request, "squadra.html", {
+        "squadra": snap.dataset.name(team_id),
+        "squadra_id": team_id,
+        "rosa": [riga_giocatore(s) for s in archivio.rosa(team_id)],
+        "partite": _righe(motore, [f for f in reversed(partite) if f.is_finished][:10]),
+        "prossime": _righe(motore, [f for f in partite if f.status == "scheduled"][:3]),
+        "archivio": archivio,
         "salute": motore.health(),
     })
 

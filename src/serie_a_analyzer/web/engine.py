@@ -28,6 +28,7 @@ from ..data.outcomes import (
     confronto_col_mercato,
     risolvi_pronostici,
 )
+from ..data.players import ArchivioGiocatori, costruisci_archivio
 from ..data.predictions import registra_partite
 from ..model.dixon_coles import FittedModel, fit_dixon_coles
 from ..model.markets import MatchProbabilities
@@ -62,6 +63,11 @@ class Engine:
         # Le pagine possono arrivare in parallelo: senza lucchetto due
         # richieste simultanee stimerebbero il modello due volte.
         self._lock = threading.Lock()
+        # L'archivio dei giocatori ha una vita sua: si costruisce leggendo i
+        # dettagli, che arrivano quando vogliono, e serve solo alle sue pagine.
+        self._giocatori: ArchivioGiocatori | None = None
+        self._firma_giocatori: tuple[int, float] | None = None
+        self._lock_giocatori = threading.Lock()
 
     # ---- ciclo di vita dello snapshot --------------------------------------
 
@@ -189,6 +195,31 @@ class Engine:
             )
         except KeyError:
             return None
+
+    # ---- giocatori ---------------------------------------------------------
+
+    def giocatori(self) -> ArchivioGiocatori:
+        """Le prestazioni dei giocatori, lette dai dettagli gia' su disco.
+
+        Costruito **su richiesta** e non insieme allo snapshot: l'hub non ne ha
+        bisogno, e leggere un file per ogni partita conclusa non deve pesare su
+        chi guarda solo i pronostici.
+
+        Si rifa' quando i dettagli cambiano, che non e' quando cambia
+        l'archivio delle partite: la raccolta scarica prima gli id e poi, con
+        calma e anche giorni dopo, formazioni e statistiche. Da qui un'impronta
+        e un lucchetto propri.
+        """
+        # Fuori dal lucchetto: `snapshot()` prende il suo, e prenderli
+        # annidati sarebbe il modo piu' rapido per bloccare il processo.
+        dataset = self.snapshot().dataset
+        with self._lock_giocatori:
+            firma = self.store.details_signature()
+            if self._giocatori is not None and self._firma_giocatori == firma:
+                return self._giocatori
+            self._giocatori = costruisci_archivio(self.store, dataset.fixtures)
+            self._firma_giocatori = firma
+            return self._giocatori
 
     # ---- stato per l'interfaccia ------------------------------------------
 

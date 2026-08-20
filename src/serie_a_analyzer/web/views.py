@@ -220,3 +220,140 @@ def righe_confronto_mercato(accuratezza: dict) -> list[dict]:
             "tono": tono,
         })
     return righe
+
+
+# ---- giocatori ---------------------------------------------------------------
+#
+# Le prestazioni arrivano dai dettagli delle partite e non sanno nulla del
+# contesto: chi era l'avversario, com'e' finita. Quel contesto sta nelle
+# partite, e qui le due cose si rimettono insieme.
+
+
+@dataclass
+class RigaPrestazione:
+    """Una partita nella scheda di un giocatore."""
+
+    fixture_id: int
+    quando: str
+    avversario: str
+    avversario_id: int
+    in_casa: bool
+    risultato: str
+    minuti: int
+    titolare: bool
+    gol: int
+    assist: int
+    gialli: int
+    rossi: int
+    voto: float | None
+
+
+def riga_prestazione(prestazione, fixture: FixtureRecord | None, nome) -> RigaPrestazione:
+    """Una prestazione piu' il contesto della partita in cui e' avvenuta."""
+    avversario_id = 0
+    in_casa = False
+    risultato = ""
+    if fixture is not None:
+        in_casa = fixture.home_team_id == prestazione.team_id
+        avversario_id = fixture.away_team_id if in_casa else fixture.home_team_id
+        if fixture.home_goals is not None:
+            risultato = f"{fixture.home_goals}-{fixture.away_goals}"
+
+    return RigaPrestazione(
+        fixture_id=prestazione.fixture_id,
+        quando=formatta_giorno(prestazione.quando),
+        avversario=nome(avversario_id) if avversario_id else "—",
+        avversario_id=avversario_id,
+        in_casa=in_casa,
+        risultato=risultato,
+        minuti=prestazione.minuti,
+        titolare=prestazione.titolare,
+        gol=prestazione.gol,
+        assist=prestazione.assist,
+        gialli=prestazione.gialli,
+        rossi=prestazione.rossi,
+        voto=prestazione.voto,
+    )
+
+
+def righe_prestazioni(scheda, per_id: dict[int, FixtureRecord], nome) -> list[RigaPrestazione]:
+    return [
+        riga_prestazione(p, per_id.get(p.fixture_id), nome) for p in scheda.prestazioni
+    ]
+
+
+def riga_giocatore(scheda) -> dict:
+    """Un giocatore in elenco: rosa di una squadra o classifica."""
+    squadra = scheda.squadra_attuale
+    return {
+        "id": scheda.player_id,
+        "nome": scheda.nome,
+        "ruolo": scheda.ruolo,
+        "squadra": squadra[1] if squadra else "—",
+        "squadra_id": squadra[0] if squadra else 0,
+        "presenze": scheda.presenze,
+        "da_titolare": scheda.da_titolare,
+        "minuti": scheda.minuti,
+        "gol": scheda.gol,
+        "assist": scheda.assist,
+        "gialli": scheda.gialli,
+        "rossi": scheda.rossi,
+        "voto_medio": scheda.voto_medio,
+        "partite_con_voto": scheda.partite_con_voto,
+    }
+
+
+def blocchi_formazione(formazioni, prestazioni) -> list[dict]:
+    """Le formazioni con accanto, dove esiste, cosa ha fatto ogni giocatore.
+
+    Le due sorgenti restano distinte anche qui: la formazione dice chi c'era,
+    le statistiche dicono come e' andata. Se le seconde mancano — succede, e
+    non e' un guasto — restano i nomi, che e' comunque piu' di quanto la scheda
+    partita mostrasse prima.
+    """
+    per_giocatore = {p.player_id: p for p in prestazioni}
+
+    def voce(riga) -> dict:
+        prestazione = per_giocatore.get(riga.player_id)
+        return {
+            "id": riga.player_id,
+            "nome": riga.nome,
+            "numero": riga.numero,
+            "ruolo": riga.ruolo,
+            "minuti": prestazione.minuti if prestazione else None,
+            "gol": prestazione.gol if prestazione else 0,
+            "assist": prestazione.assist if prestazione else 0,
+            "gialli": prestazione.gialli if prestazione else 0,
+            "rossi": prestazione.rossi if prestazione else 0,
+            "voto": prestazione.voto if prestazione else None,
+            "sceso_in_campo": prestazione is not None,
+        }
+
+    return [
+        {
+            "squadra": f.squadra,
+            "squadra_id": f.team_id,
+            "modulo": f.modulo,
+            "allenatore": f.allenatore,
+            "titolari": [voce(r) for r in f.titolari],
+            "panchina": [voce(r) for r in f.panchina],
+        }
+        for f in formazioni
+    ]
+
+
+def righe_gol(gol, casa_id: int) -> list[dict]:
+    """I gol di una partita, gia' schierati sul lato giusto."""
+    return [
+        {
+            "minuto": g.minuto,
+            "marcatore": g.marcatore or "—",
+            "marcatore_id": g.marcatore_id,
+            "assist": g.assist,
+            "assist_id": g.assist_id,
+            "squadra": g.squadra,
+            "in_casa": g.team_id == casa_id,
+            "nota": "rigore" if g.su_rigore else ("autogol" if g.autogol else None),
+        }
+        for g in gol
+    ]
