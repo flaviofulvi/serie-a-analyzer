@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "forme.html" import trittico, punteggio, sostanza %}
 
 {% block titolo %}{{ p.casa }} - {{ p.ospite }} · Serie A Analyzer{% endblock %}
 
@@ -8,142 +9,263 @@
 
 <section class="testata-partita">
   <div class="testata-quando">
-    {{ p.quando }}
+    <span>{{ p.quando }}</span>
     {% if p.giornata %}<span class="pillola">giornata {{ p.giornata }}</span>{% endif %}
   </div>
   <h1 class="testata-squadre">
     <a href="/squadra/{{ p.casa_id }}">{{ p.casa }}</a>
     {% if p.conclusa %}
-      <span class="punteggio">{{ p.gol_casa }} - {{ p.gol_ospite }}</span>
+      {{ punteggio("%s–%s"|format(p.gol_casa, p.gol_ospite), p.esito_reale, p.margine, grande=true) }}
     {% else %}
       <span class="contro">contro</span>
     {% endif %}
     <a href="/squadra/{{ p.ospite_id }}">{{ p.ospite }}</a>
   </h1>
-  {% if p.conclusa and p.ha_pronostico %}
-    <p class="nota">
-      Partita gia' giocata. Le probabilita' qui sotto sono quelle del modello
-      <em>di oggi</em>, che ha visto anche questo risultato: non sono un
-      pronostico, sono un modo di leggere la partita.
-    </p>
-  {% endif %}
 </section>
 
 {% if not p.ha_pronostico %}
-  <section class="riquadro-vuoto">
-    <h2>Nessun pronostico disponibile</h2>
-    <p>
-      Il modello non conosce almeno una delle due squadre: senza partite
-      giocate non c'e' una forza da stimare. Inventarne una sarebbe peggio che
-      ammettere di non saperlo.
-    </p>
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Pronostico</p>
+      <h2>Non c'e'</h2>
+    </div>
+    <div class="corpo">
+      <div class="riquadro-vuoto">
+        <h2>Nessun pronostico disponibile</h2>
+        <p>
+          Il modello non conosce almeno una delle due squadre: senza partite
+          giocate non c'e' una forza da stimare. Inventarne una sarebbe peggio
+          che ammettere di non saperlo.
+        </p>
+      </div>
+    </div>
   </section>
 {% else %}
 
-<section class="pannelli">
-  <div class="pannello">
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Chi vince</p>
     <h2>Esito finale</h2>
-    <div class="barra-1x2 grande">
-      <span class="segmento seg-1" style="width: {{ (p.prob.home_win*100)|round(2) }}%"></span>
-      <span class="segmento seg-x" style="width: {{ (p.prob.draw*100)|round(2) }}%"></span>
-      <span class="segmento seg-2" style="width: {{ (p.prob.away_win*100)|round(2) }}%"></span>
-    </div>
-    <div class="tre-esiti">
-      <div><span class="esito-nome">1 · {{ p.casa }}</span><b>{{ (p.prob.home_win*100)|round(1) }}%</b></div>
-      <div><span class="esito-nome">X · pareggio</span><b>{{ (p.prob.draw*100)|round(1) }}%</b></div>
-      <div><span class="esito-nome">2 · {{ p.ospite }}</span><b>{{ (p.prob.away_win*100)|round(1) }}%</b></div>
-    </div>
-
-    <h3>Doppia chance</h3>
-    <div class="coppie">
-      <div><span>1X</span><b>{{ (p.prob.home_or_draw*100)|round(1) }}%</b></div>
-      <div><span>12</span><b>{{ (p.prob.home_or_away*100)|round(1) }}%</b></div>
-      <div><span>X2</span><b>{{ (p.prob.away_or_draw*100)|round(1) }}%</b></div>
-    </div>
+    {% if p.conclusa %}
+      <p class="spiega">
+        Partita <b>gia' giocata</b>. Le probabilita' qui accanto sono quelle
+        del modello <b>di oggi</b>, che ha visto anche questo risultato: non
+        sono un pronostico, sono un modo di leggere la partita.
+      </p>
+    {% else %}
+      <p class="spiega">
+        Le tre barre partono dallo stesso zero: la piu' lunga e' l'esito che
+        il modello ritiene piu' probabile.
+      </p>
+    {% endif %}
+    <p class="spiega">
+      La <b>doppia chance</b> non e' un calcolo a parte: e' la somma di due
+      delle tre barre qui sopra.
+    </p>
   </div>
 
-  <div class="pannello">
-    <h2>Gol</h2>
-    <div class="coppie grandi">
-      <div><span>Gol attesi {{ p.casa }}</span><b>{{ "%.2f"|format(p.gol_attesi_casa) }}</b></div>
-      <div><span>Gol attesi {{ p.ospite }}</span><b>{{ "%.2f"|format(p.gol_attesi_ospite) }}</b></div>
-      <div><span>Totale atteso</span><b>{{ "%.2f"|format(p.prob.expected_total_goals) }}</b></div>
+  <div class="corpo">
+    <div class="pannello">
+      {{ trittico(p.prob, p.casa, p.ospite, grande=true) }}
+
+      <h3>Doppia chance</h3>
+      <div class="cifre minute">
+        <div><span class="voce">1X &middot; {{ p.casa }} o pari</span><b>{{ (p.prob.home_or_draw*100)|round(1) }}%</b></div>
+        <div><span class="voce">12 &middot; nessun pari</span><b>{{ (p.prob.home_or_away*100)|round(1) }}%</b></div>
+        <div><span class="voce">X2 &middot; {{ p.ospite }} o pari</span><b>{{ (p.prob.away_or_draw*100)|round(1) }}%</b></div>
+      </div>
     </div>
+  </div>
+</section>
 
-    <h3>Over / Under</h3>
-    <table class="tabella compatta">
-      <thead><tr><th>Linea</th><th class="destra">Over</th><th class="destra">Under</th></tr></thead>
-      <tbody>
-        {% for linea in [0.5, 1.5, 2.5, 3.5, 4.5] %}
-          <tr>
-            <td class="mono">{{ linea }}</td>
-            <td class="destra mono">{{ (p.prob.over[linea]*100)|round(1) }}%</td>
-            <td class="destra mono">{{ (p.prob.under[linea]*100)|round(1) }}%</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
-    <div class="coppie">
-      <div><span>Gol/NoGol</span><b>{{ (p.prob.btts*100)|round(1) }}%</b></div>
-      <div><span>Porta inviolata {{ p.casa }}</span><b>{{ (p.prob.clean_sheet_home*100)|round(1) }}%</b></div>
-      <div><span>Porta inviolata {{ p.ospite }}</span><b>{{ (p.prob.clean_sheet_away*100)|round(1) }}%</b></div>
-    </div>
-
-    <p class="avviso">
-      <strong>Attenzione all'Over/Under.</strong> Nel backtest sulla stagione
-      2024/25 il modello su questi esiti non ha battuto la semplice media di
-      campionato. Sull'1X2 si', su questi no: vanno letti con molta prudenza.
+{% if affidabilita %}
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Quanto fidarsi</p>
+    <h2>Su cosa si basa</h2>
+    <p class="spiega">
+      Il modello risponde <b>sempre</b>, anche su una squadra di cui sa poco:
+      in quel caso non inventa nulla, la tiene vicina alla <b>media della
+      Serie A</b>. Ne esce un pronostico prudente — spesso un pareggio o un
+      1-0 — che dall'esterno somiglia a un pronostico informato. Qui c'e' la
+      differenza.
     </p>
+    <p class="spiega">
+      La barra e' quanto la forza di ogni squadra viene dalle sue partite. Il
+      resto lo dice la media del campionato, non i dati di quella squadra.
+    </p>
+    {% if affidabilita|selectattr("stantia")|first %}
+      <p class="spiega">
+        <b>La barra da sola non basta, qui.</b> Il modello pesa le partite in
+        base a quanto sono vecchie <em>rispetto all'ultima che conosce</em>,
+        non rispetto a oggi: se l'archivio e' fermo da mesi, i suoi dati gli
+        sembrano freschi lo stesso. Guarda la colonna <b>Ultima</b>: e' quella
+        che dice di che squadra sta davvero parlando.
+      </p>
+    {% endif %}
+    <p class="spiega">
+      Non e' l'accuratezza: quella si misura <b>dopo</b>, su decine di partite
+      gia' giocate, e sta in fondo alla <a href="/">pagina principale</a>.
+      Questo si sa <b>prima</b>, e non dipende da come andra' a finire.
+    </p>
+  </div>
+
+  <div class="corpo">
+    <div class="tabella-avvolgente">
+      <table class="tabella">
+        <thead>
+          <tr>
+            <th>Squadra</th>
+            <th class="destra">Partite</th>
+            <th class="destra">Ultima</th>
+            <th class="colonna-muro">Quanto parlano i suoi dati</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in affidabilita %}
+            <tr>
+              <td class="forte"><a href="/squadra/{{ a.squadra_id }}">{{ a.squadra }}</a></td>
+              <td class="destra mono fioco">{{ a.n_partite }}</td>
+              <td class="destra mono {{ 'fioco' if not a.stantia }}">
+                {{ a.ultima }}
+                {% if a.stantia %}<span class="fioco">&middot; {{ a.giorni }} giorni fa</span>{% endif %}
+              </td>
+              <td class="colonna-muro">{{ sostanza(a) }}</td>
+              <td>
+                {% if a.tono == "ok" %}<span class="verdetto ok">{{ a.verdetto }}</span>
+                {% else %}<span class="verdetto attesa">{{ a.verdetto }}</span>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="chiave">
+      <em class="dati"></em> quanto parlano i dati della squadra &middot; il vuoto e' la media di lega
+    </p>
+  </div>
+</section>
+{% endif %}
+
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Quanti gol</p>
+    <h2>Over / Under</h2>
+    <p class="spiega">
+      I gol attesi sono la media della distribuzione, non una previsione del
+      punteggio: <b>2.11</b> non vuol dire "segnera' due gol", vuol dire che
+      su tante partite come questa la media sarebbe quella.
+    </p>
+    <p class="spiega">
+      Anche queste percentuali escono dalla stessa matrice: Over 2.5 e' la
+      somma di tutte le caselle in cui i gol totali sono tre o piu'.
+    </p>
+  </div>
+
+  <div class="corpo">
+    <div class="pannelli">
+      <div class="pannello">
+        <h3 style="margin-top:0">Gol attesi</h3>
+        <div class="cifre">
+          <div><span class="voce">{{ p.casa }}</span><b>{{ "%.2f"|format(p.gol_attesi_casa) }}</b></div>
+          <div><span class="voce">{{ p.ospite }}</span><b>{{ "%.2f"|format(p.gol_attesi_ospite) }}</b></div>
+          <div><span class="voce">Totale</span><b>{{ "%.2f"|format(p.prob.expected_total_goals) }}</b></div>
+        </div>
+
+        <h3>Chi tiene la porta chiusa</h3>
+        <div class="cifre minute">
+          <div><span class="voce">Segnano entrambe</span><b>{{ (p.prob.btts*100)|round(1) }}%</b></div>
+          <div><span class="voce">{{ p.casa }} non subisce</span><b>{{ (p.prob.clean_sheet_home*100)|round(1) }}%</b></div>
+          <div><span class="voce">{{ p.ospite }} non subisce</span><b>{{ (p.prob.clean_sheet_away*100)|round(1) }}%</b></div>
+        </div>
+      </div>
+
+      <div class="pannello">
+        <h3 style="margin-top:0">Over / Under</h3>
+        <table class="tabella compatta">
+          <thead><tr><th>Linea</th><th class="destra">Over</th><th class="destra">Under</th></tr></thead>
+          <tbody>
+            {% for linea in [0.5, 1.5, 2.5, 3.5, 4.5] %}
+              <tr>
+                <td class="mono">{{ linea }}</td>
+                <td class="destra mono">{{ (p.prob.over[linea]*100)|round(1) }}%</td>
+                <td class="destra mono">{{ (p.prob.under[linea]*100)|round(1) }}%</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <p class="avviso">
+          <strong>Attenzione all'Over/Under.</strong> Nel backtest sulla
+          stagione 2024/25 il modello su questi esiti non ha battuto la
+          semplice media di campionato. Sull'1X2 si', su questi no: vanno
+          letti con molta prudenza.
+        </p>
+      </div>
+    </div>
   </div>
 </section>
 
 {% if griglia %}
-<section>
-  <h2>Tutti i risultati esatti</h2>
-  <p class="sottotitolo">
-    E' l'oggetto da cui viene tutto il resto: 1X2, Over/Under e Gol/NoGol sono
-    somme di queste caselle. Piu' scura la casella, piu' probabile il punteggio.
-  </p>
-  <div class="griglia-avvolgente">
-    <table class="griglia-risultati">
-      <thead>
-        <tr>
-          <th class="angolo"><span>{{ p.casa }}</span><span class="freccia">↓</span></th>
-          <th colspan="{{ griglia[0].celle|length }}" class="testa-ospite">{{ p.ospite }} →</th>
-        </tr>
-        <tr>
-          <th></th>
-          {% for c in griglia[0].celle %}<th class="mono">{{ c.ospite }}</th>{% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for riga in griglia %}
-          <tr>
-            <th class="mono">{{ riga.casa }}</th>
-            {% for c in riga.celle %}
-              <td class="cella esito-{{ c.esito }} {{ 'picco' if c.massimo }}"
-                  style="--intensita: {{ c.intensita|round(3) }}"
-                  title="{{ c.casa }}-{{ c.ospite }}: {{ (c.prob*100)|round(1) }}%">
-                {{ (c.prob*100)|round(1) }}
-              </td>
-            {% endfor %}
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <div class="legenda-griglia">
-    <span class="chiave esito-1"></span> vittoria {{ p.casa }}
-    <span class="chiave esito-X"></span> pareggio
-    <span class="chiave esito-2"></span> vittoria {{ p.ospite }}
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">L'oggetto originale</p>
+    <h2>Tutti i risultati esatti</h2>
+    <p class="spiega">
+      E' la matrice da cui viene tutto il resto: 1X2, Over/Under e Gol/NoGol
+      sono <b>somme di queste caselle</b>. E' anche il motivo per cui non
+      possono contraddirsi fra loro.
+    </p>
+    <p class="spiega">
+      Piu' e' intensa la casella, piu' e' probabile il punteggio. Il bordo
+      scuro marca il piu' probabile di tutti.
+    </p>
   </div>
 
-  <h3>I cinque punteggi piu' probabili</h3>
-  <div class="coppie strette">
-    {% for punteggio, prob in p.prob.top_scorelines %}
-      <div><span class="mono">{{ punteggio[0] }}-{{ punteggio[1] }}</span><b>{{ (prob*100)|round(1) }}%</b></div>
-    {% endfor %}
+  <div class="corpo">
+    <div class="griglia-avvolgente">
+      <table class="griglia-risultati">
+        <thead>
+          <tr>
+            <th class="angolo"><span>{{ p.casa }}</span><span class="freccia">&darr;</span></th>
+            <th colspan="{{ griglia[0].celle|length }}" class="testa-ospite">{{ p.ospite }} &rarr;</th>
+          </tr>
+          <tr>
+            <th></th>
+            {% for c in griglia[0].celle %}<th>{{ c.ospite }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for riga in griglia %}
+            <tr>
+              <th>{{ riga.casa }}</th>
+              {% for c in riga.celle %}
+                <td class="cella esito-{{ c.esito }} {{ 'picco' if c.massimo }}"
+                    style="--intensita: {{ c.intensita|round(3) }}"
+                    title="{{ c.casa }}-{{ c.ospite }}: {{ (c.prob*100)|round(1) }}%">
+                  {{ (c.prob*100)|round(1) }}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="legenda-griglia">
+      <span class="tassello esito-1"></span> vittoria {{ p.casa }}
+      <span class="tassello esito-X"></span> pareggio
+      <span class="tassello esito-2"></span> vittoria {{ p.ospite }}
+    </div>
+
+    <h3>I cinque punteggi piu' probabili</h3>
+    <div class="cifre minute">
+      {% for punteggio, prob in p.prob.top_scorelines %}
+        <div><span class="voce">{{ punteggio[0] }}&ndash;{{ punteggio[1] }}</span><b>{{ (prob*100)|round(1) }}%</b></div>
+      {% endfor %}
+    </div>
   </div>
 </section>
 {% endif %}
@@ -151,133 +273,157 @@
 {% endif %}
 
 {% if gol %}
-<section>
-  <h2>I gol</h2>
-  <table class="tabella compatta">
-    <tbody>
-      {% for g in gol %}
-        <tr>
-          <td class="mono tenue">{{ g.minuto or "?" }}'</td>
-          <td>
-            {% if g.marcatore_id %}
-              <a href="/giocatore/{{ g.marcatore_id }}">{{ g.marcatore }}</a>
-            {% else %}{{ g.marcatore }}{% endif %}
-            {% if g.nota %}<span class="pillola tenue">{{ g.nota }}</span>{% endif %}
-            {% if g.assist %}
-              <span class="tenue">assist
-                {% if g.assist_id %}<a href="/giocatore/{{ g.assist_id }}">{{ g.assist }}</a>
-                {% else %}{{ g.assist }}{% endif %}</span>
-            {% endif %}
-          </td>
-          <td class="destra tenue">{{ g.squadra }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-{% endif %}
-
-{% if formazioni %}
-<section>
-  <h2>Formazioni</h2>
-  <p class="sottotitolo">
-    Le formazioni scese in campo, con accanto cosa ha fatto ciascuno. Sono
-    dettagli gia' sul disco: leggerli non costa nessuna richiesta all'API.
-  </p>
-  <div class="pannelli">
-    {% for f in formazioni %}
-      <div class="pannello">
-        <h2><a href="/squadra/{{ f.squadra_id }}">{{ f.squadra }}</a></h2>
-        <p class="sottotitolo">
-          {{ f.modulo or "modulo non disponibile" }}
-          {% if f.allenatore %} · allenatore {{ f.allenatore }}{% endif %}
-        </p>
-        <table class="tabella compatta">
-          <thead>
-            <tr><th>Titolari</th><th class="destra">Min</th><th class="destra">G+A</th><th class="destra">Voto</th></tr>
-          </thead>
-          <tbody>
-            {% for v in f.titolari %}
-              <tr>
-                <td>
-                  <span class="mono tenue">{{ v.numero or "" }}</span>
-                  <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
-                  {% if v.rossi %}<span class="pillola tenue">espulso</span>{% endif %}
-                </td>
-                <td class="destra mono tenue">{{ v.minuti if v.minuti is not none else "—" }}</td>
-                <td class="destra mono {{ 'forte' if v.gol or v.assist }}">
-                  {%- if v.gol or v.assist %}{{ v.gol }}+{{ v.assist }}{% else %}—{% endif -%}
-                </td>
-                <td class="destra mono">{% if v.voto %}{{ "%.1f"|format(v.voto) }}{% else %}—{% endif %}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-
-        {% if f.panchina %}
-          <h3>Panchina</h3>
-          <table class="tabella compatta">
-            <tbody>
-              {% for v in f.panchina %}
-                <tr>
-                  <td>
-                    <span class="mono tenue">{{ v.numero or "" }}</span>
-                    <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
-                  </td>
-                  <td class="destra mono tenue">
-                    {%- if v.sceso_in_campo %}{{ v.minuti }}'{% else %}non entrato{% endif -%}
-                  </td>
-                  <td class="destra mono {{ 'forte' if v.gol or v.assist }}">
-                    {%- if v.gol or v.assist %}{{ v.gol }}+{{ v.assist }}{% endif -%}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% endif %}
-      </div>
-    {% endfor %}
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Com'e' andata</p>
+    <h2>I gol</h2>
   </div>
-  <p class="nota">
-    Minuti, gol e voti vengono dal tabellino della partita; se manca restano i
-    nomi, e le colonne dicono "—" invece di uno zero che sembrerebbe un dato.
-  </p>
-</section>
-{% elif p.conclusa %}
-<section>
-  <h2>Formazioni</h2>
-  <p class="nota">
-    Nessuna formazione nell'archivio per questa partita. I dettagli si
-    recuperano dall'id in qualsiasi momento — non hanno la finestra di tre
-    giorni delle partite — quindi e' solo questione di budget: la raccolta
-    giornaliera ci torna sopra.
-  </p>
-</section>
-{% endif %}
-
-<section>
-  <h2>Scontri diretti</h2>
-  {% if scontri %}
+  <div class="corpo">
     <table class="tabella">
-      <thead><tr><th>Quando</th><th>Partita</th><th class="destra">Risultato</th></tr></thead>
       <tbody>
-        {% for s in scontri %}
+        {% for g in gol %}
           <tr>
-            <td class="tenue">{{ s.quando }}</td>
-            <td>{{ s.casa }} - {{ s.ospite }}{% if not s.stessa_direzione %}<span class="pillola tenue">campo invertito</span>{% endif %}</td>
-            <td class="destra mono"><b>{{ s.risultato }}</b></td>
+            <td class="mono fioco">{{ g.minuto or "?" }}'</td>
+            <td>
+              {% if g.marcatore_id %}
+                <a href="/giocatore/{{ g.marcatore_id }}">{{ g.marcatore }}</a>
+              {% else %}{{ g.marcatore }}{% endif %}
+              {% if g.nota %}<span class="pillola">{{ g.nota }}</span>{% endif %}
+              {% if g.assist %}
+                <span class="fioco">assist
+                  {% if g.assist_id %}<a href="/giocatore/{{ g.assist_id }}">{{ g.assist }}</a>
+                  {% else %}{{ g.assist }}{% endif %}</span>
+              {% endif %}
+            </td>
+            <td class="destra fioco">{{ g.squadra }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
-    <p class="nota">
-      Gli scontri diretti sono qui perche' raccontano qualcosa, non perche'
-      entrino nel modello: due partite a stagione sono un campione troppo
-      piccolo perche' il segnale superi il rumore.
+  </div>
+</section>
+{% endif %}
+
+{% if formazioni %}
+<section class="blocco disteso">
+  <div class="lato">
+    <p class="occhiello">Chi e' sceso in campo</p>
+    <h2>Formazioni</h2>
+    <p class="spiega">
+      Le formazioni scese in campo, con accanto cosa ha fatto ciascuno. Sono
+      dettagli gia' sul disco: leggerli non costa nessuna richiesta all'API.
+      Dove il tabellino manca le colonne dicono &mdash;, non uno zero che
+      sembrerebbe un dato.
     </p>
-  {% else %}
-    <p class="nota">Nessun precedente fra queste due squadre nei dati disponibili.</p>
-  {% endif %}
+  </div>
+
+  <div class="corpo">
+    <div class="pannelli">
+      {% for f in formazioni %}
+        <div class="pannello">
+          <h2><a href="/squadra/{{ f.squadra_id }}">{{ f.squadra }}</a></h2>
+          <p class="spiega">
+            {{ f.modulo or "modulo non disponibile" }}
+            {% if f.allenatore %} &middot; allenatore {{ f.allenatore }}{% endif %}
+          </p>
+          <table class="tabella compatta">
+            <thead>
+              <tr><th>Titolari</th><th class="destra">Min</th><th class="destra">G+A</th><th class="destra">Voto</th></tr>
+            </thead>
+            <tbody>
+              {% for v in f.titolari %}
+                <tr>
+                  <td>
+                    <span class="mono fioco">{{ v.numero or "" }}</span>
+                    <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
+                    {% if v.rossi %}<span class="pillola">espulso</span>{% endif %}
+                  </td>
+                  <td class="destra mono fioco">{{ v.minuti if v.minuti is not none else "—" }}</td>
+                  <td class="destra mono {{ 'forte' if v.gol or v.assist }}">
+                    {%- if v.gol or v.assist %}{{ v.gol }}+{{ v.assist }}{% else %}—{% endif -%}
+                  </td>
+                  <td class="destra mono">{% if v.voto %}{{ "%.1f"|format(v.voto) }}{% else %}—{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          {% if f.panchina %}
+            <h3>Panchina</h3>
+            <table class="tabella compatta">
+              <tbody>
+                {% for v in f.panchina %}
+                  <tr>
+                    <td>
+                      <span class="mono fioco">{{ v.numero or "" }}</span>
+                      <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
+                    </td>
+                    <td class="destra mono fioco">
+                      {%- if v.sceso_in_campo %}{{ v.minuti }}'{% else %}non entrato{% endif -%}
+                    </td>
+                    <td class="destra mono {{ 'forte' if v.gol or v.assist }}">
+                      {%- if v.gol or v.assist %}{{ v.gol }}+{{ v.assist }}{% endif -%}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% elif p.conclusa %}
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Chi e' sceso in campo</p>
+    <h2>Formazioni</h2>
+  </div>
+  <div class="corpo">
+    <div class="riquadro-vuoto">
+      <h2>Nessuna formazione nell'archivio</h2>
+      <p>
+        I dettagli si recuperano dall'id in qualsiasi momento &mdash; non hanno
+        la finestra di tre giorni delle partite &mdash; quindi e' solo
+        questione di budget: la raccolta giornaliera ci torna sopra.
+      </p>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Precedenti</p>
+    <h2>Scontri diretti</h2>
+    <p class="spiega">
+      Sono qui perche' raccontano qualcosa, <b>non perche' entrino nel
+      modello</b>: due partite a stagione sono un campione troppo piccolo
+      perche' il segnale superi il rumore.
+    </p>
+  </div>
+  <div class="corpo">
+    {% if scontri %}
+      <table class="tabella">
+        <thead><tr><th>Quando</th><th>Partita</th><th class="destra">Risultato</th></tr></thead>
+        <tbody>
+          {% for s in scontri %}
+            <tr>
+              <td class="fioco">{{ s.quando }}</td>
+              <td>{{ s.casa }} &middot; {{ s.ospite }}{% if not s.stessa_direzione %} <span class="pillola">campo invertito</span>{% endif %}</td>
+              <td class="destra mono forte">{{ s.risultato }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="riquadro-vuoto">
+        <h2>Nessun precedente</h2>
+        <p>Queste due squadre non si sono mai incontrate nei dati disponibili.</p>
+      </div>
+    {% endif %}
+  </div>
 </section>
 
 {% endblock %}

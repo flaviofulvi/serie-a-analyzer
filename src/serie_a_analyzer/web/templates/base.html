@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block titolo %}Serie A Analyzer{% endblock %}</title>
+  {# Tre caratteri, tre mestieri: Bricolage Grotesque per i titoli e i nomi
+     delle squadre, Instrument Sans per il testo, DM Mono per ogni cifra. Se
+     non arrivano — la pagina gira anche in locale senza rete — le alternative
+     di sistema in style.css tengono le stesse proporzioni. #}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400..700&display=swap">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -13,10 +20,32 @@
         <span class="marchio-nome">Serie A Analyzer</span>
         <span class="marchio-sotto">probabilita', non certezze</span>
       </a>
-      <nav class="navigazione">
-        <a href="/">Partite</a>
-        <a href="/giocatori">Giocatori</a>
-        <a href="/stato">Stato</a>
+      {# Bottoni veri, non testo sottolineato: si vede quale pagina si sta
+         guardando e cosa fa ciascun comando. Il filetto separa le due pagine
+         da leggere dagli attrezzi, che rispondono in JSON. La pagina attiva
+         e' un <span>: un collegamento a se stessa non porterebbe da nessuna
+         parte, e finirebbe nel giro dei tasti per niente. #}
+      {% set percorso = request.url.path if request else "" %}
+      <nav class="navigazione" aria-label="Sezioni">
+        {# Scheda partita e scheda squadra si raggiungono da qui: restano
+           sotto "Partite", altrimenti si arriva in una pagina che secondo
+           la testata non appartiene a nessuna sezione. #}
+        {% if percorso == "/" or percorso.startswith("/partita") or percorso.startswith("/squadra") %}
+          <span class="bottone attivo" aria-current="page">Partite</span>
+        {% else %}
+          <a class="bottone" href="/">Partite</a>
+        {% endif %}
+
+        {% if percorso.startswith("/giocator") %}
+          <span class="bottone attivo" aria-current="page">Giocatori</span>
+        {% else %}
+          <a class="bottone" href="/giocatori">Giocatori</a>
+        {% endif %}
+
+        <span class="divisorio" aria-hidden="true"></span>
+
+        <a class="bottone attrezzo" href="/stato">Stato</a>
+        <a class="bottone attrezzo" href="/aggiorna">Aggiorna</a>
       </nav>
     </div>
   </header>

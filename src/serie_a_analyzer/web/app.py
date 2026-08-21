@@ -26,6 +26,7 @@ from .views import (
     riga_giocatore,
     riga_partita,
     righe_accuratezza,
+    righe_affidabilita,
     righe_confronto_mercato,
     righe_gol,
     righe_prestazioni,
@@ -133,6 +134,12 @@ def partita(request: Request, fixture_id: int):
     return templates.TemplateResponse(request, "partita.html", {
         "p": riga,
         "griglia": griglia,
+        # Quanto il modello sa delle due squadre. Va accanto al pronostico e
+        # non in fondo: e' la differenza fra "prudente perche' e' una partita
+        # equilibrata" e "prudente perche' non so niente di loro".
+        "affidabilita": righe_affidabilita(
+            motore.affidabilita(fixture.home_team_id, fixture.away_team_id), riga
+        ),
         "formazioni": blocchi_formazione(formazioni, prestazioni),
         "gol": righe_gol(gol_partita(motore.store, fixture_id), fixture.home_team_id),
         "scontri": [

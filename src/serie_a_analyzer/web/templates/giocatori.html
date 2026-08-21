@@ -2,122 +2,154 @@
 
 {% block titolo %}Giocatori · Serie A Analyzer{% endblock %}
 
-{% macro copertura(archivio) %}
-  <p class="nota">
-    Conti costruiti sulle <b>{{ archivio.partite_con_statistiche }}</b> partite
-    con statistiche per giocatore, su {{ archivio.partite_concluse }} concluse
-    nell'archivio della stagione in corso
-    ({{ (archivio.copertura*100)|round|int }}%). Le stagioni 2022-2024 servono a
-    stimare il modello ma non compaiono qui: di quelle l'archivio conserva i
-    risultati, non i tabellini. Nessuna di queste pagine costa richieste
-    all'API — e' tutto materiale gia' sul disco.
-  </p>
-{% endmacro %}
-
 {% block contenuto %}
 
 {% if archivio.vuoto %}
-  <section class="riquadro-vuoto">
-    <h1>Nessuna statistica per giocatore</h1>
-    <p>
-      I tabellini arrivano <strong>a partita conclusa</strong>, insieme al
-      recupero dei dettagli: finche' la stagione non e' cominciata — o finche'
-      la raccolta non ha chiuso la prima giornata — qui non c'e' niente da
-      mostrare.
-    </p>
-    <p class="nota">
-      Partite concluse nell'archivio della stagione in corso:
-      <strong>{{ archivio.partite_concluse }}</strong>. Se sono parecchie e
-      questa pagina resta vuota, i dettagli non sono stati raccolti: lo dice
-      <a href="/stato">lo stato</a>, e li recupera la raccolta giornaliera.
-    </p>
-  </section>
-{% else %}
 
-<section>
-  <h1>Giocatori</h1>
-  <p class="sottotitolo">
-    {{ archivio.giocatori_conosciuti }} giocatori visti scendere in campo.
-    Chi non e' mai entrato non compare: l'archivio sa solo cio' che e'
-    successo in campo, non le rose ufficiali.
+<section class="apertura">
+  <p class="occhiello">Serie A &middot; stagione in corso</p>
+  <h1>Nessuna statistica per giocatore</h1>
+  <p class="sommario">
+    I tabellini arrivano <b>a partita conclusa</b>, insieme al recupero dei
+    dettagli.
   </p>
 </section>
 
-<section>
-  <h2>Marcatori</h2>
-  <table class="tabella">
-    <thead>
-      <tr>
-        <th>#</th><th>Giocatore</th><th>Squadra</th>
-        <th class="destra">Gol</th><th class="destra">Assist</th>
-        <th class="destra">Presenze</th><th class="destra">Minuti</th>
-        <th class="destra">Min/gol</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for g in marcatori %}
-        <tr>
-          <td class="tenue">{{ loop.index }}</td>
-          <td><a href="/giocatore/{{ g.id }}">{{ g.nome }}</a>
-              {% if g.ruolo %}<span class="pillola tenue">{{ g.ruolo }}</span>{% endif %}</td>
-          <td><a href="/squadra/{{ g.squadra_id }}">{{ g.squadra }}</a></td>
-          <td class="destra mono forte">{{ g.gol }}</td>
-          <td class="destra mono">{{ g.assist }}</td>
-          <td class="destra mono tenue">{{ g.presenze }}</td>
-          <td class="destra mono tenue">{{ g.minuti }}</td>
-          <td class="destra mono tenue">{{ (g.minuti // g.gol) if g.gol else "—" }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Perche' e' vuoto</p>
+    <h2>Cosa manca</h2>
+  </div>
+  <div class="corpo">
+    <div class="riquadro-vuoto">
+      <h2>Partite concluse nell'archivio: {{ archivio.partite_concluse }}</h2>
+      <p>
+        Finche' la stagione non e' cominciata &mdash; o finche' la raccolta non
+        ha chiuso la prima giornata &mdash; qui non c'e' niente da mostrare.
+      </p>
+      <p>
+        Se le partite concluse sono parecchie e questa pagina resta vuota, i
+        dettagli non sono stati raccolti: lo dice <a href="/stato">lo
+        stato</a>, e li recupera la raccolta giornaliera.
+      </p>
+    </div>
+  </div>
 </section>
 
-<section class="pannelli">
-  <div class="pannello">
-    <h2>Assist</h2>
-    <table class="tabella compatta">
-      <thead><tr><th>Giocatore</th><th>Squadra</th><th class="destra">Assist</th></tr></thead>
-      <tbody>
-        {% for g in assistenti %}
-          <tr>
-            <td><a href="/giocatore/{{ g.id }}">{{ g.nome }}</a></td>
-            <td class="tenue">{{ g.squadra }}</td>
-            <td class="destra mono forte">{{ g.assist }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+{% else %}
+
+<section class="apertura">
+  <p class="occhiello">Serie A &middot; stagione in corso</p>
+  <h1>{{ archivio.giocatori_conosciuti }} giocatori visti in campo</h1>
+  <p class="sommario">
+    Chi non e' mai entrato non compare: l'archivio sa solo cio' che e'
+    successo in campo, <b>non le rose ufficiali</b>. Un acquisto mai impiegato
+    non c'e', ed e' giusto cosi'.
+  </p>
+</section>
+
+<section class="blocco disteso">
+  <div class="lato">
+    <p class="occhiello">Chi segna</p>
+    <h2>Marcatori</h2>
+    <p class="spiega">
+      Conti costruiti sulle <b>{{ archivio.partite_con_statistiche }}</b>
+      partite con tabellino, su {{ archivio.partite_concluse }} concluse
+      nell'archivio della stagione in corso
+      ({{ (archivio.copertura*100)|round|int }}%). Le stagioni 2022-2024
+      servono a stimare il modello ma non compaiono qui: di quelle l'archivio
+      conserva i risultati, non i tabellini.
+    </p>
   </div>
 
-  <div class="pannello">
-    <h2>Voto medio</h2>
-    {% if voti %}
-      <table class="tabella compatta">
-        <thead><tr><th>Giocatore</th><th class="destra">Voto</th><th class="destra">Partite</th></tr></thead>
+  <div class="corpo">
+    <div class="tabella-avvolgente">
+      <table class="tabella">
+        <thead>
+          <tr>
+            <th>#</th><th>Giocatore</th><th>Squadra</th>
+            <th class="destra">Gol</th><th class="destra">Assist</th>
+            <th class="destra">Presenze</th><th class="destra">Minuti</th>
+            <th class="destra">Min/gol</th>
+          </tr>
+        </thead>
         <tbody>
-          {% for g in voti %}
+          {% for g in marcatori %}
             <tr>
-              <td><a href="/giocatore/{{ g.id }}">{{ g.nome }}</a></td>
-              <td class="destra mono forte">{{ "%.2f"|format(g.voto_medio) }}</td>
-              <td class="destra mono tenue">{{ g.partite_con_voto }}</td>
+              <td class="mono fioco">{{ loop.index }}</td>
+              <td><a href="/giocatore/{{ g.id }}">{{ g.nome }}</a>
+                  {% if g.ruolo %}<span class="pillola">{{ g.ruolo }}</span>{% endif %}</td>
+              <td><a href="/squadra/{{ g.squadra_id }}">{{ g.squadra }}</a></td>
+              <td class="destra mono forte">{{ g.gol }}</td>
+              <td class="destra mono">{{ g.assist }}</td>
+              <td class="destra mono fioco">{{ g.presenze }}</td>
+              <td class="destra mono fioco">{{ g.minuti }}</td>
+              <td class="destra mono fioco">{{ (g.minuti // g.gol) if g.gol else "—" }}</td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
-      <p class="avviso-piccolo">
-        Solo chi ha almeno cinque partite con un voto: una media su una partita
-        sola non e' una media.
-      </p>
-    {% else %}
-      <p class="nota">
-        Nessun giocatore ha ancora abbastanza partite con un voto perche' la
-        media significhi qualcosa.
-      </p>
-    {% endif %}
+    </div>
   </div>
 </section>
 
-{{ copertura(archivio) }}
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Le altre classifiche</p>
+    <h2>Assist e voti</h2>
+    <p class="spiega">
+      Il voto medio conta solo chi ha <b>almeno cinque partite</b> con un voto:
+      una media su una partita sola non e' una media.
+    </p>
+    <p class="spiega">
+      Nessuna di queste pagine costa richieste all'API &mdash; e' tutto
+      materiale gia' sul disco, pagato dalla raccolta giornaliera.
+    </p>
+  </div>
+
+  <div class="corpo">
+    <div class="pannelli">
+      <div class="pannello">
+        <h3 style="margin-top:0">Assist</h3>
+        <table class="tabella compatta">
+          <thead><tr><th>Giocatore</th><th>Squadra</th><th class="destra">Assist</th></tr></thead>
+          <tbody>
+            {% for g in assistenti %}
+              <tr>
+                <td><a href="/giocatore/{{ g.id }}">{{ g.nome }}</a></td>
+                <td class="fioco">{{ g.squadra }}</td>
+                <td class="destra mono forte">{{ g.assist }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pannello">
+        <h3 style="margin-top:0">Voto medio</h3>
+        {% if voti %}
+          <table class="tabella compatta">
+            <thead><tr><th>Giocatore</th><th class="destra">Voto</th><th class="destra">Partite</th></tr></thead>
+            <tbody>
+              {% for g in voti %}
+                <tr>
+                  <td><a href="/giocatore/{{ g.id }}">{{ g.nome }}</a></td>
+                  <td class="destra mono forte">{{ "%.2f"|format(g.voto_medio) }}</td>
+                  <td class="destra mono fioco">{{ g.partite_con_voto }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="spiega">
+            Nessun giocatore ha ancora abbastanza partite con un voto perche'
+            la media significhi qualcosa.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</section>
 
 {% endif %}
 

@@ -1,259 +1,358 @@
 {% extends "base.html" %}
 
-{% macro barra_1x2(p) %}
-  <div class="barra-1x2" role="img"
-       aria-label="1 {{ (p.home_win*100)|round }}%, X {{ (p.draw*100)|round }}%, 2 {{ (p.away_win*100)|round }}%">
-    <span class="segmento seg-1" style="width: {{ (p.home_win*100)|round(2) }}%"></span>
-    <span class="segmento seg-x" style="width: {{ (p.draw*100)|round(2) }}%"></span>
-    <span class="segmento seg-2" style="width: {{ (p.away_win*100)|round(2) }}%"></span>
-  </div>
-  <div class="legenda-1x2">
-    <span><b>1</b> {{ (p.home_win*100)|round|int }}%</span>
-    <span><b>X</b> {{ (p.draw*100)|round|int }}%</span>
-    <span><b>2</b> {{ (p.away_win*100)|round|int }}%</span>
-  </div>
-{% endmacro %}
+{% from "forme.html" import trittico, muro, punteggio %}
 
 {% block contenuto %}
 
-{% if prossime %}
-  <section>
-    <h1>Prossime partite</h1>
-    <p class="sottotitolo">
-      {{ prossime|length }} incontr{{ "o" if prossime|length == 1 else "i" }} in programma.
-      Le percentuali vengono tutte dalla stessa matrice dei risultati esatti,
-      quindi non possono contraddirsi fra loro.
+{# Il titolo dice quante partite ci sono: e' la prima cosa che si vuole
+   sapere aprendo la pagina, non un'etichetta di sezione. #}
+<section class="apertura">
+  <p class="occhiello">Serie A &middot; stagione in corso</p>
+  {% if prossime %}
+    <h1>{{ prossime|length }} partit{{ "a" if prossime|length == 1 else "e" }} in programma</h1>
+    <p class="sommario">
+      Ogni percentuale di questa pagina viene dalla <b>stessa matrice dei
+      risultati esatti</b>: 1X2, Over/Under e Gol/NoGol sono somme delle sue
+      caselle, quindi non possono contraddirsi fra loro.
     </p>
+  {% else %}
+    <h1>Nessuna partita in programma</h1>
+    <p class="sommario">
+      Sul piano gratuito il calendario si legge un giorno alla volta: le
+      partite compaiono qui al massimo <b>un giorno prima</b> del calcio
+      d'inizio.
+    </p>
+  {% endif %}
+</section>
 
-    <div class="griglia-partite">
-      {% for p in prossime %}
-        <a class="scheda-partita" href="/partita/{{ p.id }}">
-          <div class="scheda-quando">
-            {{ p.quando }}
-            {% if p.giornata %}<span class="pillola">giornata {{ p.giornata }}</span>{% endif %}
-          </div>
-          <div class="scheda-squadre">
-            <span class="squadra">{{ p.casa }}</span>
-            <span class="contro">-</span>
-            <span class="squadra">{{ p.ospite }}</span>
-          </div>
+{% if prossime %}
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">In programma</p>
+      <h2>Prossime partite</h2>
+      <p class="spiega">
+        Le tre barre partono tutte dallo stesso zero: la piu' lunga e'
+        l'esito che il modello ritiene piu' probabile.
+      </p>
+      <p class="spiega">
+        Un pronostico appare solo se il modello conosce entrambe le squadre.
+        Quando manca, la scheda dice perche' invece di inventarne uno.
+      </p>
+    </div>
 
-          {% if p.ha_pronostico %}
-            {{ barra_1x2(p.prob) }}
-            <div class="scheda-numeri">
-              <div><span class="etichetta">Gol attesi</span>
-                   <b>{{ "%.2f"|format(p.gol_attesi_casa) }} - {{ "%.2f"|format(p.gol_attesi_ospite) }}</b></div>
-              <div><span class="etichetta">Over 2.5</span>
-                   <b>{{ (p.prob.over[2.5]*100)|round|int }}%</b></div>
-              <div><span class="etichetta">Gol/NoGol</span>
-                   <b>{{ (p.prob.btts*100)|round|int }}%</b></div>
-              <div><span class="etichetta">Risultato</span>
-                   <b>{{ p.risultato_probabile }}</b></div>
+    <div class="corpo">
+      <div class="elenco-partite">
+        {% for p in prossime %}
+          <a class="scheda-partita" href="/partita/{{ p.id }}">
+            <div class="scheda-testa">
+              <span>{{ p.quando }}</span>
+              {% if p.giornata %}<span class="pillola">giornata {{ p.giornata }}</span>{% endif %}
             </div>
-          {% else %}
-            <p class="avviso-piccolo">
-              Nessun pronostico: almeno una delle due squadre non ha ancora
-              storia sufficiente nel modello.
-            </p>
-          {% endif %}
-        </a>
-      {% endfor %}
+
+            {% if p.ha_pronostico %}
+              {{ trittico(p.prob, p.casa, p.ospite) }}
+              <div class="scheda-coda">
+                <div><span class="voce">Gol attesi</span>
+                     <b>{{ "%.2f"|format(p.gol_attesi_casa) }}&ndash;{{ "%.2f"|format(p.gol_attesi_ospite) }}</b></div>
+                <div><span class="voce">Over 2.5</span>
+                     <b>{{ (p.prob.over[2.5]*100)|round|int }}%</b></div>
+                <div><span class="voce">Gol/NoGol</span>
+                     <b>{{ (p.prob.btts*100)|round|int }}%</b></div>
+                {# "Risultato" da solo, su una partita da giocare, si legge
+                   come il risultato finale: e' il punteggio piu' probabile. #}
+                <div><span class="voce">Piu' probabile</span>
+                     <b>{{ p.risultato_probabile }}</b></div>
+              </div>
+            {% else %}
+              <div class="esito-riga casa" style="grid-template-columns: 1fr">
+                <span class="chi">{{ p.casa }} &middot; {{ p.ospite }}</span>
+              </div>
+              <p class="senza-pronostico">
+                Nessun pronostico: almeno una delle due squadre non ha ancora
+                storia sufficiente nel modello.
+              </p>
+            {% endif %}
+          </a>
+        {% endfor %}
+      </div>
     </div>
   </section>
 {% else %}
-  <section class="riquadro-vuoto">
-    <h1>Nessuna partita in programma</h1>
-    <p>
-      L'archivio non contiene incontri futuri. Sul piano gratuito il calendario
-      della stagione in corso si legge un giorno alla volta, quindi le partite
-      compaiono qui al massimo <strong>un giorno prima</strong> del calcio d'inizio.
-    </p>
-    <p class="nota">
-      Ultimo giorno raccolto: <strong>{{ salute.ultimo_giorno_raccolto or "nessuno" }}</strong>.
-      La raccolta gira quattro volte al giorno; se questa data e' vecchia di piu'
-      di un giorno, c'e' qualcosa che non va nell'attivita' pianificata.
-    </p>
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">In programma</p>
+      <h2>Come arrivano le partite</h2>
+      <p class="spiega">
+        La raccolta gira quattro volte al giorno. Se l'ultimo giorno raccolto
+        e' vecchio di piu' di un giorno, c'e' qualcosa che non va
+        nell'attivita' pianificata.
+      </p>
+    </div>
+    <div class="corpo">
+      <div class="riquadro-vuoto">
+        <h2>L'archivio non contiene incontri futuri</h2>
+        <p>
+          Il calendario della stagione in corso si legge con una finestra di
+          tre giorni, e gli id delle partite mancati non si recuperano piu'.
+          Per questo la raccolta li cattura prima di spendere su tutto il resto.
+        </p>
+        <p>
+          Ultimo giorno raccolto:
+          <strong>{{ salute.ultimo_giorno_raccolto or "nessuno" }}</strong>,
+          su <strong>{{ salute.giorni_raccolti }}</strong> giorni in totale.
+        </p>
+      </div>
+    </div>
   </section>
 {% endif %}
 
 {% if recenti %}
-  <section>
-    <h2>Ultimi risultati</h2>
-    <p class="sottotitolo">
-      Il pronostico mostrato e' quello che il modello <em>attuale</em> darebbe oggi,
-      non quello che aveva dato prima della partita: serve a farsi un'idea, non
-      a misurare l'accuratezza. La misura vera e' piu' in basso, e usa i
-      pronostici <em>congelati prima</em> del fischio d'inizio.
-    </p>
-    <table class="tabella">
-      <thead>
-        <tr>
-          <th>Quando</th><th>Partita</th><th class="destra">Risultato</th>
-          <th class="destra">1</th><th class="destra">X</th><th class="destra">2</th>
-          <th class="destra">Esito</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in recenti %}
-          <tr>
-            <td class="tenue">{{ p.quando }}</td>
-            <td><a href="/partita/{{ p.id }}">{{ p.casa }} - {{ p.ospite }}</a></td>
-            <td class="destra mono"><b>{{ p.risultato }}</b></td>
-            {% if p.ha_pronostico %}
-              <td class="destra mono {{ 'evidenzia' if p.esito_reale == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
-              <td class="destra mono {{ 'evidenzia' if p.esito_reale == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
-              <td class="destra mono {{ 'evidenzia' if p.esito_reale == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
-              <td class="destra">
-                {% if p.pronostico_azzeccato %}<span class="esito ok">azzeccato</span>
-                {% else %}<span class="esito no">sbagliato</span>{% endif %}
-              </td>
-            {% else %}
-              <td class="destra tenue" colspan="4">—</td>
-            {% endif %}
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Gia' giocate</p>
+      <h2>Ultimi risultati</h2>
+      <p class="spiega">
+        Il pronostico mostrato e' quello che il modello <b>attuale</b> darebbe
+        oggi, non quello che aveva dato prima della partita: serve a farsi
+        un'idea, non a misurare l'accuratezza.
+      </p>
+      <p class="spiega">
+        La casella colorata e' l'esito <b>accaduto davvero</b>, non quello che
+        il modello preferiva: dice quanta probabilita' il modello aveva messo
+        su cio' che poi e' successo.
+      </p>
+      <p class="spiega">
+        Il colore e' sempre lo stesso alfabeto: <b>indaco</b> ha vinto la
+        squadra di casa, <b>grigio</b> pareggio, <b>arancio</b> ha vinto la
+        trasferta. Piu' e' netto il risultato, piu' il punteggio e' acceso.
+      </p>
+    </div>
+
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th>Quando</th><th>Partita</th><th class="destra">Risultato</th>
+              <th class="destra">1</th><th class="destra">X</th><th class="destra">2</th>
+              <th class="destra">Esito</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in recenti %}
+              <tr>
+                <td class="fioco">{{ p.quando }}</td>
+                <td><a href="/partita/{{ p.id }}">{{ p.casa }} &middot; {{ p.ospite }}</a></td>
+                <td class="destra">{{ punteggio(p.risultato, p.esito_reale, p.margine) }}</td>
+                {% if p.ha_pronostico %}
+                  {# Sulle tre celle il velo colorato cade su quella accaduta
+                     davvero. Il colore e' lo stesso del punteggio a sinistra
+                     e, se il modello ci ha preso, anche della pastiglia in
+                     fondo: la riga diventa monocroma quando le due cose
+                     coincidono, screziata quando no. #}
+                  <td class="destra mono {{ 'evidenzia tinta-1' if p.esito_reale == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
+                  <td class="destra mono {{ 'evidenzia tinta-X' if p.esito_reale == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
+                  <td class="destra mono {{ 'evidenzia tinta-2' if p.esito_reale == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
+                  <td class="destra">
+                    {% if p.pronostico_azzeccato %}
+                      <span class="verdetto ok tinta-{{ p.esito_reale }}">azzeccato</span>
+                    {% else %}<span class="verdetto no">sbagliato</span>{% endif %}
+                  </td>
+                {% else %}
+                  <td class="destra fioco" colspan="4">&mdash;</td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 {% endif %}
 
 {% if accuratezza %}
-  <section>
-    <h2>Come stanno andando i pronostici</h2>
-    <p class="sottotitolo">
-      Solo pronostici congelati <b>prima</b> del fischio d'inizio, confrontati col
-      risultato vero. Il punteggio e' il <b>Brier</b>: <em>piu' basso e' meglio</em>,
-      e misura quanto la fiducia dichiarata era meritata — non la percentuale di
-      azzeccati, che dicendo sempre "1" arriverebbe gia' al 45%.
-      La <b>baseline</b> e' cio' che otterrebbe chi ripete ogni volta la frequenza
-      media di quell'esito senza guardare le squadre: e' il muro da superare.
-    </p>
-    <table class="tabella">
-      <thead>
-        <tr>
-          <th>Mercato</th>
-          <th class="destra">Esiti misurati</th>
-          <th class="destra">Brier</th>
-          <th class="destra">Baseline</th>
-          <th class="destra">Accaduto</th>
-          <th class="destra">Previsto</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for a in accuratezza %}
-          <tr>
-            <td>{{ a.mercato }}</td>
-            <td class="destra mono tenue">{{ a.n }}</td>
-            <td class="destra mono forte">{{ "%.4f"|format(a.brier) }}</td>
-            <td class="destra mono tenue">{{ "%.4f"|format(a.baseline) }}</td>
-            <td class="destra mono">{{ (a.tasso_reale*100)|round|int }}%</td>
-            <td class="destra mono">{{ (a.probabilita_media*100)|round|int }}%</td>
-            <td>
-              {% if a.tono == "ok" %}<span class="esito ok">{{ a.verdetto }}</span>
-              {% elif a.tono == "no" %}<span class="esito no">{{ a.verdetto }}</span>
-              {% else %}<span class="esito tenue">{{ a.verdetto }}</span>{% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
-    {% if accuratezza_1x2 %}
-      <p class="nota">
-        Sull'1X2, contato per partita come nel backtest:
-        <b>{{ "%.4f"|format(accuratezza_1x2.brier) }}</b>
-        su {{ accuratezza_1x2.n_partite }} partite, contro
-        <b>{{ "%.4f"|format(accuratezza_1x2.baseline_caso) }}</b> di chi tira a caso.
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">La misura onesta</p>
+      <h2>Come stanno andando i pronostici</h2>
+      <p class="spiega">
+        Solo pronostici congelati <b>prima</b> del fischio d'inizio,
+        confrontati col risultato vero. Il punteggio e' il <b>Brier</b>:
+        piu' basso e' meglio, e misura quanto la fiducia dichiarata era
+        meritata &mdash; non la percentuale di azzeccati, che dicendo sempre
+        "1" arriverebbe gia' al 45%.
       </p>
-    {% endif %}
+      <p class="spiega">
+        La <b>baseline</b> e' cio' che otterrebbe chi ripete ogni volta la
+        frequenza media di quell'esito senza guardare le squadre. E' il muro
+        da superare, ed e' la tacca sulla barra.
+      </p>
+    </div>
+
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th>Mercato</th>
+              <th class="destra">Esiti</th>
+              <th class="destra">Brier</th>
+              <th class="colonna-muro">Contro la baseline</th>
+              <th class="destra">Accaduto / previsto</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in accuratezza %}
+              <tr>
+                <td class="forte">{{ a.mercato }}</td>
+                <td class="destra mono fioco">{{ a.n }}</td>
+                <td class="destra mono forte">{{ "%.4f"|format(a.brier) }}</td>
+                <td class="colonna-muro">{{ muro(a.brier, a.baseline, a.tono, "baseline") }}</td>
+                <td class="destra mono">
+                  {{ (a.tasso_reale*100)|round|int }}%
+                  <span class="fioco">/ {{ (a.probabilita_media*100)|round|int }}%</span>
+                </td>
+                <td>
+                  {% if a.tono == "ok" %}<span class="verdetto ok">{{ a.verdetto }}</span>
+                  {% elif a.tono == "no" %}<span class="verdetto no">{{ a.verdetto }}</span>
+                  {% else %}<span class="verdetto attesa">{{ a.verdetto }}</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="chiave">
+        <i></i> la tacca e' la baseline &middot; <em></em> quanto il modello la sfonda
+      </p>
+
+      <p class="nota">
+        Le due percentuali affiancate a destra dovrebbero somigliarsi: quante
+        volte l'esito e' <b>accaduto</b> e quanto il modello lo dava per
+        probabile. Se la seconda e' molto piu' alta della prima, il modello e'
+        troppo sicuro di se'.
+        {% if accuratezza_1x2 %}
+          Sull'1X2, contato per partita come nel backtest:
+          <b>{{ "%.4f"|format(accuratezza_1x2.brier) }}</b>
+          su {{ accuratezza_1x2.n_partite }} partite, contro
+          <b>{{ "%.4f"|format(accuratezza_1x2.baseline_caso) }}</b> di chi tira a caso.
+        {% endif %}
+      </p>
+    </div>
   </section>
 {% endif %}
 
 {% if confronto_mercato %}
-  <section>
-    <h2>Il modello contro il mercato</h2>
-    <p class="sottotitolo">
-      Il confronto che conta davvero. Le quote di chiusura dei bookmaker
-      incorporano infortuni, formazioni e il denaro di chi scommette: batterle e'
-      difficile, e <b>pareggiare e' gia' un buon risultato</b>. Il confronto usa
-      solo gli esiti per cui esistono entrambe le cose — pronostico congelato e
-      quota — su {{ partite_confrontate }} partite.
-    </p>
-    <table class="tabella">
-      <thead>
-        <tr>
-          <th>Mercato</th>
-          <th class="destra">Esiti</th>
-          <th class="destra">Modello</th>
-          <th class="destra">Mercato</th>
-          <th class="destra">Differenza</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c in confronto_mercato %}
-          <tr>
-            <td>{{ c.mercato }}</td>
-            <td class="destra mono tenue">{{ c.n }}</td>
-            <td class="destra mono forte">{{ "%.4f"|format(c.brier_modello) }}</td>
-            <td class="destra mono">{{ "%.4f"|format(c.brier_mercato) }}</td>
-            <td class="destra mono {{ 'positivo' if c.scarto < 0 else 'negativo' }}">
-              {{ "%+.4f"|format(c.scarto) }}
-            </td>
-            <td>
-              {% if c.tono == "ok" %}<span class="esito ok">{{ c.verdetto }}</span>
-              {% elif c.tono == "no" %}<span class="esito no">{{ c.verdetto }}</span>
-              {% else %}<span class="esito tenue">{{ c.verdetto }}</span>{% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="nota">
-      Differenza negativa = il modello ha fatto meglio delle quote su quegli esiti.
-      Le quote sono l'ultima lettura prima del fischio d'inizio, ripulite dal
-      margine del banco e mediate fra i bookmaker.
-    </p>
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Il confronto che conta</p>
+      <h2>Il modello contro il mercato</h2>
+      <p class="spiega">
+        Le quote di chiusura dei bookmaker incorporano infortuni, formazioni e
+        il denaro di chi scommette: batterle e' difficile, e <b>pareggiare e'
+        gia' un buon risultato</b>.
+      </p>
+      <p class="spiega">
+        Il confronto usa solo gli esiti per cui esistono entrambe le cose,
+        pronostico congelato e quota, su <b>{{ partite_confrontate }}</b>
+        partite. Le quote sono l'ultima lettura prima del fischio d'inizio,
+        ripulite dal margine del banco e mediate fra i bookmaker.
+      </p>
+    </div>
+
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th>Mercato</th>
+              <th class="destra">Esiti</th>
+              <th class="destra">Modello</th>
+              <th class="colonna-muro">Contro le quote</th>
+              <th class="destra">Differenza</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in confronto_mercato %}
+              <tr>
+                <td class="forte">{{ c.mercato }}</td>
+                <td class="destra mono fioco">{{ c.n }}</td>
+                <td class="destra mono forte">{{ "%.4f"|format(c.brier_modello) }}</td>
+                <td class="colonna-muro">{{ muro(c.brier_modello, c.brier_mercato, c.tono, "quote") }}</td>
+                <td class="destra mono">{{ "%+.4f"|format(c.scarto) }}</td>
+                <td>
+                  {% if c.tono == "ok" %}<span class="verdetto ok">{{ c.verdetto }}</span>
+                  {% elif c.tono == "no" %}<span class="verdetto no">{{ c.verdetto }}</span>
+                  {% else %}<span class="verdetto attesa">{{ c.verdetto }}</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="chiave">
+        <i></i> qui la tacca sono le quote &middot; arrivarci vuol dire valere
+        quanto il mercato
+      </p>
+
+      <p class="nota">
+        Differenza negativa = il modello ha fatto meglio delle quote su quegli
+        esiti.
+      </p>
+    </div>
   </section>
 {% endif %}
 
 {% if forze %}
-  <section>
-    <h2>Forza stimata delle squadre</h2>
-    <p class="sottotitolo">
-      Scostamenti dalla media del campionato, su scala logaritmica.
-      Attacco <b>+0.30</b> significa "segna circa il 35% in piu' della squadra media".
-      Le partite recenti pesano di piu': una di sei mesi fa vale la meta' di una di oggi.
-    </p>
-    <table class="tabella tabella-forze">
-      <thead>
-        <tr>
-          <th>#</th><th>Squadra</th>
-          <th class="destra">Attacco</th><th class="destra">Difesa</th><th class="destra">Netta</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for f in forze %}
-          <tr>
-            <td class="tenue">{{ f.posizione }}</td>
-            <td>{{ f.squadra }}</td>
-            <td class="destra mono {{ 'positivo' if f.attacco > 0 else 'negativo' }}">{{ "%+.3f"|format(f.attacco) }}</td>
-            <td class="destra mono {{ 'positivo' if f.difesa > 0 else 'negativo' }}">{{ "%+.3f"|format(f.difesa) }}</td>
-            <td class="destra mono forte {{ 'positivo' if f.netta > 0 else 'negativo' }}">{{ "%+.3f"|format(f.netta) }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
-    {% if modello %}
-      <p class="nota">
-        Fattore campo <b>{{ "%+.3f"|format(modello.home_advantage) }}</b> ·
-        rho <b>{{ "%+.3f"|format(modello.rho) }}</b> ·
-        campione efficace <b>{{ modello.effective_sample_size|round|int }}</b> partite
-        su {{ modello.n_matches }} osservate.
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Dentro il modello</p>
+      <h2>Forza stimata delle squadre</h2>
+      <p class="spiega">
+        Scostamenti dalla media del campionato, su scala logaritmica. Attacco
+        <b>+0.30</b> significa "segna circa il 35% in piu' della squadra media".
       </p>
-    {% endif %}
+      <p class="spiega">
+        Le partite recenti pesano di piu': una di sei mesi fa vale la meta' di
+        una di oggi.
+      </p>
+      {% if modello %}
+        <p class="spiega">
+          Fattore campo <b>{{ "%+.3f"|format(modello.home_advantage) }}</b>,
+          rho <b>{{ "%+.3f"|format(modello.rho) }}</b>, campione efficace
+          <b>{{ modello.effective_sample_size|round|int }}</b> partite su
+          {{ modello.n_matches }} osservate.
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th>#</th><th>Squadra</th>
+              <th class="destra">Attacco</th><th class="destra">Difesa</th><th class="destra">Netta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in forze %}
+              <tr>
+                <td class="mono fioco">{{ f.posizione }}</td>
+                <td class="forte">{{ f.squadra }}</td>
+                <td class="destra mono">{{ "%+.3f"|format(f.attacco) }}</td>
+                <td class="destra mono">{{ "%+.3f"|format(f.difesa) }}</td>
+                <td class="destra mono forte">{{ "%+.3f"|format(f.netta) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 {% endif %}
 

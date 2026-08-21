@@ -1,44 +1,99 @@
 /* Serie A Analyzer — foglio di stile unico.
-   Niente framework: la pagina deve restare leggibile e modificabile a mano. */
+   Niente framework: la pagina deve restare leggibile e modificabile a mano.
+
+   Due regole tengono insieme tutto il disegno.
+
+   1. UN SOLO LINGUAGGIO GRAFICO. Ogni quantita' su questa pagina e' una
+      barra dentro una pista: le tre probabilita' di una partita, il Brier
+      contro la baseline, il Brier contro le quote. Stessa forma, stessa
+      altezza, stesso allineamento a sinistra. Chi impara a leggerne una le
+      sa leggere tutte.
+
+   2. IL COLORE DICE UNA COSA SOLA. Indaco = 1, grigio = X, arancio = 2:
+      una scala che va dalla casa alla trasferta passando per il neutro, e
+      non viene usata per nient'altro. Il rosso compare in un posto solo,
+      dove il modello sfonda il muro. Tutto il resto e' carta e inchiostro. */
 
 :root {
-  --sfondo: #f6f7f9;
-  --superficie: #ffffff;
-  --bordo: #e2e5ea;
-  --testo: #16191d;
-  --tenue: #6b727c;
-  --accento: #0b6b4f;
-  --accento-chiaro: #e6f2ee;
+  --fondo: #e9ecf1;          /* la pagina */
+  --carta: #ffffff;          /* schede, tabelle, pannelli */
+  --incavo: #f3f5f8;         /* riquadri dentro le schede */
+  --riga: #dce0e7;
+  --riga-forte: #c2c8d4;
 
-  --casa: #1f7a5a;
-  --pareggio: #9aa2ad;
-  --ospite: #b4553b;
+  --inchiostro: #0e1524;
+  --fioco: #5a6373;
 
-  --positivo: #157347;
-  --negativo: #b03a2e;
+  --uno: #2f4be0;            /* 1 — casa */
+  --ics: #949daf;            /* X — pareggio */
+  --due: #d4560a;            /* 2 — trasferta */
+  --allarme: #cf2020;        /* solo dove si sfonda il muro */
 
-  --raggio: 10px;
-  --ombra: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06);
+  /* Le caselle della matrice si tingono fino all'82%: servono tinte
+     proprie, perche' il testo ci sta sopra e deve restare leggibile. */
+  --uno-cella: #2f4be0;
+  --ics-cella: #949daf;
+  --due-cella: #d4560a;
+
+  /* Le tinte piene, quelle che si portano il testo bianco sopra. Sono i
+     colori vivi qui sopra spinti fino al punto esatto in cui il bianco
+     regge ancora: sul tema chiaro `--tinto-1` *e'* `--uno`, cioe' una
+     vittoria larga della squadra di casa e' letteralmente il colore che in
+     tutto il resto della pagina significa "1".
+     Da li' in giu' si smorzano verso `--profondo`, che resta scuro in
+     entrambi i temi — mescolare verso `--inchiostro` schiarirebbe tutto al
+     buio invece di spegnerlo. */
+  --tinto-1: #2f4be0;
+  --tinto-X: #6c7485;
+  --tinto-2: #c4510c;
+  --profondo: #0e1524;
+  --su-tinto: #ffffff;
+
+  /* Quanta tinta entra nella carta quando serve un velo invece che una
+     pastiglia. Sul fondo scuro ne serve di piu' per vedersi. */
+  --velo: 14%;
+  --velo-lieve: 10%;
+
+  --spazio: 1.5rem;
+  --raggio: 14px;
+  --raggio-piccolo: 8px;
+  --ombra: 0 1px 1px rgba(14, 21, 36, .04), 0 6px 20px rgba(14, 21, 36, .05);
+
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --testo: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --dati: "DM Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --sfondo: #14171b;
-    --superficie: #1c2026;
-    --bordo: #2b313a;
-    --testo: #e8eaed;
-    --tenue: #98a0ab;
-    --accento: #4ec49a;
-    --accento-chiaro: #17332a;
+    --fondo: #0b0f17;
+    --carta: #141a26;
+    --incavo: #1b2230;
+    --riga: #252e3d;
+    --riga-forte: #3a4456;
 
-    --casa: #4ec49a;
-    --pareggio: #7d8590;
-    --ospite: #e08163;
+    --inchiostro: #e9edf4;
+    --fioco: #97a1b4;
 
-    --positivo: #4ec49a;
-    --negativo: #e08163;
+    --uno: #6d86ff;
+    --ics: #7b8598;
+    --due: #ff8b3d;
+    --allarme: #ff5f5f;
 
-    --ombra: 0 1px 2px rgba(0, 0, 0, .3);
+    --uno-cella: #25378f;
+    --ics-cella: #3d4553;
+    --due-cella: #8a4310;
+
+    --tinto-1: #586dcf;
+    --tinto-X: #6c7586;
+    --tinto-2: #ac602e;
+    --profondo: #05080f;
+    --su-tinto: #ffffff;
+
+    --velo: 26%;
+    --velo-lieve: 17%;
+
+    --ombra: 0 1px 1px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .3);
   }
 }
 
@@ -46,287 +101,820 @@
 
 body {
   margin: 0;
-  background: var(--sfondo);
-  color: var(--testo);
-  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--fondo);
+  color: var(--inchiostro);
+  font-family: var(--testo);
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
 .contenitore {
-  max-width: 1080px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 0 20px;
+  padding: 0 2rem;
 }
 
-a { color: var(--accento); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-/* ---- intestazione ------------------------------------------------------ */
-
-.intestazione {
-  background: var(--superficie);
-  border-bottom: 1px solid var(--bordo);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+/* I collegamenti restano color inchiostro: l'indaco vuol dire "1" e non
+   deve voler dire nient'altro. La riga sotto e' l'unico segno che c'e' un
+   collegamento, e si accende al passaggio. */
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--riga-forte);
+  text-underline-offset: 3px;
 }
+a:hover { text-decoration-color: currentColor; }
+
+:focus-visible {
+  outline: 2px solid var(--uno);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ---- testata ----------------------------------------------------------- */
+
+.intestazione { padding: 1.75rem 0 0; }
 
 .intestazione-riga {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding-top: 14px;
-  padding-bottom: 14px;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--riga-forte);
 }
 
-.marchio { display: flex; flex-direction: column; color: var(--testo); }
+.marchio { display: block; text-decoration: none; }
 .marchio:hover { text-decoration: none; }
-.marchio-nome { font-weight: 650; letter-spacing: -.01em; }
-.marchio-sotto { font-size: 12px; color: var(--tenue); }
+.marchio-nome {
+  display: block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.0625rem;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+}
+.marchio-sotto {
+  display: block;
+  font-family: var(--dati);
+  font-size: .625rem;
+  text-transform: uppercase;
+  letter-spacing: .18em;
+  color: var(--fioco);
+  margin-top: .25rem;
+}
 
-.navigazione { display: flex; gap: 18px; font-size: 14px; }
+/* I comandi in testata sono bottoni veri: hanno una superficie, si
+   premono, e si vede quale pagina si sta guardando. Due pesi soltanto, e la
+   differenza la fa il carattere, non il colore — il colore su questa pagina
+   e' gia' impegnato a dire 1, X o 2.
+
+   Testo normale = le pagine da leggere. Mono maiuscolo = gli attrezzi, che
+   rispondono in JSON: e' lo stesso segno che marca ogni altra meta-
+   informazione del sito (occhielli, pillole, etichette). */
+.navigazione {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  /* Su schermi molto stretti i bottoni devono andare a capo, non spingere
+     la pagina piu' larga dello schermo. */
+  min-width: 0;
+}
+
+/* Il filetto separa le pagine dagli attrezzi senza aggiungere una parola. */
+.navigazione .divisorio {
+  width: 1px;
+  height: 1.25rem;
+  background: var(--riga-forte);
+  margin: 0 .375rem;
+}
+
+.bottone {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  padding: .5rem .875rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--riga-forte);
+  border-radius: var(--raggio-piccolo);
+  background: var(--carta);
+  color: var(--inchiostro);
+  font-family: var(--testo);
+  font-size: .8125rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: 0 1px 1px rgba(14, 21, 36, .04);
+  transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease,
+              background-color .12s ease;
+}
+.bottone:hover {
+  text-decoration: none;
+  border-color: var(--inchiostro);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 2px rgba(14, 21, 36, .05), 0 6px 14px rgba(14, 21, 36, .07);
+}
+.bottone:active { transform: translateY(0); box-shadow: none; }
+
+/* La pagina che si sta guardando: inchiostro pieno, nessun dubbio. */
+.bottone.attivo {
+  background: var(--inchiostro);
+  border-color: var(--inchiostro);
+  color: var(--fondo);
+  cursor: default;
+}
+.bottone.attivo:hover { transform: none; box-shadow: none; }
+
+.bottone.attrezzo {
+  font-family: var(--dati);
+  font-size: .6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--fioco);
+  padding: .5rem .75rem;
+}
+.bottone.attrezzo:hover { color: var(--inchiostro); }
 
 /* ---- struttura --------------------------------------------------------- */
 
-main { padding: 32px 20px 56px; }
-section { margin-bottom: 44px; }
+/* main porta anche .contenitore, che imposta padding con lo shorthand:
+   senza qualificare il selettore la classe vince e lo spazio verticale
+   sparirebbe senza un errore. */
+main.contenitore { display: block; padding-block: 3.5rem 5rem; }
 
-h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.02em; }
-h2 { font-size: 19px; margin: 0 0 6px; letter-spacing: -.01em; }
-h3 { font-size: 14px; margin: 22px 0 8px; color: var(--tenue);
-     text-transform: uppercase; letter-spacing: .06em; }
+/* Il blocco: la spiegazione a sinistra, i dati a destra. La spiegazione
+   resta ferma mentre si scorre la tabella — e' li' per essere consultata
+   *mentre* si guardano i numeri, non prima. */
+.blocco {
+  display: grid;
+  grid-template-columns: 15rem 1fr;
+  gap: 3.5rem;
+  align-items: start;
+  margin-bottom: 5.5rem;
+}
+.blocco:last-child { margin-bottom: 0; }
+/* Senza questo le due colonne del blocco non possono stringersi sotto la
+   larghezza del loro contenuto, e una tabella larga allarga tutta la
+   pagina invece di scorrere dentro il suo `.tabella-avvolgente` — che e'
+   esattamente cio' che il ritaglio per schermi stretti si aspetta. */
+.blocco > * { min-width: 0; }
+.lato { position: sticky; top: 2rem; }
+/* Quando i dati sono troppo larghi per stare accanto alla spiegazione
+   (le tabelle dei giocatori), il lato passa sopra e il corpo prende tutto. */
+.blocco.disteso { grid-template-columns: 1fr; gap: 1.75rem; }
+.blocco.disteso .lato { position: static; max-width: 46rem; }
 
-.sottotitolo { color: var(--tenue); font-size: 14px; margin: 0 0 18px; max-width: 68ch; }
-.nota { color: var(--tenue); font-size: 13px; margin-top: 12px; max-width: 68ch; }
-.briciole { font-size: 14px; margin: 0 0 18px; }
-.tenue { color: var(--tenue); }
-.mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.occhiello {
+  font-family: var(--dati);
+  font-size: .625rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .18em;
+  color: var(--fioco);
+  margin: 0 0 .625rem;
+}
+
+h1 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  line-height: 1.02;
+  letter-spacing: -.04em;
+  margin: 0;
+}
+
+h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  line-height: 1.12;
+  letter-spacing: -.03em;
+  margin: 0 0 .75rem;
+}
+
+h3 {
+  font-family: var(--dati);
+  font-size: .6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .16em;
+  color: var(--fioco);
+  margin: 2rem 0 .75rem;
+}
+
+.spiega {
+  font-size: .9375rem;
+  line-height: 1.62;
+  color: var(--fioco);
+  margin: 0 0 1rem;
+}
+.spiega:last-child { margin-bottom: 0; }
+.spiega b, .spiega strong { color: var(--inchiostro); font-weight: 600; }
+
+.nota {
+  font-size: .875rem;
+  line-height: 1.6;
+  color: var(--fioco);
+  margin: 1.25rem 0 0;
+  max-width: 62ch;
+}
+.nota b, .nota strong { color: var(--inchiostro); font-weight: 600; }
+
+/* ---- apertura di pagina ------------------------------------------------ */
+
+/* Il titolo non e' un'etichetta di sezione: dice quante partite ci sono,
+   cioe' la prima cosa che si vuole sapere aprendo la pagina. */
+.apertura { margin-bottom: 4.5rem; }
+.apertura .sommario {
+  font-size: 1.125rem;
+  line-height: 1.55;
+  color: var(--fioco);
+  max-width: 54ch;
+  margin: 1.25rem 0 0;
+}
+.apertura .sommario b, .apertura .sommario strong {
+  color: var(--inchiostro);
+  font-weight: 600;
+}
+
+.briciole {
+  font-family: var(--dati);
+  font-size: .75rem;
+  margin: 0 0 1.75rem;
+}
+.briciole a { color: var(--fioco); text-decoration-color: transparent; }
+.briciole a:hover { color: var(--inchiostro); text-decoration-color: currentColor; }
+
+/* ---- utilita' ---------------------------------------------------------- */
+
+.fioco { color: var(--fioco); }
+.mono { font-family: var(--dati); font-variant-numeric: tabular-nums; }
 .destra { text-align: right; }
-.forte { font-weight: 650; }
-.positivo { color: var(--positivo); }
-.negativo { color: var(--negativo); }
+.forte { font-weight: 600; }
 
 .pillola {
   display: inline-block;
-  font-size: 11px;
-  padding: 1px 7px;
-  margin-left: 8px;
-  border-radius: 20px;
-  background: var(--accento-chiaro);
-  color: var(--accento);
+  font-family: var(--dati);
+  font-size: .625rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  padding: .1875rem .4375rem;
+  border-radius: 4px;
+  border: 1px solid var(--riga-forte);
+  color: var(--fioco);
   vertical-align: middle;
+  white-space: nowrap;
 }
-.pillola.tenue { background: transparent; color: var(--tenue); border: 1px solid var(--bordo); }
 
-/* ---- schede partita ---------------------------------------------------- */
+/* ---- la pista: l'unica forma con cui si disegna una quantita' ---------- */
 
-.griglia-partite {
+.pista {
+  display: block;
+  position: relative;
+  height: .5rem;
+  background: var(--incavo);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.riempi {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--ics);
+}
+
+/* ---- il colore degli esiti --------------------------------------------- */
+
+/* Un solo alfabeto, applicato ovunque compaia un esito: indaco = ha vinto
+   la squadra di casa, grigio = pareggio, arancio = ha vinto la trasferta.
+   Sono gli stessi tre colori delle barre e delle caselle della matrice, e
+   dicono la stessa identica cosa. Nessun verde da "bravo": un pronostico
+   azzeccato si riconosce perche' il colore del modello e il colore di quel
+   che e' successo coincidono, non perche' arriva un applauso. */
+.tinta-1 { --tinta: var(--tinto-1); }
+.tinta-X { --tinta: var(--tinto-X); }
+.tinta-2 { --tinta: var(--tinto-2); }
+
+/* Il punteggio di una partita finita. L'intensita' e' lo scarto: un 1-0 e'
+   quasi inchiostro, un 4-0 e' colore pieno. Un pareggio ha scarto zero e
+   resta percio' sempre allo spegnimento massimo — che e' esattamente cio'
+   che un pareggio e'. */
+.punteggio {
+  display: inline-block;
+  font-family: var(--dati);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+  padding: .1875rem .4375rem;
+  border-radius: var(--raggio-piccolo);
+  white-space: nowrap;
+  background: color-mix(in srgb,
+                        var(--tinta, var(--tinto-X)) calc(62% + var(--intensita, 0) * 38%),
+                        var(--profondo));
+  color: var(--su-tinto);
+}
+.punteggio.grande { font-size: .62em; font-weight: 400; padding: .1em .5em; }
+
+/* Nelle tabelle il punteggio sta in coda alla riga: gli si toglie il peso
+   della cella, non il colore. */
+.tabella td > .punteggio { font-size: .8125rem; }
+
+/* La casella dell'esito accaduto davvero. Qui il testo resta inchiostro,
+   quindi la tinta si stempera nella carta invece di riempire: e' un velo,
+   non una pastiglia. La riga sotto e' la stessa di prima, ma del colore
+   dell'esito. */
+.evidenzia {
+  background: color-mix(in srgb, var(--tinta, var(--ics)) var(--velo), var(--carta));
+  box-shadow: inset 0 -2px 0 var(--tinta, var(--inchiostro));
+  font-weight: 600;
+}
+.tabella tbody tr:hover .evidenzia {
+  background: color-mix(in srgb, var(--tinta, var(--ics)) calc(var(--velo) + 8%), var(--carta));
+}
+
+/* Il favorito di una partita da giocare: lo stesso velo dell'esito
+   accaduto, ma senza la riga sotto. Cosi' i due stati restano distinti a
+   colpo d'occhio — un velo solo e' una previsione, un velo con la riga e'
+   un fatto — e la cifra resta inchiostro pieno, che colorare un numero lo
+   rende solo piu' difficile da leggere. */
+.favorito {
+  background: color-mix(in srgb, var(--tinta, var(--ics)) var(--velo-lieve), var(--carta));
+  font-weight: 600;
+}
+.tabella tbody tr:hover .favorito {
+  background: color-mix(in srgb, var(--tinta, var(--ics)) calc(var(--velo-lieve) + 8%), var(--carta));
+}
+
+/* ---- trittico: le tre probabilita', una per riga ----------------------- */
+
+/* Tre barre allineate allo stesso zero si confrontano a occhio; tre
+   spicchi di una barra sola no. I nomi delle squadre fanno da etichetta:
+   ripeterli sopra sarebbe dirli due volte. */
+.trittico { display: grid; gap: .5rem; }
+
+.esito-riga {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
-  gap: 14px;
+  grid-template-columns: minmax(5rem, 9rem) .875rem 1fr 2.75rem;
+  align-items: center;
+  gap: .875rem;
 }
+.esito-riga .chi {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.0625rem;
+  letter-spacing: -.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.esito-riga.pari .chi { font-family: var(--testo); font-weight: 400; font-size: .875rem; color: var(--fioco); }
+.esito-riga .segno {
+  font-family: var(--dati);
+  font-size: .75rem;
+  font-weight: 500;
+  color: var(--fioco);
+  text-align: center;
+}
+.esito-riga .quanto {
+  font-family: var(--dati);
+  font-size: .875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.esito-riga.casa .riempi { background: var(--uno); }
+.esito-riga.pari .riempi { background: var(--ics); }
+.esito-riga.ospite .riempi { background: var(--due); }
+
+.trittico.grande { gap: .75rem; }
+.trittico.grande .esito-riga { grid-template-columns: minmax(6rem, 11rem) 1rem 1fr 4rem; }
+.trittico.grande .pista { height: .75rem; }
+.trittico.grande .chi { font-size: 1.25rem; }
+.trittico.grande .quanto { font-size: 1.125rem; font-weight: 500; }
+
+/* ---- scheda partita ---------------------------------------------------- */
+
+.elenco-partite { display: grid; gap: 1rem; }
 
 .scheda-partita {
   display: block;
-  background: var(--superficie);
-  border: 1px solid var(--bordo);
+  background: var(--carta);
+  border: 1px solid var(--riga);
   border-radius: var(--raggio);
-  padding: 16px;
-  color: var(--testo);
+  padding: 1.5rem 1.75rem;
   box-shadow: var(--ombra);
-  transition: border-color .12s ease, transform .12s ease;
+  text-decoration: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
 .scheda-partita:hover {
   text-decoration: none;
-  border-color: var(--accento);
-  transform: translateY(-1px);
+  border-color: var(--riga-forte);
+  box-shadow: 0 1px 1px rgba(14, 21, 36, .05), 0 10px 30px rgba(14, 21, 36, .09);
 }
 
-.scheda-quando { font-size: 12px; color: var(--tenue); margin-bottom: 8px; }
-.scheda-squadre {
-  display: flex; align-items: baseline; gap: 8px;
-  font-size: 17px; font-weight: 600; margin-bottom: 14px;
+.scheda-testa {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  font-family: var(--dati);
+  font-size: .75rem;
+  color: var(--fioco);
+  margin-bottom: 1.25rem;
 }
-.scheda-squadre .squadra { flex: 1; }
-.scheda-squadre .squadra:last-child { text-align: right; }
-.contro { color: var(--tenue); font-weight: 400; font-size: 13px; }
 
-.scheda-numeri {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px;
-  margin-top: 14px; font-size: 13px;
+/* La riga in fondo alla scheda: le quattro cifre di contorno, separate da
+   filetti invece che da scatole — meno bordi, stessa griglia. */
+.scheda-coda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 2rem;
+  margin-top: 1.5rem;
+  padding-top: 1.125rem;
+  border-top: 1px solid var(--riga);
 }
-.scheda-numeri .etichetta { display: block; color: var(--tenue); font-size: 11px; }
-
-/* ---- barra 1X2 --------------------------------------------------------- */
-
-.barra-1x2 {
-  display: flex; height: 8px; border-radius: 4px; overflow: hidden;
-  background: var(--bordo);
+.scheda-coda > div { display: flex; align-items: baseline; gap: .5rem; }
+.scheda-coda .voce {
+  font-family: var(--dati);
+  font-size: .625rem;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--fioco);
 }
-.barra-1x2.grande { height: 14px; border-radius: 7px; margin: 6px 0 14px; }
-.segmento { display: block; height: 100%; }
-.seg-1 { background: var(--casa); }
-.seg-x { background: var(--pareggio); }
-.seg-2 { background: var(--ospite); }
-
-.legenda-1x2 {
-  display: flex; justify-content: space-between;
-  font-size: 12px; color: var(--tenue); margin-top: 6px;
+.scheda-coda b {
+  font-family: var(--dati);
+  font-size: .875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
-.legenda-1x2 b { color: var(--testo); }
 
-.tre-esiti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.tre-esiti div { background: var(--sfondo); border-radius: 8px; padding: 10px 12px; }
-.tre-esiti .esito-nome { display: block; font-size: 11px; color: var(--tenue); margin-bottom: 2px; }
-.tre-esiti b { font-size: 19px; }
+.senza-pronostico {
+  font-size: .9375rem;
+  line-height: 1.6;
+  color: var(--fioco);
+  margin: 0;
+  max-width: 52ch;
+}
 
 /* ---- pannelli ---------------------------------------------------------- */
 
-/* align-items:start: senza, i due pannelli si allungano all'altezza del piu'
-   alto e quello corto resta con un vuoto in fondo. */
-.pannelli { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
-@media (max-width: 820px) { .pannelli { grid-template-columns: 1fr; } }
+.pannelli { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+@media (max-width: 900px) { .pannelli { grid-template-columns: 1fr; } }
 
 .pannello {
-  background: var(--superficie);
-  border: 1px solid var(--bordo);
+  background: var(--carta);
+  border: 1px solid var(--riga);
   border-radius: var(--raggio);
-  padding: 20px;
+  padding: 1.75rem;
   box-shadow: var(--ombra);
 }
+.pannello > h2:first-child { margin-bottom: 1.25rem; }
+.pannello > h3:first-child { margin-top: 0; }
+.pannello .tabella { border: none; border-radius: 0; box-shadow: none; background: none; }
+.pannello .tabella td:first-child, .pannello .tabella th:first-child { padding-left: 0; }
+.pannello .tabella td:last-child, .pannello .tabella th:last-child { padding-right: 0; }
 
-.coppie { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
-.coppie div {
-  background: var(--sfondo); border-radius: 8px; padding: 9px 12px;
-  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+/* ---- cifre in fila ----------------------------------------------------- */
+
+.cifre { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1px;
+         background: var(--riga); border: 1px solid var(--riga); border-radius: var(--raggio-piccolo);
+         overflow: hidden; }
+.cifre > div { background: var(--carta); padding: .875rem 1rem; }
+.cifre .voce {
+  display: block;
+  font-family: var(--dati);
+  font-size: .625rem;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--fioco);
+  margin-bottom: .3125rem;
+  line-height: 1.3;
 }
-.coppie span { font-size: 12px; color: var(--tenue); }
-.coppie b { font-variant-numeric: tabular-nums; }
-.coppie.grandi b { font-size: 17px; }
-/* Etichette corte (un punteggio, una percentuale): senza un limite di
-   larghezza le due meta' finirebbero ai lati opposti dello schermo. */
-.coppie.strette { grid-template-columns: repeat(auto-fit, minmax(96px, 120px)); }
-
-/* ---- testata partita --------------------------------------------------- */
-
-.testata-partita { margin-bottom: 28px; }
-.testata-quando { font-size: 13px; color: var(--tenue); margin-bottom: 6px; }
-.testata-squadre {
-  display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
-  font-size: 30px; margin: 0;
-}
-.testata-squadre .punteggio {
+.cifre b {
+  font-family: var(--dati);
+  font-size: 1.375rem;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
-  background: var(--accento-chiaro); color: var(--accento);
-  padding: 2px 14px; border-radius: 8px;
+  letter-spacing: -.03em;
 }
-/* I nomi delle squadre portano alla loro scheda, ma restano titoli: il verde
-   dei collegamenti su 30px sarebbe un'insegna al neon. */
-.testata-squadre a { color: inherit; }
-.testata-squadre a:hover { color: var(--accento); text-decoration: none; }
+.cifre.minute b { font-size: 1.0625rem; }
+.pannello .cifre { border-color: var(--riga); }
+
+/* ---- intestazione della partita ---------------------------------------- */
+
+.testata-partita { margin-bottom: 3.5rem; }
+.testata-quando {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  font-family: var(--dati);
+  font-size: .75rem;
+  color: var(--fioco);
+  margin-bottom: 1rem;
+}
+.testata-squadre {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  line-height: 1.04;
+  letter-spacing: -.04em;
+  margin: 0;
+}
+.testata-squadre a { text-decoration-color: transparent; }
+.testata-squadre a:hover { text-decoration-color: currentColor; }
+.testata-squadre .contro {
+  font-family: var(--dati);
+  font-size: .875rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--fioco);
+  align-self: center;
+}
 
 /* ---- tabelle ----------------------------------------------------------- */
 
 .tabella {
-  width: 100%; border-collapse: collapse;
-  background: var(--superficie);
-  border: 1px solid var(--bordo);
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--carta);
+  border: 1px solid var(--riga);
   border-radius: var(--raggio);
   overflow: hidden;
-  font-size: 14px;
+  font-size: .9375rem;
 }
 .tabella th {
-  text-align: left; font-size: 11px; text-transform: uppercase;
-  letter-spacing: .06em; color: var(--tenue); font-weight: 600;
-  padding: 10px 12px; border-bottom: 1px solid var(--bordo);
+  text-align: left;
+  font-family: var(--dati);
+  font-size: .625rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--fioco);
+  padding: .875rem 1rem;
+  border-bottom: 1px solid var(--riga-forte);
+  white-space: nowrap;
 }
 .tabella th.destra { text-align: right; }
-.tabella td { padding: 9px 12px; border-bottom: 1px solid var(--bordo); }
+.tabella td { padding: .8125rem 1rem; border-bottom: 1px solid var(--riga); }
 .tabella tbody tr:last-child td { border-bottom: none; }
-.tabella tbody tr:hover { background: var(--sfondo); }
-.tabella.compatta { font-size: 13px; }
-.tabella.compatta td, .tabella.compatta th { padding: 6px 10px; }
+.tabella tbody tr:hover { background: var(--incavo); }
+.tabella .mono { font-size: .875rem; }
+.tabella.compatta { font-size: .875rem; }
+.tabella.compatta td, .tabella.compatta th { padding: .5rem .75rem; }
+.tabella.compatta .mono { font-size: .8125rem; }
 
-.evidenzia { background: var(--accento-chiaro); font-weight: 650; }
+.tabella-avvolgente { overflow-x: auto; border-radius: var(--raggio); }
 
-.esito { font-size: 11px; padding: 2px 8px; border-radius: 20px; }
-.esito.ok { background: var(--accento-chiaro); color: var(--accento); }
-.esito.no { background: transparent; color: var(--tenue); border: 1px solid var(--bordo); }
+.verdetto {
+  display: inline-block;
+  font-family: var(--dati);
+  font-size: .6875rem;
+  padding: .1875rem .5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+/* Azzeccato: la pastiglia prende il colore dell'esito accaduto, lo stesso
+   che tinge il punteggio e la casella evidenziata su quella riga. Tre segni
+   dello stesso colore lungo la riga = il modello e la realta' hanno detto
+   la stessa cosa. Sbagliato: nessun riempimento, solo il contorno rosso. */
+.verdetto.ok {
+  background: var(--tinta, var(--tinto-X));
+  color: var(--su-tinto);
+  border-color: transparent;
+  font-weight: 500;
+}
+.verdetto.no { color: var(--allarme); border-color: var(--allarme); }
 /* Non un giudizio ma un'attesa: i dati non bastano ancora per dirlo. */
-.esito.tenue { background: transparent; color: var(--tenue); font-style: italic; }
+.verdetto.attesa { color: var(--fioco); font-style: italic; }
+
+/* ---- la barra del muro ------------------------------------------------- */
+
+/* Il punteggio del modello contro il suo metro di paragone. La tacca sta
+   sempre al 70% della pista, quindi la barra dice *di quanto* il modello
+   se ne discosta, e righe di mercati diversi — i cui Brier assoluti non
+   sono confrontabili — lo diventano in proporzione.
+   La barra e' inchiostro fino al muro. Quello che lo sfonda e' rosso, ed
+   e' l'unico rosso della pagina. */
+.muro { display: block; min-width: 9rem; }
+.muro .pista { height: .625rem; overflow: visible; }
+.muro .riempi { background: var(--inchiostro); border-radius: 4px 0 0 4px; }
+.muro .eccesso {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--allarme);
+  border-radius: 0 4px 4px 0;
+}
+.muro .tacca {
+  position: absolute;
+  top: -.25rem;
+  bottom: -.25rem;
+  width: 2px;
+  background: var(--inchiostro);
+}
+.muro-scarto {
+  display: block;
+  font-family: var(--dati);
+  font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
+  margin-top: .5rem;
+  color: var(--inchiostro);
+}
+.muro.oltre .muro-scarto { color: var(--allarme); }
+.muro.attesa .riempi { background: var(--ics); }
+.muro.attesa .muro-scarto { color: var(--fioco); }
+.muro-scarto .fioco { margin-left: .375rem; }
+
+.colonna-muro { width: 12rem; min-width: 10rem; }
+th.colonna-muro { text-align: left; }
+
+.chiave {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  font-family: var(--dati);
+  font-size: .6875rem;
+  color: var(--fioco);
+  margin-top: 1rem;
+}
+.chiave i { display: inline-block; width: 2px; height: .75rem; background: var(--inchiostro); }
+.chiave em { display: inline-block; width: 1.25rem; height: .375rem; border-radius: 3px;
+             background: var(--allarme); }
+/* Nella chiave dell'affidabilita' il campione non e' un eccesso ma il
+   riempimento stesso: stesso inchiostro della barra che descrive. */
+.chiave em.dati { background: var(--inchiostro); }
+
+/* ---- la barra della sostanza ------------------------------------------- */
+
+/* Quanto una forza stimata viene dai dati della squadra e quanto dalla media
+   di lega. E' la stessa pista del trittico e della barra del muro, con una
+   differenza di lettura: qui la parte vuota non e' "manca qualcosa", e'
+   "qui parla la media del campionato". Il grigio, quando i dati non
+   bastano, e' lo stesso dell'attesa accanto ai Brier ancora poveri: non un
+   allarme — una squadra poco nota non e' un guasto — ma un "non ancora". */
+.sostanza { display: block; min-width: 9rem; }
+.sostanza .pista { height: .625rem; }
+.sostanza .riempi { background: var(--inchiostro); }
+.sostanza.attesa .riempi { background: var(--ics); }
+.sostanza-scarto {
+  display: block;
+  font-family: var(--dati);
+  font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
+  margin-top: .5rem;
+  color: var(--inchiostro);
+}
+.sostanza.attesa .sostanza-scarto { color: var(--fioco); }
+.sostanza-scarto .fioco { margin-left: .375rem; }
 
 /* ---- griglia dei risultati esatti -------------------------------------- */
 
-.griglia-avvolgente { overflow-x: auto; }
+.griglia-avvolgente { overflow-x: auto; padding-bottom: .25rem; }
 
 .griglia-risultati {
-  border-collapse: separate; border-spacing: 3px;
-  font-size: 12px; font-variant-numeric: tabular-nums;
+  border-collapse: separate;
+  border-spacing: 4px;
+  font-family: var(--dati);
+  font-size: .8125rem;
+  font-variant-numeric: tabular-nums;
 }
 .griglia-risultati th {
-  color: var(--tenue); font-weight: 600; font-size: 11px;
-  padding: 4px 6px; text-align: center;
+  color: var(--fioco);
+  font-weight: 500;
+  font-size: .6875rem;
+  padding: .25rem .375rem;
+  text-align: center;
 }
-.griglia-risultati .angolo { text-align: left; line-height: 1.2; }
+.griglia-risultati .angolo { text-align: left; line-height: 1.35; }
 .griglia-risultati .angolo span { display: block; }
-.griglia-risultati .freccia { color: var(--tenue); }
+.griglia-risultati .freccia { color: var(--riga-forte); }
 .griglia-risultati .testa-ospite { text-align: left; }
 
 .cella {
-  width: 54px; height: 34px; text-align: center; border-radius: 5px;
-  color: var(--testo);
-  /* L'opacita' del colore porta l'informazione: piu' e' probabile il
+  width: 4.75rem;
+  height: 3rem;
+  text-align: center;
+  color: var(--inchiostro);
+  border-radius: var(--raggio-piccolo);
+  /* L'intensita' del colore porta l'informazione: piu' e' probabile il
      punteggio, piu' la casella e' satura. */
-  background-color: color-mix(in srgb, var(--tinta) calc(var(--intensita) * 85%), transparent);
-  border: 1px solid var(--bordo);
+  background-color: color-mix(in srgb, var(--tinta) calc(var(--intensita) * 82%), var(--carta));
+  border: 1px solid var(--riga);
 }
-.cella.esito-1 { --tinta: var(--casa); }
-.cella.esito-X { --tinta: var(--pareggio); }
-.cella.esito-2 { --tinta: var(--ospite); }
-.cella.picco { outline: 2px solid var(--accento); outline-offset: -1px; font-weight: 700; }
+.cella.esito-1 { --tinta: var(--uno-cella); }
+.cella.esito-X { --tinta: var(--ics-cella); }
+.cella.esito-2 { --tinta: var(--due-cella); }
+.cella.picco { outline: 2px solid var(--inchiostro); outline-offset: 1px; font-weight: 500; }
 
 .legenda-griglia {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 12px; color: var(--tenue); margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  font-family: var(--dati);
+  font-size: .6875rem;
+  color: var(--fioco);
+  margin-top: 1.25rem;
 }
-.chiave {
-  display: inline-block; width: 14px; height: 14px; border-radius: 4px;
-  vertical-align: middle; margin-left: 10px;
-}
-.chiave.esito-1 { background: var(--casa); }
-.chiave.esito-X { background: var(--pareggio); }
-.chiave.esito-2 { background: var(--ospite); }
+.tassello { display: inline-block; width: .75rem; height: .75rem; border-radius: 3px;
+            vertical-align: middle; margin-left: .875rem; }
+.tassello:first-child { margin-left: 0; }
+.tassello.esito-1 { background: var(--uno); }
+.tassello.esito-X { background: var(--ics); }
+.tassello.esito-2 { background: var(--due); }
 
 /* ---- riquadri di stato ------------------------------------------------- */
 
 .riquadro-vuoto {
-  background: var(--superficie);
-  border: 1px dashed var(--bordo);
+  background: var(--carta);
+  border: 1px solid var(--riga);
   border-radius: var(--raggio);
-  padding: 32px;
-  text-align: center;
+  padding: 2.5rem 2.75rem;
+  box-shadow: var(--ombra);
 }
-.riquadro-vuoto p { color: var(--tenue); max-width: 62ch; margin: 10px auto; font-size: 14px; }
+.riquadro-vuoto h2 { margin-bottom: 1rem; }
+.riquadro-vuoto p {
+  font-size: 1rem;
+  line-height: 1.62;
+  color: var(--fioco);
+  max-width: 58ch;
+  margin: 0 0 .875rem;
+}
+.riquadro-vuoto p:last-child { margin-bottom: 0; }
+.riquadro-vuoto strong { color: var(--inchiostro); font-weight: 600; }
 
 .avviso {
-  margin-top: 18px; padding: 12px 14px;
-  background: var(--sfondo); border-left: 3px solid var(--ospite);
-  border-radius: 4px; font-size: 13px; color: var(--tenue);
+  margin-top: 1.5rem;
+  padding: 1rem 1.125rem;
+  background: var(--incavo);
+  border-radius: var(--raggio-piccolo);
+  font-size: .875rem;
+  line-height: 1.6;
+  color: var(--fioco);
 }
-.avviso strong { color: var(--testo); }
-.avviso-piccolo { font-size: 12px; color: var(--tenue); margin: 10px 0 0; }
+.avviso strong { color: var(--inchiostro); font-weight: 600; }
 
 /* ---- piede ------------------------------------------------------------- */
 
-.pie {
-  border-top: 1px solid var(--bordo);
-  background: var(--superficie);
-  padding: 22px 0;
-  font-size: 13px;
+.pie { border-top: 1px solid var(--riga-forte); padding: 2rem 0 3rem; }
+.pie-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1.75rem; }
+.pie-etichetta {
+  display: block;
+  font-family: var(--dati);
+  font-size: .625rem;
+  color: var(--fioco);
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  margin-bottom: .375rem;
 }
-.pie-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 18px; }
-.pie-etichetta { display: block; font-size: 11px; color: var(--tenue);
-                 text-transform: uppercase; letter-spacing: .06em; }
-.pie strong { display: block; font-size: 16px; }
-.pie-nota { font-size: 12px; color: var(--tenue); }
+.pie strong {
+  display: block;
+  font-family: var(--dati);
+  font-size: 1.125rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.pie-nota { font-size: .8125rem; color: var(--fioco); }
+
+/* ---- schermi stretti --------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .blocco { grid-template-columns: 1fr; gap: 1.75rem; margin-bottom: 4rem; }
+  .lato { position: static; max-width: 46rem; }
+}
+
+@media (max-width: 640px) {
+  .contenitore { padding: 0 1.125rem; }
+  main.contenitore { padding-block: 2.5rem 3.5rem; }
+  .apertura { margin-bottom: 3rem; }
+  .scheda-partita { padding: 1.25rem; }
+  .pannello { padding: 1.25rem; }
+  .riquadro-vuoto { padding: 1.5rem; }
+  .esito-riga { grid-template-columns: minmax(4.5rem, 7rem) .75rem 1fr 2.5rem; gap: .625rem; }
+  .trittico.grande .esito-riga { grid-template-columns: minmax(4.5rem, 7rem) .75rem 1fr 3rem; }
+  .trittico.grande .chi { font-size: 1rem; }
+  .trittico.grande .quanto { font-size: .9375rem; }
+  .scheda-coda { gap: 0 1.25rem; }
+  .bottone { min-height: 2.5rem; padding: .625rem 1rem; }
+  .bottone.attrezzo { padding: .625rem .875rem; }
+  .navigazione .divisorio { display: none; }
+  /* Le tabelle larghe scorrono da sole invece di sfondare la pagina. */
+  .tabella { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

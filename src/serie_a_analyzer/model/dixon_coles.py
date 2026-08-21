@@ -23,7 +23,7 @@ Due accorgimenti separano un modello utilizzabile da uno ingenuo:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Iterable, Sequence
 
@@ -56,6 +56,48 @@ class Match:
 
 
 @dataclass(frozen=True)
+class TeamEvidence:
+    """Su quanta sostanza poggia la stima di una squadra.
+
+    Il modello risponde sempre, anche su una squadra di cui non sa nulla:
+    lo shrinkage la tiene incollata alla media della lega e ne esce un
+    pronostico prudente, indistinguibile a occhio da uno informato. Questo
+    oggetto e' cio' che rende visibile la differenza *prima* della partita,
+    non dopo — l'accuratezza misurata arriva mesi piu' tardi e su decine di
+    esiti, qui invece si dichiara quanto il modello sappia adesso.
+
+    ``pull`` e' la quota di stima che viene dalla media di lega invece che
+    dai dati della squadra; ``sostanza`` e' il suo complemento, cioe' quanto
+    parlano davvero le partite giocate.
+
+    Attenzione a cosa **non** dice: e' misurato alla data di riferimento
+    della stima (``FittedModel.fitted_on``), che di default e' la partita
+    piu' recente del campione e non il giorno di oggi. Un archivio fermo da
+    un anno produce un ``pull`` basso — dal suo punto di vista i dati sono
+    freschissimi — e quanto sia vecchio quel punto di vista e' un fatto a
+    parte, che si legge da ``last_match``. Chi mostra questo numero deve
+    mostrare anche l'altro.
+    """
+
+    team: str
+    n_matches: int
+    effective_sample_size: float
+    last_match: date
+    pull_attack: float
+    pull_defense: float
+
+    @property
+    def pull(self) -> float:
+        """Quanto la forza e' tirata verso la media di lega, da 0 a 1."""
+        return (self.pull_attack + self.pull_defense) / 2
+
+    @property
+    def sostanza(self) -> float:
+        """Quanto la stima viene dai dati della squadra, da 0 a 1."""
+        return 1.0 - self.pull
+
+
+@dataclass(frozen=True)
 class FittedModel:
     """Forze stimate, pronte a produrre pronostici."""
 
@@ -74,6 +116,10 @@ class FittedModel:
     # sarebbe piu' ricostruibile a distanza di mesi.
     half_life_days: float = DEFAULT_HALF_LIFE_DAYS
     regularization: float = DEFAULT_REGULARIZATION
+    # Quanto il modello sa di ogni squadra. Non entra nell'impronta della
+    # versione (`data/predictions.py`): descrive la stima, non la definisce,
+    # e due modelli con gli stessi parametri restano lo stesso modello.
+    evidence: dict[str, TeamEvidence] = field(default_factory=dict)
 
     def expected_goals(self, home: str, away: str) -> tuple[float, float]:
         """Gol attesi di casa e trasferta per un accoppiamento."""
@@ -107,6 +153,18 @@ class FittedModel:
             for team in self.teams
         ]
         return sorted(rows, key=lambda row: -row[3])
+
+    def evidence_for(self, team: str) -> TeamEvidence | None:
+        """Su cosa poggia la stima di una squadra, se il modello la conosce."""
+        return self.evidence.get(team)
+
+    def evidence_table(self) -> list[TeamEvidence]:
+        """Le squadre dalla piu' incerta alla piu' solida.
+
+        L'ordine e' quello: le squadre su cui il modello sa meno sono quelle
+        di cui vale la pena parlare, non le altre.
+        """
+        return sorted(self.evidence.values(), key=lambda e: -e.pull)
 
     def _check_known(self, team: str) -> None:
         if team not in self.attack:
@@ -148,6 +206,82 @@ def _log_tau(
     tau = np.where(is_1_0, 1.0 + mu * rho, tau)
     tau = np.where(is_1_1, 1.0 - rho, tau)
     return np.log(np.clip(tau, 1e-10, None))
+
+
+def _team_evidence(
+    matches: Sequence[Match],
+    weights: np.ndarray,
+    lam: np.ndarray,
+    mu: np.ndarray,
+    regularization: float,
+) -> dict[str, TeamEvidence]:
+    """Quanto la forza di ogni squadra viene dai suoi dati e quanto dalla media.
+
+    Lo shrinkage non e' una costante uguale per tutti: e' una penalita' fissa
+    che compete con l'informazione portata dai dati, e quell'informazione
+    cambia da squadra a squadra. Una squadra con tre stagioni recenti alle
+    spalle la vince facilmente; una neopromossa, o una di cui l'ultima
+    partita nota risale a un anno fa, no — e la sua forza esce quasi identica
+    alla media del campionato.
+
+    Il conto e' quello classico della stima penalizzata: attorno all'ottimo,
+    verosimiglianza e penalita' si contendono il parametro in proporzione
+    alla loro curvatura. Per il parametro di attacco di una squadra la
+    curvatura dei dati e' ``somma(peso * gol attesi)`` sulle sue partite —
+    piu' partite recenti, e piu' gol in gioco, piu' i dati pesano — mentre
+    quella della penalita' e' ``2 * regularization``, sempre la stessa.
+    Da qui::
+
+        tiro verso la media = 2*reg / (curvatura dei dati + 2*reg)
+
+    E' un'approssimazione, non un intervallo di confidenza: trascura il
+    centraggio a somma zero e la correzione tau, che spostano il numero di
+    poco. Serve a dire "di questa squadra il modello sa poco", e per quello
+    e' abbondantemente precisa.
+    """
+    penalita = 2.0 * regularization
+    if penalita <= 0:
+        penalita = 0.0
+
+    n_partite: dict[str, int] = {}
+    peso: dict[str, float] = {}
+    ultima: dict[str, date] = {}
+    info_att: dict[str, float] = {}
+    info_dif: dict[str, float] = {}
+
+    for i, m in enumerate(matches):
+        w = float(weights[i])
+        gol_casa_attesi = float(lam[i])
+        gol_ospite_attesi = float(mu[i])
+        for squadra, attesi_suoi, attesi_altrui in (
+            (m.home, gol_casa_attesi, gol_ospite_attesi),
+            (m.away, gol_ospite_attesi, gol_casa_attesi),
+        ):
+            n_partite[squadra] = n_partite.get(squadra, 0) + 1
+            peso[squadra] = peso.get(squadra, 0.0) + w
+            if m.played_on > ultima.get(squadra, date.min):
+                ultima[squadra] = m.played_on
+            # L'attacco si impara dai gol che la squadra fa, la difesa da
+            # quelli che subisce: due conti separati, perche' una squadra
+            # puo' avere l'uno solido e l'altra no.
+            info_att[squadra] = info_att.get(squadra, 0.0) + w * attesi_suoi
+            info_dif[squadra] = info_dif.get(squadra, 0.0) + w * attesi_altrui
+
+    def tiro(informazione: float) -> float:
+        totale = informazione + penalita
+        return penalita / totale if totale > 0 else 0.0
+
+    return {
+        squadra: TeamEvidence(
+            team=squadra,
+            n_matches=n_partite[squadra],
+            effective_sample_size=peso[squadra],
+            last_match=ultima[squadra],
+            pull_attack=tiro(info_att[squadra]),
+            pull_defense=tiro(info_dif[squadra]),
+        )
+        for squadra in n_partite
+    }
 
 
 def fit_dixon_coles(
@@ -246,6 +380,12 @@ def fit_dixon_coles(
     )
 
     attack, defense, home_adv, base, rho = unpack(result.x)
+
+    # I gol attesi con i parametri finali: servono a pesare quanto ogni
+    # partita abbia davvero insegnato qualcosa su chi l'ha giocata.
+    lam_finale = np.exp(base + attack[home_idx] - defense[away_idx] + home_adv)
+    mu_finale = np.exp(base + attack[away_idx] - defense[home_idx])
+
     return FittedModel(
         teams=teams,
         attack={team: float(attack[i]) for team, i in index.items()},
@@ -259,4 +399,7 @@ def fit_dixon_coles(
         converged=bool(result.success),
         half_life_days=half_life_days,
         regularization=regularization,
+        evidence=_team_evidence(
+            matches, weights, lam_finale, mu_finale, regularization
+        ),
     )

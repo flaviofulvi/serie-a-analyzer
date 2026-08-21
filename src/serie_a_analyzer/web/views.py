@@ -8,10 +8,11 @@ dove metterle.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from ..data.parsers import FixtureRecord
+from ..model.dixon_coles import TeamEvidence
 from ..model.markets import MatchProbabilities
 
 FUSO_ITALIA = ZoneInfo("Europe/Rome")
@@ -33,6 +34,26 @@ def formatta_data(quando: datetime) -> str:
 def formatta_giorno(quando: datetime) -> str:
     locale = ora_italiana(quando)
     return f"{locale.day} {_MESI[locale.month - 1]} {locale.year}"
+
+
+def esito_gol(gol_casa: int, gol_ospite: int) -> str:
+    """'1', 'X' o '2' a partire dai gol. Il segno, non il giudizio."""
+    if gol_casa > gol_ospite:
+        return "1"
+    if gol_casa < gol_ospite:
+        return "2"
+    return "X"
+
+
+def margine_gol(gol_casa: int, gol_ospite: int) -> float:
+    """Quanto e' netto un risultato, da 0 a 1.
+
+    E' l'intensita' con cui le pagine tingono il punteggio: uno scarto di
+    tre gol o piu' e' colore pieno, un pareggio e' spento. Sta qui, in un
+    posto solo, perche' lo stesso 2-0 deve avere lo stesso colore
+    nell'elenco dell'hub, nella scheda squadra e in quella del giocatore.
+    """
+    return min(abs(gol_casa - gol_ospite), 3) / 3
 
 
 @dataclass
@@ -70,11 +91,7 @@ class RigaPartita:
         """'1', 'X' o '2' se la partita e' finita."""
         if not self.conclusa or self.gol_casa is None:
             return None
-        if self.gol_casa > self.gol_ospite:
-            return "1"
-        if self.gol_casa < self.gol_ospite:
-            return "2"
-        return "X"
+        return esito_gol(self.gol_casa, self.gol_ospite)
 
     @property
     def esito_previsto(self) -> str | None:
@@ -89,6 +106,13 @@ class RigaPartita:
         if reale is None or previsto is None:
             return None
         return reale == previsto
+
+    @property
+    def margine(self) -> float:
+        """Quanto e' netto il risultato, da 0 a 1."""
+        if not self.conclusa or self.gol_casa is None:
+            return 0.0
+        return margine_gol(self.gol_casa, self.gol_ospite)
 
     @property
     def risultato_probabile(self) -> str:
@@ -119,6 +143,131 @@ def riga_partita(
         gol_attesi_casa=gol_attesi[0] if gol_attesi else None,
         gol_attesi_ospite=gol_attesi[1] if gol_attesi else None,
     )
+
+
+# ---- affidabilita' di un pronostico ------------------------------------------
+#
+# L'accuratezza in fondo all'hub dice quanto valgono i pronostici *gia'
+# verificati*: e' la misura onesta, ma arriva mesi dopo e su decine di esiti.
+# Qui si risponde alla domanda che uno si fa guardando una partita di domani —
+# "di queste due squadre il modello sa qualcosa?" — e la risposta e' gia'
+# calcolabile adesso, perche' non dipende da come andra' a finire.
+#
+# Le cose da dire sono **due**, e mostrarne una sola ingannerebbe piu' che
+# tacere entrambe:
+#
+# 1. quanto la forza stimata viene dai dati della squadra invece che dalla
+#    media di lega (``TeamEvidence.pull``);
+# 2. quanto sono **vecchi** quei dati, misurati da oggi.
+#
+# Il punto 2 non e' contenuto nel punto 1: il decadimento temporale e' calcolato
+# rispetto alla partita piu' recente del campione, non rispetto a oggi, quindi
+# un archivio fermo da un anno risulta comunque "pieno di dati freschi". Sono
+# freschi rispetto a se stessi. Un pronostico stimato su un campionato finito
+# quindici mesi fa puo' avere il ``pull`` di una stima solida ed essere, di
+# fatto, la fotografia di squadre che non esistono piu'.
+
+# La soglia dell'invecchiamento e' l'emivita del decadimento: oltre quella, per
+# costruzione del modello, ogni partita del campione pesa meno della meta' di
+# quanto peserebbe una giocata oggi.
+GIORNI_FRESCHI = 180
+
+# Le soglie del giudizio, sul tiro verso la media di lega. Sono grossolane di
+# proposito: un confine al punto percentuale suggerirebbe una precisione che
+# un'approssimazione quadratica non ha.
+_SOGLIE_AFFIDABILITA = (
+    (0.15, "stima solida", "ok"),
+    (0.30, "stima discreta", "ok"),
+    (0.50, "stima debole", "attesa"),
+)
+_AFFIDABILITA_MINIMA = ("il modello sa poco", "attesa")
+
+
+@dataclass
+class Affidabilita:
+    """Quanto il modello sa di una squadra, pronto da disegnare."""
+
+    squadra: str
+    squadra_id: int
+    n_partite: int
+    ultima: str
+    giorni: int
+    sostanza: float
+    tiro: float
+    verdetto: str
+    tono: str
+
+    @property
+    def stantia(self) -> bool:
+        """L'ultima partita nota e' piu' vecchia di un'emivita."""
+        return self.giorni > GIORNI_FRESCHI
+
+
+def affidabilita_squadra(
+    evidenza: TeamEvidence | None,
+    squadra: str,
+    squadra_id: int,
+    oggi: date,
+) -> Affidabilita | None:
+    """Una riga di affidabilita', o ``None`` se il modello non conosce la squadra.
+
+    Il caso ``None`` non va riempito con uno zero: "non lo so" e "lo so male"
+    sono cose diverse, e la scheda partita ha gia' il suo modo di dire la
+    prima.
+
+    Il verdetto guarda prima l'eta' dei dati e poi la loro quantita', in
+    quest'ordine e non nell'altro: mille partite di due stagioni fa non fanno
+    una stima solida, e chiamarla cosi' sarebbe il modo piu' efficace di
+    nascondere il limite proprio nel posto costruito per dichiararlo.
+    """
+    if evidenza is None:
+        return None
+
+    giorni = (oggi - evidenza.last_match).days
+
+    if giorni > GIORNI_FRESCHI:
+        verdetto, tono = "dati vecchi", "attesa"
+    else:
+        verdetto, tono = _AFFIDABILITA_MINIMA
+        for limite, testo, colore in _SOGLIE_AFFIDABILITA:
+            if evidenza.pull < limite:
+                verdetto, tono = testo, colore
+                break
+
+    return Affidabilita(
+        squadra=squadra,
+        squadra_id=squadra_id,
+        n_partite=evidenza.n_matches,
+        ultima=(
+            f"{evidenza.last_match.day} {_MESI[evidenza.last_match.month - 1]} "
+            f"{evidenza.last_match.year}"
+        ),
+        giorni=giorni,
+        sostanza=evidenza.sostanza,
+        tiro=evidenza.pull,
+        verdetto=verdetto,
+        tono=tono,
+    )
+
+
+def righe_affidabilita(
+    evidenze: tuple[TeamEvidence | None, TeamEvidence | None],
+    riga: RigaPartita,
+    oggi: date | None = None,
+) -> list[Affidabilita]:
+    """Le due squadre di una partita, quando di entrambe c'e' qualcosa da dire.
+
+    O tutte e due o niente: mostrarne una sola farebbe sembrare l'altra
+    solidissima, mentre il motivo per cui manca e' l'opposto.
+    """
+    quando = oggi or date.today()
+    righe = [
+        affidabilita_squadra(evidenze[0], riga.casa, riga.casa_id, quando),
+        affidabilita_squadra(evidenze[1], riga.ospite, riga.ospite_id, quando),
+    ]
+    if any(r is None for r in righe):
+        return []
+    return righe  # type: ignore[return-value]
 
 
 def griglia_risultati(matrice, massimo: int = 5) -> list[dict]:
@@ -239,6 +388,8 @@ class RigaPrestazione:
     avversario_id: int
     in_casa: bool
     risultato: str
+    esito: str | None
+    margine: float
     minuti: int
     titolare: bool
     gol: int
@@ -253,11 +404,19 @@ def riga_prestazione(prestazione, fixture: FixtureRecord | None, nome) -> RigaPr
     avversario_id = 0
     in_casa = False
     risultato = ""
+    esito = None
+    margine = 0.0
     if fixture is not None:
         in_casa = fixture.home_team_id == prestazione.team_id
         avversario_id = fixture.away_team_id if in_casa else fixture.home_team_id
         if fixture.home_goals is not None:
             risultato = f"{fixture.home_goals}-{fixture.away_goals}"
+            # Il punteggio resta scritto casa-trasferta anche qui, quindi si
+            # tinge con la stessa regola di ogni altra pagina: 1 alla casa, 2
+            # alla trasferta. Da che parte stava il giocatore lo dice gia' la
+            # pillola "in casa" / "in trasferta" accanto all'avversario.
+            esito = esito_gol(fixture.home_goals, fixture.away_goals)
+            margine = margine_gol(fixture.home_goals, fixture.away_goals)
 
     return RigaPrestazione(
         fixture_id=prestazione.fixture_id,
@@ -266,6 +425,8 @@ def riga_prestazione(prestazione, fixture: FixtureRecord | None, nome) -> RigaPr
         avversario_id=avversario_id,
         in_casa=in_casa,
         risultato=risultato,
+        esito=esito,
+        margine=margine,
         minuti=prestazione.minuti,
         titolare=prestazione.titolare,
         gol=prestazione.gol,

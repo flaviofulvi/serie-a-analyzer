@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% from "forme.html" import punteggio %}
+
 {% block titolo %}{{ squadra }} · Serie A Analyzer{% endblock %}
 
 {% block contenuto %}
@@ -7,102 +9,139 @@
 <p class="briciole"><a href="/">&larr; Tutte le partite</a></p>
 
 <section class="testata-partita">
-  <div class="testata-quando">Squadra</div>
-  <h1 class="testata-squadre"><span>{{ squadra }}</span></h1>
+  <div class="testata-quando"><span>Squadra</span></div>
+  <h1 class="testata-squadre">{{ squadra }}</h1>
 </section>
 
 {% if prossime %}
-  <section>
-    <h2>Prossime partite</h2>
-    <table class="tabella">
-      <thead><tr><th>Quando</th><th>Partita</th><th class="destra">1</th><th class="destra">X</th><th class="destra">2</th></tr></thead>
-      <tbody>
-        {% for p in prossime %}
-          <tr>
-            <td class="tenue">{{ p.quando }}</td>
-            <td><a href="/partita/{{ p.id }}">{{ p.casa }} - {{ p.ospite }}</a></td>
-            {% if p.ha_pronostico %}
-              <td class="destra mono">{{ (p.prob.home_win*100)|round|int }}%</td>
-              <td class="destra mono">{{ (p.prob.draw*100)|round|int }}%</td>
-              <td class="destra mono">{{ (p.prob.away_win*100)|round|int }}%</td>
-            {% else %}
-              <td class="destra tenue" colspan="3">nessun pronostico</td>
-            {% endif %}
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">In programma</p>
+      <h2>Prossime partite</h2>
+      <p class="spiega">
+        Le percentuali sono 1, X e 2 nell'ordine in cui compaiono sulla
+        scheda della partita.
+      </p>
+    </div>
+    <div class="corpo">
+      <table class="tabella">
+        <thead><tr><th>Quando</th><th>Partita</th><th class="destra">1</th><th class="destra">X</th><th class="destra">2</th></tr></thead>
+        <tbody>
+          {% for p in prossime %}
+            <tr>
+              <td class="fioco">{{ p.quando }}</td>
+              <td><a href="/partita/{{ p.id }}">{{ p.casa }} &middot; {{ p.ospite }}</a></td>
+              {% if p.ha_pronostico %}
+                {# Solo la cifra piu' alta prende colore: una partita da
+                   giocare non e' un fatto, e non merita il fondo pieno del
+                   punteggio finale. #}
+                <td class="destra mono {{ 'favorito tinta-1' if p.esito_previsto == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
+                <td class="destra mono {{ 'favorito tinta-X' if p.esito_previsto == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
+                <td class="destra mono {{ 'favorito tinta-2' if p.esito_previsto == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
+              {% else %}
+                <td class="destra fioco" colspan="3">nessun pronostico</td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 {% endif %}
 
-<section>
-  <h2>Chi e' sceso in campo</h2>
-  {% if rosa %}
-    <p class="sottotitolo">
-      {{ rosa|length }} giocatori, dai piu' impiegati. Non e' la rosa ufficiale:
-      e' chi ha giocato almeno un minuto nelle partite che l'archivio ha visto.
-      Un acquisto mai impiegato non compare, ed e' giusto cosi' — l'archivio
-      non ne sa nulla.
-    </p>
-    <table class="tabella">
-      <thead>
-        <tr>
-          <th>Giocatore</th><th>Ruolo</th>
-          <th class="destra">Presenze</th><th class="destra">Titolare</th>
-          <th class="destra">Minuti</th><th class="destra">Gol</th>
-          <th class="destra">Assist</th><th class="destra">Cartellini</th>
-          <th class="destra">Voto</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for g in rosa %}
-          <tr>
-            <td><a href="/giocatore/{{ g.id }}">{{ g.nome }}</a></td>
-            <td class="tenue">{{ g.ruolo or "—" }}</td>
-            <td class="destra mono">{{ g.presenze }}</td>
-            <td class="destra mono tenue">{{ g.da_titolare }}</td>
-            <td class="destra mono">{{ g.minuti }}</td>
-            <td class="destra mono {{ 'forte' if g.gol }}">{{ g.gol or "" }}</td>
-            <td class="destra mono">{{ g.assist or "" }}</td>
-            <td class="destra mono tenue">
-              {%- if g.gialli %}{{ g.gialli }}G{% endif %}{% if g.rossi %} {{ g.rossi }}R{% endif -%}
-            </td>
-            <td class="destra mono">{% if g.voto_medio %}{{ "%.2f"|format(g.voto_medio) }}{% else %}—{% endif %}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="nota">
-      Conti costruiti sulle {{ archivio.partite_con_statistiche }} partite con
-      tabellino, su {{ archivio.partite_concluse }} concluse nell'archivio della
-      stagione in corso.
-    </p>
-  {% else %}
-    <p class="nota">
-      Nessuna statistica per giocatore di questa squadra. I tabellini arrivano
-      a partita conclusa: finche' la stagione non e' entrata nel vivo — o
-      finche' la raccolta non ha recuperato i dettagli — questa tabella resta
-      vuota. Delle stagioni 2022-2024 l'archivio conserva i risultati, non i
-      tabellini.
-    </p>
-  {% endif %}
+<section class="blocco disteso">
+  <div class="lato">
+    <p class="occhiello">Chi e' sceso in campo</p>
+    <h2>La rosa vista dall'archivio</h2>
+    {% if rosa %}
+      <p class="spiega">
+        {{ rosa|length }} giocatori, dai piu' impiegati. <b>Non e' la rosa
+        ufficiale</b>: e' chi ha giocato almeno un minuto nelle partite che
+        l'archivio ha visto. Un acquisto mai impiegato non compare, ed e'
+        giusto cosi' &mdash; l'archivio non ne sa nulla.
+      </p>
+      <p class="spiega">
+        Conti costruiti sulle {{ archivio.partite_con_statistiche }} partite
+        con tabellino, su {{ archivio.partite_concluse }} concluse
+        nell'archivio della stagione in corso.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="corpo">
+    {% if rosa %}
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th>Giocatore</th><th>Ruolo</th>
+              <th class="destra">Presenze</th><th class="destra">Titolare</th>
+              <th class="destra">Minuti</th><th class="destra">Gol</th>
+              <th class="destra">Assist</th><th class="destra">Cartellini</th>
+              <th class="destra">Voto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in rosa %}
+              <tr>
+                <td><a href="/giocatore/{{ g.id }}">{{ g.nome }}</a></td>
+                <td class="fioco">{{ g.ruolo or "—" }}</td>
+                <td class="destra mono">{{ g.presenze }}</td>
+                <td class="destra mono fioco">{{ g.da_titolare }}</td>
+                <td class="destra mono">{{ g.minuti }}</td>
+                <td class="destra mono {{ 'forte' if g.gol }}">{{ g.gol or "" }}</td>
+                <td class="destra mono">{{ g.assist or "" }}</td>
+                <td class="destra mono fioco">
+                  {%- if g.gialli %}{{ g.gialli }}G{% endif %}{% if g.rossi %} {{ g.rossi }}R{% endif -%}
+                </td>
+                <td class="destra mono">{% if g.voto_medio %}{{ "%.2f"|format(g.voto_medio) }}{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="riquadro-vuoto">
+        <h2>Nessuna statistica per giocatore</h2>
+        <p>
+          I tabellini arrivano a partita conclusa: finche' la stagione non e'
+          entrata nel vivo &mdash; o finche' la raccolta non ha recuperato i
+          dettagli &mdash; questa tabella resta vuota.
+        </p>
+        <p>
+          Delle stagioni 2022-2024 l'archivio conserva i risultati, non i
+          tabellini.
+        </p>
+      </div>
+    {% endif %}
+  </div>
 </section>
 
 {% if partite %}
-  <section>
-    <h2>Ultimi risultati</h2>
-    <table class="tabella">
-      <thead><tr><th>Quando</th><th>Partita</th><th class="destra">Risultato</th></tr></thead>
-      <tbody>
-        {% for p in partite %}
-          <tr>
-            <td class="tenue">{{ p.quando }}</td>
-            <td><a href="/partita/{{ p.id }}">{{ p.casa }} - {{ p.ospite }}</a></td>
-            <td class="destra mono"><b>{{ p.risultato }}</b></td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Gia' giocate</p>
+      <h2>Ultimi risultati</h2>
+      <p class="spiega">
+        Il punteggio e' scritto casa&ndash;trasferta e colorato di
+        conseguenza: <b>indaco</b> ha vinto chi giocava in casa,
+        <b>arancio</b> chi era ospite, <b>grigio</b> pareggio.
+      </p>
+    </div>
+    <div class="corpo">
+      <table class="tabella">
+        <thead><tr><th>Quando</th><th>Partita</th><th class="destra">Risultato</th></tr></thead>
+        <tbody>
+          {% for p in partite %}
+            <tr>
+              <td class="fioco">{{ p.quando }}</td>
+              <td><a href="/partita/{{ p.id }}">{{ p.casa }} &middot; {{ p.ospite }}</a></td>
+              <td class="destra">{{ punteggio(p.risultato, p.esito_reale, p.margine) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 {% endif %}
 

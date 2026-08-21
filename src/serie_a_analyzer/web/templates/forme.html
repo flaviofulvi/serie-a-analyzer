@@ -1,0 +1,89 @@
+{# Le due forme con cui questa applicazione disegna una quantita'.
+
+   Stanno in un file loro, senza `extends`, perche' un template importato
+   viene costruito come modulo: importarle da una pagina che estende
+   base.html farebbe partire anche il piede, che vuole il contesto. #}
+
+{# Il trittico: le tre probabilita' come tre barre allineate allo stesso
+   zero. Confrontarle a occhio e' immediato, cosa che con gli spicchi di una
+   barra sola non e'. I nomi delle squadre fanno da etichetta: e' per questo
+   che la scheda non li ripete sopra. #}
+{% macro trittico(p, casa, ospite, grande=false) %}
+  <div class="trittico {{ 'grande' if grande }}"
+       role="img"
+       aria-label="{{ casa }} {{ (p.home_win*100)|round|int }}%, pareggio {{ (p.draw*100)|round|int }}%, {{ ospite }} {{ (p.away_win*100)|round|int }}%">
+    <div class="esito-riga casa">
+      <span class="chi">{{ casa }}</span>
+      <span class="segno">1</span>
+      <span class="pista"><span class="riempi" style="width: {{ (p.home_win*100)|round(2) }}%"></span></span>
+      <span class="quanto">{{ (p.home_win*100)|round|int }}%</span>
+    </div>
+    <div class="esito-riga pari">
+      <span class="chi">pareggio</span>
+      <span class="segno">X</span>
+      <span class="pista"><span class="riempi" style="width: {{ (p.draw*100)|round(2) }}%"></span></span>
+      <span class="quanto">{{ (p.draw*100)|round|int }}%</span>
+    </div>
+    <div class="esito-riga ospite">
+      <span class="chi">{{ ospite }}</span>
+      <span class="segno">2</span>
+      <span class="pista"><span class="riempi" style="width: {{ (p.away_win*100)|round(2) }}%"></span></span>
+      <span class="quanto">{{ (p.away_win*100)|round|int }}%</span>
+    </div>
+  </div>
+{% endmacro %}
+
+{# La barra del muro: il punteggio del modello contro il suo metro di
+   paragone, nella stessa pista del trittico. La tacca sta sempre al 70%,
+   quindi la barra dice *di quanto* il modello se ne discosta, e righe di
+   mercati diversi — i cui Brier assoluti non sono confrontabili fra loro —
+   lo diventano in proporzione. Inchiostro fino al muro, rosso per quanto
+   lo sfonda. #}
+{% macro muro(valore, riferimento, tono, nome_riferimento) %}
+  {% set rapporto = (valore / riferimento) if riferimento else 1 %}
+  {% set dentro = [rapporto * 70, 70]|min %}
+  {% set fuori = [[(rapporto - 1) * 70, 0]|max, 30]|min %}
+  <span class="muro {{ 'oltre' if rapporto > 1 }} {{ 'attesa' if tono == 'attesa' }}">
+    <span class="pista">
+      <span class="riempi" style="width: {{ dentro|round(2) }}%"></span>
+      {% if fuori > 0 %}<span class="eccesso" style="left: 70%; width: {{ fuori|round(2) }}%"></span>{% endif %}
+      <span class="tacca" style="left: 70%"></span>
+    </span>
+    <span class="muro-scarto">
+      {{ "%+.1f"|format((rapporto - 1) * 100) }}%
+      <span class="fioco">{{ nome_riferimento }} {{ "%.4f"|format(riferimento) }}</span>
+    </span>
+  </span>
+{% endmacro %}
+
+{# Il punteggio tinto: la terza forma, e l'unica che parla di cose gia'
+   accadute. Il colore e' sempre lo stesso alfabeto del resto della pagina —
+   indaco = ha vinto la casa, grigio = pareggio, arancio = ha vinto la
+   trasferta — e non un verde da "bravo": un risultato non e' un voto.
+   Quello che cambia e' l'intensita', che dice *di quanto* si e' vinto:
+   un 1-0 e' quasi inchiostro, un 4-0 e' colore pieno. Stesso meccanismo
+   delle caselle della matrice, cosi' chi ha imparato a leggere quelle sa
+   gia' leggere anche questo. #}
+{% macro punteggio(testo, esito, margine, grande=false) %}
+  <span class="punteggio tinta-{{ esito or 'X' }} {{ 'grande' if grande }}"
+        style="--intensita: {{ margine|round(3) }}">{{ testo }}</span>
+{% endmacro %}
+
+{# La barra della sostanza: quanto una forza stimata viene dai dati della
+   squadra e quanto dalla media del campionato. Stessa pista delle altre due
+   forme — chi ha imparato a leggere il trittico sa gia' leggere anche
+   questa — con la parte non riempita che vale "qui parla la media di lega",
+   non "qui manca qualcosa". Inchiostro quando i dati bastano, grigio quando
+   e' la media a comandare: e' lo stesso grigio dell'attesa che si vede
+   accanto ai Brier ancora troppo poveri. #}
+{% macro sostanza(riga) %}
+  <span class="sostanza {{ 'attesa' if riga.tono == 'attesa' }}"
+        role="img"
+        aria-label="{{ riga.squadra }}: {{ (riga.sostanza*100)|round|int }}% dai suoi dati, {{ (riga.tiro*100)|round|int }}% dalla media di lega">
+    <span class="pista"><span class="riempi" style="width: {{ (riga.sostanza*100)|round(2) }}%"></span></span>
+    <span class="sostanza-scarto">
+      &minus;{{ (riga.tiro*100)|round|int }}%
+      <span class="fioco">verso la media</span>
+    </span>
+  </span>
+{% endmacro %}

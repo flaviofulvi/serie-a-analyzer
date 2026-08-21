@@ -6,7 +6,7 @@ duplicare, non pronosticare il passato, riderivare i mercati mesi dopo — serve
 a rendere quello storico degno di essere usato per misurare il modello.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
@@ -230,3 +230,28 @@ def test_registrare_due_volte_di_fila_non_aggiunge_nulla(store):
     assert esito["nuovi"] == 0
     assert esito["gia_presenti"] == 1
     assert store.conteggi()["pronostici"] == 1
+
+
+def test_l_affidabilita_non_cambia_la_versione_del_modello(store):
+    """Sapere *su cosa* poggia una stima non la rende una stima diversa.
+
+    L'indicatore di affidabilita' descrive la stima, non la definisce: due
+    modelli con gli stessi parametri sono lo stesso modello, e devono cadere
+    sulla stessa riga di ``model_versions``. Se entrasse nell'impronta, ogni
+    partita giocata da chiunque farebbe nascere una versione nuova e lo
+    storico si riempirebbe di pronostici identici.
+    """
+    from serie_a_analyzer.model.dixon_coles import TeamEvidence
+
+    nudo = _modello()
+    vestito = replace(
+        nudo,
+        evidence={
+            "Inter": TeamEvidence(
+                team="Inter", n_matches=114, effective_sample_size=5.4,
+                last_match=date(2026, 5, 24),
+                pull_attack=0.36, pull_defense=0.35,
+            )
+        },
+    )
+    assert store.versione_modello(nudo) == store.versione_modello(vestito)
