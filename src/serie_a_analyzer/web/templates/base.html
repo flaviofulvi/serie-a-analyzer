@@ -60,7 +60,13 @@
         <div>
           <span class="pie-etichetta">Partite in archivio</span>
           <strong>{{ salute.partite_totali }}</strong>
-          <span class="pie-nota">{{ salute.partite_stagione_corrente }} dalla raccolta giornaliera</span>
+          {# Le stagioni ricomprate compaiono solo se esistono: sul piano
+             gratuito non ce ne sono, e una riga a zero direbbe solo che manca
+             qualcosa che nessuno ha chiesto. #}
+          <span class="pie-nota">
+            {{ salute.partite_stagione_corrente }} dalla raccolta giornaliera{% if salute.stagioni_riempite %},
+            {{ salute.partite_stagioni_riempite }} dalle stagioni ricomprate ({{ salute.stagioni_riempite | join(", ") }}){% endif %}
+          </span>
         </div>
         <div>
           <span class="pie-etichetta">Modello stimato su</span>

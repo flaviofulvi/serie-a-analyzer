@@ -1,15 +1,16 @@
-"""Unione delle due sorgenti di partite in un unico insieme di lavoro.
+"""Unione delle sorgenti di partite in un unico insieme di lavoro.
 
-I dati arrivano da due strade che il piano gratuito rende profondamente
-diverse:
+I dati arrivano da strade che il piano gratuito rende profondamente diverse:
 
 * **lo storico** (stagioni 2022-2024) scende in una richiesta per stagione e
   non cambia mai piu';
 * **la stagione in corso** si accumula un giorno alla volta nell'archivio
-  locale, perche' non e' scaricabile in blocco.
+  locale, perche' non e' scaricabile in blocco;
+* **le stagioni ricomprate** (`data/storico/<anno>/`, vedi `storico.py`), che
+  esistono solo se qualcuno ha pagato un piano superiore e le ha riempite.
 
 Il resto dell'applicazione non deve sapere niente di questa differenza: chiede
-partite e squadre, e le ottiene. Qui dentro le due strade si ricongiungono.
+partite e squadre, e le ottiene. Qui dentro le strade si ricongiungono.
 
 L'identita' di una squadra e' il suo **id numerico**, mai il nome: fra endpoint
 e stagioni lo stesso club compare come "Inter" o "Internazionale", e usare il
@@ -38,14 +39,16 @@ MATCHDAY_WINDOW_DAYS = 5
 
 @dataclass
 class Dataset:
-    """Tutte le partite conosciute, da entrambe le sorgenti."""
+    """Tutte le partite conosciute, da qualunque sorgente arrivino."""
 
     fixtures: list[FixtureRecord]
     team_names: dict[int, str]
     n_historical: int = 0
     n_current: int = 0
+    n_riempite: int = 0
     requests_spent: int = 0
     seasons_loaded: list[int] = field(default_factory=list)
+    stagioni_riempite: list[int] = field(default_factory=list)
 
     def name(self, team_id: int) -> str:
         return self.team_names.get(team_id, str(team_id))
@@ -105,15 +108,21 @@ def load_dataset(
     store: SeasonStore,
     seasons: tuple[int, ...] | list[int],
     league_id: int = SERIE_A_LEAGUE_ID,
+    storici: dict[int, SeasonStore] | None = None,
 ) -> Dataset:
-    """Mette insieme storico e archivio corrente.
+    """Mette insieme storico, stagioni ricomprate e archivio corrente.
 
     Le stagioni gia' concluse si servono dalla cache e non costano nulla; la
     stagione in corso si legge dall'archivio su disco e non costa nulla per
-    definizione, perche' e' gia' stata pagata dalla raccolta giornaliera.
+    definizione, perche' e' gia' stata pagata dalla raccolta giornaliera; le
+    stagioni ricomprate si leggono dal loro archivio e sono gia' state pagate
+    una volta per tutte.
 
-    Se una partita compare in entrambe le sorgenti vince l'archivio corrente:
-    e' quello aggiornato piu' di recente.
+    L'ordine di sovrascrittura non e' arbitrario, va **dal piu' vecchio al piu'
+    fresco**: cache, poi stagioni riempite, poi raccolta giornaliera. Se una
+    partita compare in piu' sorgenti vince l'archivio corrente, che e' l'unico
+    aggiornato giorno per giorno; e i nomi delle squadre restano quelli visti
+    per ultimi, perche' un club puo' essere stato rinominato nel frattempo.
     """
     prima = client.budget.used
 
@@ -132,8 +141,17 @@ def load_dataset(
                 n_storiche += 1
         nomi.update(training.team_names)
 
-    # L'archivio corrente per ultimo: sovrascrive lo storico dove si sovrappone
-    # e da' i nomi piu' recenti (una squadra puo' essere stata rinominata).
+    n_riempite = 0
+    for stagione in sorted(storici or {}):
+        riempita = parse_fixtures(list((storici or {})[stagione].load_fixtures().values()))
+        for f in riempita:
+            per_id[f.api_id] = f
+            nomi[f.home_team_id] = f.home_team_name
+            nomi[f.away_team_id] = f.away_team_name
+        n_riempite += len(riempita)
+
+    # La raccolta giornaliera per ultima: e' l'unica sorgente che vede una
+    # partita cambiare stato durante il pomeriggio.
     correnti = parse_fixtures(list(store.load_fixtures().values()))
     for f in correnti:
         per_id[f.api_id] = f
@@ -141,8 +159,9 @@ def load_dataset(
         nomi[f.away_team_id] = f.away_team_name
 
     logger.info(
-        "dataset: %d partite storiche, %d dalla raccolta giornaliera, %d squadre",
-        n_storiche, len(correnti), len(nomi),
+        "dataset: %d partite storiche, %d da stagioni riempite, "
+        "%d dalla raccolta giornaliera, %d squadre",
+        n_storiche, n_riempite, len(correnti), len(nomi),
     )
 
     return Dataset(
@@ -150,6 +169,8 @@ def load_dataset(
         team_names=nomi,
         n_historical=n_storiche,
         n_current=len(correnti),
+        n_riempite=n_riempite,
         requests_spent=client.budget.used - prima,
         seasons_loaded=list(storiche),
+        stagioni_riempite=sorted(storici or {}),
     )

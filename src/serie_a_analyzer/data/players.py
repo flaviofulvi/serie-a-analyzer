@@ -496,12 +496,17 @@ def costruisci_archivio(store, fixtures: Iterable[Any]) -> ArchivioGiocatori:
     gia' pagati la raccolta giornaliera. Resta pero' un lavoro da fare una
     volta e tenere caldo — un file per partita — non a ogni pagina aperta.
 
-    Si guardano solo le partite **presenti nell'archivio della stagione in
-    corso**, non tutte quelle che il modello conosce. Lo storico 2022-2024
-    arriva dalla cache come elenco di risultati e non ha dettagli: contarlo qui
-    non aggiungerebbe un solo giocatore e farebbe sembrare la copertura un
-    decimo di quella vera, cioe' direbbe una cosa falsa proprio nel numero che
-    serve a dichiarare quanto i conti sono parziali.
+    Si guardano solo le partite **di cui possediamo l'archivio grezzo** — la
+    raccolta giornaliera e le stagioni eventualmente ricomprate — non tutte
+    quelle che il modello conosce. Lo storico 2022-2024 arriva dalla cache come
+    elenco di risultati e non ha dettagli: contarlo qui non aggiungerebbe un
+    solo giocatore e farebbe sembrare la copertura un decimo di quella vera,
+    cioe' direbbe una cosa falsa proprio nel numero che serve a dichiarare
+    quanto i conti sono parziali.
+
+    ``store`` puo' essere un `SeasonStore` o piu' archivi messi insieme in uno
+    `StoreUnito`: qui servono solo `fixture_ids()` e `load_detail()`, e da dove
+    arrivi il tabellino di una partita non cambia niente.
     """
     raccolte = set(store.fixture_ids())
     concluse = [f for f in fixtures if f.is_finished and f.api_id in raccolte]

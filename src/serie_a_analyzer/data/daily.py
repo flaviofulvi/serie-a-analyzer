@@ -32,6 +32,7 @@ registra tutto su `DayJournal`: un buco deve essere visibile subito.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
@@ -57,6 +58,13 @@ _DETAIL_PRIORITY = {
     "players": Priority.BACKFILL,
     "events": Priority.BACKFILL,
 }
+
+# Quanti errori di fila si accettano prima di smettere. Un errore isolato e'
+# normale (una partita senza tabellino, un timeout); cinque di fila vogliono
+# dire che l'API e' rotta o il piano non copre l'endpoint, e insistere
+# brucerebbe budget una richiesta alla volta senza salvare niente. Conta solo
+# perche' il budget viene prenotato PRIMA di spedire: un errore costa comunque.
+MAX_ERRORI_CONSECUTIVI = 5
 
 
 @dataclass
@@ -166,6 +174,8 @@ def collect_details_for(
     store: SeasonStore,
     fixtures: list[dict],
     max_requests: int | None = None,
+    priorita: Priority | None = None,
+    pausa: float = 0.0,
 ) -> dict[str, int]:
     """Formazioni, statistiche giocatori ed eventi delle partite concluse.
 
@@ -178,9 +188,21 @@ def collect_details_for(
     un archivio incompleto e' recuperabile domani — gli endpoint per singola
     partita non hanno la finestra di tre giorni — mentre restare senza
     richieste durante una giornata di campionato no.
+
+    ``priorita`` sostituisce quella naturale di ogni dettaglio. Serve al
+    riempimento di una stagione passata (`data/storico.py`): li' anche le
+    formazioni sono lavoro arretrato, e chiederle a priorita' NORMAL
+    mangerebbe la riserva che protegge la giornata di campionato di oggi.
+
+    ``pausa`` sono i secondi di attesa dopo ogni richiesta davvero spedita. A
+    zero per la raccolta giornaliera, che di richieste ne fa nove; diversa da
+    zero quando se ne fanno mille di fila, perche' i piani a pagamento hanno
+    anche un limite **al minuto** e superarlo fa rispondere 429 all'API mentre
+    il contatore locale continua a segnare richieste spese.
     """
     raccolti: dict[str, int] = {}
     spese = 0
+    errori_di_fila = 0
 
     for raw in fixtures:
         if _status_of(raw) != "finished":
@@ -196,20 +218,29 @@ def collect_details_for(
                 logger.info("dettagli: raggiunto il tetto di %d richieste", max_requests)
                 return raccolti
 
-            priorita = _DETAIL_PRIORITY[kind]
-            if not client.budget.can_spend(priorita):
-                logger.info("dettagli: budget %s esaurito, si riprende domani", priorita.name)
+            prio = priorita if priorita is not None else _DETAIL_PRIORITY[kind]
+            if not client.budget.can_spend(prio):
+                logger.info("dettagli: budget %s esaurito, si riprende domani", prio.name)
                 continue
 
             try:
                 payload = client.get(
                     f"fixtures/{kind}", {"fixture": fid},
-                    ttl=TTL_FOREVER, priority=priorita,
+                    ttl=TTL_FOREVER, priority=prio,
                 )
             except (ApiFootballError, BudgetExhausted) as exc:
                 logger.warning("dettagli %s per la partita %s: %s", kind, fid, exc)
+                errori_di_fila += 1
+                if errori_di_fila >= MAX_ERRORI_CONSECUTIVI:
+                    logger.error(
+                        "dettagli: %d errori di fila, mi fermo. "
+                        "Le partite gia' salvate restano, il resto si riprende dopo.",
+                        errori_di_fila,
+                    )
+                    return raccolti
                 continue
 
+            errori_di_fila = 0
             # Si salva anche una risposta vuota: la busta conta i tentativi e
             # impedisce sia di rinunciare al primo colpo sia di riprovare per
             # sempre su un campionato che quel dato non lo pubblica.
@@ -217,6 +248,8 @@ def collect_details_for(
             if payload:
                 raccolti[kind] = raccolti.get(kind, 0) + 1
             spese += 1
+            if pausa:
+                time.sleep(pausa)
 
     return raccolti
 

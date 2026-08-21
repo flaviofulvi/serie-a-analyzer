@@ -170,6 +170,28 @@ class ApiFootballClient:
     # I TTL e le priorita' non sono cosmetici: codificano quanto in fretta un
     # dato diventa sbagliato e quanto e' grave restare senza.
 
+    def status(self) -> dict[str, Any]:
+        """Piano sottoscritto, limite giornaliero e richieste gia' spese.
+
+        E' l'unico endpoint che risponde su noi stessi invece che sul calcio, e
+        l'unico modo non ambiguo di sapere se un piano nuovo e' davvero attivo:
+        sulle stagioni non coperte l'API risponde 200 con una lista vuota, che
+        e' indistinguibile da "quel campionato quel giorno non ha giocato".
+
+        Restituisce il dizionario cosi' com'e' — ``account``, ``subscription``,
+        ``requests`` — perche' e' l'unica risposta dell'API che non ha una
+        forma di dominio in cui tradurla.
+
+        Non si tiene in cache: la domanda "che piano ho adesso" ha senso solo
+        se la risposta e' di adesso.
+        """
+        risposta = self.get("status", {}, ttl=0, priority=Priority.CRITICAL)
+        # `/status` e' l'unico endpoint che mette un oggetto in `response`,
+        # non una lista: `_unwrap` lo restituisce tale e quale.
+        if isinstance(risposta, list):
+            return risposta[0] if risposta else {}
+        return risposta
+
     def fixtures(
         self,
         season: int,

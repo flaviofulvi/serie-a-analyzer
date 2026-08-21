@@ -5,9 +5,10 @@ per farlo a ogni richiesta HTTP, e inutile, perche' fra una visita e l'altra i
 dati quasi sempre non sono cambiati.
 
 La regola di aggiornamento e' legata a **cosa** e' cambiato, non all'orologio:
-il modello viene ricostruito quando l'archivio della raccolta giornaliera si
-muove. E' l'unico momento in cui puo' cambiare qualcosa, perche' lo storico
-delle stagioni concluse e' immutabile per definizione.
+il modello viene ricostruito quando si muove uno degli archivi su disco —
+quello della raccolta giornaliera o quello di una stagione ricomprata. Sono i
+soli momenti in cui i dati possono cambiare: una stagione conclusa e gia'
+scaricata e' immutabile per definizione.
 """
 
 from __future__ import annotations
@@ -19,7 +20,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import (
-    Settings, build_client, build_prediction_store, build_store, load_settings,
+    Settings,
+    build_client,
+    build_prediction_store,
+    build_store,
+    build_storico_stores,
+    load_settings,
 )
 from ..data.dataset import Dataset, load_dataset
 from ..data.outcomes import (
@@ -30,7 +36,9 @@ from ..data.outcomes import (
 )
 from ..data.players import ArchivioGiocatori, costruisci_archivio
 from ..data.predictions import registra_partite
-from ..model.dixon_coles import FittedModel, fit_dixon_coles
+from ..data.store import SeasonStore, StoreUnito
+from ..data.storico import firma_storico
+from ..model.dixon_coles import FittedModel, TeamEvidence, fit_dixon_coles
 from ..model.markets import MatchProbabilities
 
 logger = logging.getLogger(__name__)
@@ -43,7 +51,7 @@ class Snapshot:
     dataset: Dataset
     model: FittedModel | None
     built_at: datetime
-    archive_signature: tuple[float, int]
+    archive_signature: tuple
     error: str | None = None
 
     @property
@@ -66,18 +74,24 @@ class Engine:
         # L'archivio dei giocatori ha una vita sua: si costruisce leggendo i
         # dettagli, che arrivano quando vogliono, e serve solo alle sue pagine.
         self._giocatori: ArchivioGiocatori | None = None
-        self._firma_giocatori: tuple[int, float] | None = None
+        self._firma_giocatori: tuple | None = None
         self._lock_giocatori = threading.Lock()
 
     # ---- ciclo di vita dello snapshot --------------------------------------
 
-    def _archive_signature(self) -> tuple[float, int]:
-        """Impronta dell'archivio: cambia se e solo se la raccolta ha scritto."""
+    def _archive_signature(self) -> tuple:
+        """Impronta degli archivi: cambia se e solo se qualcosa ha scritto.
+
+        Due pezzi, che si muovono per ragioni diverse: la raccolta giornaliera
+        scrive `fixtures.json` quattro volte al giorno, un riempimento storico
+        aggiunge una cartella dentro `data/storico/` una volta ogni tanto.
+        Guardare solo il primo lascerebbe il modello fermo alle stagioni di
+        prima anche dopo aver ricomprato un campionato intero — con un
+        riempimento che dura ore e il sito aperto nel frattempo.
+        """
         path = Path(self.store.root) / "fixtures.json"
-        if not path.exists():
-            return (0.0, 0)
-        stat = path.stat()
-        return (stat.st_mtime, stat.st_size)
+        corrente = (path.stat().st_mtime, path.stat().st_size) if path.exists() else (0.0, 0)
+        return (corrente, firma_storico(self.settings.storico_dir))
 
     def snapshot(self, force: bool = False) -> Snapshot:
         with self._lock:
@@ -88,9 +102,10 @@ class Engine:
             self._snapshot = self._build(firma)
             return self._snapshot
 
-    def _build(self, firma: tuple[float, int]) -> Snapshot:
+    def _build(self, firma: tuple) -> Snapshot:
         dataset = load_dataset(
-            self.client, self.store, self.settings.seasons, self.settings.league_id
+            self.client, self.store, self.settings.seasons, self.settings.league_id,
+            storici=build_storico_stores(self.settings),
         )
         adesso = datetime.now(timezone.utc)
 
@@ -185,6 +200,24 @@ class Engine:
         except KeyError:
             return None
 
+    def affidabilita(
+        self, home_id: int, away_id: int
+    ) -> tuple[TeamEvidence | None, TeamEvidence | None]:
+        """Su quanti dati poggiano le due forze che generano il pronostico.
+
+        Sta accanto a ``predict`` perche' risponde alla stessa richiesta: il
+        pronostico e' il numero, questo e' quanto vale la pena fidarsene. Un
+        ``None`` per lato non e' un errore ma la stessa cosa che dice
+        ``predict``, cioe' che il modello non conosce quella squadra.
+        """
+        snap = self.snapshot()
+        if snap.model is None:
+            return (None, None)
+        return tuple(  # type: ignore[return-value]
+            snap.model.evidence_for(snap.dataset.name(squadra))
+            for squadra in (home_id, away_id)
+        )
+
     def expected_goals(self, home_id: int, away_id: int) -> tuple[float, float] | None:
         snap = self.snapshot()
         if snap.model is None:
@@ -214,12 +247,22 @@ class Engine:
         # annidati sarebbe il modo piu' rapido per bloccare il processo.
         dataset = self.snapshot().dataset
         with self._lock_giocatori:
-            firma = self.store.details_signature()
+            archivi = self._archivi_dettagli()
+            firma = archivi.details_signature()
             if self._giocatori is not None and self._firma_giocatori == firma:
                 return self._giocatori
-            self._giocatori = costruisci_archivio(self.store, dataset.fixtures)
+            self._giocatori = costruisci_archivio(archivi, dataset.fixtures)
             self._firma_giocatori = firma
             return self._giocatori
+
+    def _archivi_dettagli(self) -> StoreUnito:
+        """Tutti gli archivi che possono contenere un tabellino, in un oggetto solo.
+
+        Prima la stagione in corso, poi le stagioni ricomprate: e' l'ordine in
+        cui si vuole trovare il dato quando per caso sta in entrambi.
+        """
+        storici: list[SeasonStore] = list(build_storico_stores(self.settings).values())
+        return StoreUnito(stores=[self.store, *storici])
 
     # ---- stato per l'interfaccia ------------------------------------------
 
@@ -243,6 +286,8 @@ class Engine:
             "partite_totali": len(snap.dataset.fixtures),
             "partite_storiche": snap.dataset.n_historical,
             "partite_stagione_corrente": snap.dataset.n_current,
+            "partite_stagioni_riempite": snap.dataset.n_riempite,
+            "stagioni_riempite": snap.dataset.stagioni_riempite,
             "squadre": len(snap.dataset.team_names),
             "giorni_raccolti": len(giorni),
             "ultimo_giorno_raccolto": giorni[-1].isoformat() if giorni else None,

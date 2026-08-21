@@ -334,6 +334,35 @@ def controlla_budget(settings) -> None:
         print("       (normale finche' il campionato non e' cominciato)")
 
 
+def controlla_storico(settings) -> None:
+    """Le stagioni ricomprate con un piano a pagamento, se ce ne sono.
+
+    Non e' un controllo di salute della raccolta: e' il promemoria di un
+    lavoro che si fa a pezzi. Un riempimento interrotto non rompe niente e non
+    si segnala da solo — resta li', e senza questa riga nessuno si ricorda che
+    mancano ancora quattrocento tabellini.
+    """
+    from serie_a_analyzer.data.storico import dettagli_in_sospeso, stagioni_riempite
+
+    riempite = stagioni_riempite(settings.storico_dir)
+    if not riempite:
+        return
+
+    sezione("Stagioni ricomprate")
+    for stagione, store in sorted(riempite.items()):
+        s = store.stats()
+        sospeso = dettagli_in_sospeso(store)
+        if sospeso:
+            avviso(
+                f"{stagione}: {s['partite']} partite, {s['con_dettagli']} con dettagli — "
+                f"mancano {sospeso} richieste"
+            )
+        else:
+            ok(f"{stagione}: {s['partite']} partite, completa")
+    if any(dettagli_in_sospeso(store) for store in riempite.values()):
+        print("       riprendi con: python scripts/riempi_storico.py")
+
+
 def main() -> int:
     print("=" * 72)
     print("VERIFICA DELLA RACCOLTA — nessuna richiesta all'API")
@@ -347,6 +376,7 @@ def main() -> int:
         journal = controlla_diario(settings)
         controlla_finestra(journal)
         controlla_budget(settings)
+        controlla_storico(settings)
 
     sezione("Verdetto")
     if problemi:

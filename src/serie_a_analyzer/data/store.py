@@ -185,6 +185,57 @@ class SeasonStore:
 
 
 @dataclass
+class StoreUnito:
+    """Piu' archivi letti come se fossero uno solo. Sola lettura.
+
+    Nasce quando una stagione passata viene riempita (`data/storico.py`): da
+    quel momento i dettagli di una partita stanno in due posti diversi —
+    `data/serie_a/` per la stagione in corso, `data/storico/<anno>/` per quelle
+    ricomprate — e chi li legge non deve saperlo. Le schede giocatore, in
+    particolare, chiedono "il tabellino della partita 12345" e devono averlo da
+    qualunque archivio provenga.
+
+    L'ordine conta: **vince il primo archivio che ha il dato**. Si mette per
+    primo quello della stagione in corso, che e' l'unica copia esistente dei
+    suoi giorni; gli archivi storici sono sempre riscaricabili finche' il piano
+    li copre.
+    """
+
+    stores: list[SeasonStore]
+
+    def fixture_ids(self) -> list[int]:
+        visti: dict[int, None] = {}
+        for store in self.stores:
+            for fid in store.fixture_ids():
+                visti.setdefault(fid, None)
+        return list(visti)
+
+    def load_detail(self, fixture_id: int, kind: str) -> Any:
+        """Il primo dettaglio non vuoto fra gli archivi, o ``None``.
+
+        Una busta vuota in un archivio non ferma la ricerca: vuol dire che li'
+        quel dato non c'e', non che non esista altrove.
+        """
+        for store in self.stores:
+            payload = store.load_detail(fixture_id, kind)
+            if payload:
+                return payload
+        return None
+
+    def has_detail(self, fixture_id: int, kind: str) -> bool:
+        return bool(self.load_detail(fixture_id, kind))
+
+    def details_signature(self) -> tuple:
+        """Impronta di tutti gli archivi messi in fila.
+
+        Cambia se cambia uno qualsiasi di loro: un riempimento storico appena
+        finito deve far ricostruire le schede giocatore esattamente come le fa
+        ricostruire la raccolta di ieri sera.
+        """
+        return tuple(store.details_signature() for store in self.stores)
+
+
+@dataclass
 class DayJournal:
     """Registro dei giorni raccolti: cosa c'era, cosa manca, cosa e' perso.
 

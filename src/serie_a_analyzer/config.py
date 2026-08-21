@@ -26,6 +26,7 @@ class Settings:
     cache_dir: Path
     budget_file: Path
     store_dir: Path              # archivio della stagione in corso
+    storico_dir: Path            # stagioni passate ricomprate con un piano a pagamento
     journal_file: Path           # registro dei giorni raccolti
     predictions_db: Path         # storico immutabile dei pronostici
     database_url: str | None
@@ -59,6 +60,7 @@ def load_settings() -> Settings:
         cache_dir=Path(os.getenv("CACHE_DIR", data_dir / "cache")),
         budget_file=Path(os.getenv("BUDGET_FILE", data_dir / "budget.json")),
         store_dir=Path(os.getenv("STORE_DIR", data_dir / "serie_a")),
+        storico_dir=Path(os.getenv("STORICO_DIR", data_dir / "storico")),
         journal_file=Path(os.getenv("JOURNAL_FILE", data_dir / "journal.json")),
         predictions_db=Path(os.getenv("PREDICTIONS_DB", data_dir / "pronostici.db")),
         database_url=os.getenv("DATABASE_URL") or None,
@@ -90,6 +92,23 @@ def build_store(settings: Settings | None = None):
 
     settings = settings or load_settings()
     return SeasonStore(root=settings.store_dir), DayJournal(path=settings.journal_file)
+
+
+def build_storico_stores(settings: Settings | None = None):
+    """Gli archivi delle stagioni passate gia' riempite, ``{anno: SeasonStore}``.
+
+    Vuoto finche' nessuno ha comprato un piano a pagamento e lanciato
+    `scripts/riempi_storico.py`: sul piano gratuito quelle stagioni non sono
+    leggibili e la cartella non esiste nemmeno.
+
+    Si rilegge dal disco a ogni chiamata, e non si tiene in memoria: un
+    riempimento dura ore e chi lo lancia non deve dover riavviare il sito per
+    vedere comparire la stagione nuova.
+    """
+    from .data.storico import stagioni_riempite
+
+    settings = settings or load_settings()
+    return stagioni_riempite(settings.storico_dir)
 
 
 def build_prediction_store(settings: Settings | None = None):

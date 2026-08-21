@@ -150,8 +150,36 @@ senza spendere una richiesta.
 - Il calendario oltre domani: la scheda squadra non puo' mostrare "tutti i
   prossimi incontri" (Fase 3, punto 5).
 - I pronostici escono ~24 ore prima della partita, non con giorni di anticipo.
-- La stagione 2025/26 non e' recuperabile in nessun modo: resta un buco fra lo
-  storico 2022-2024 e la raccolta che parte adesso.
+- La stagione 2025/26 non e' recuperabile **con il piano gratuito**: resta un
+  buco fra lo storico 2022-2024 e la raccolta che parte adesso. Con un piano a
+  pagamento si riempie, e il lavoro e' gia' pronto: vedi
+  [Ricomprare una stagione passata](#ricomprare-una-stagione-passata).
+
+## Ricomprare una stagione passata
+
+Il buco fra lo storico e la raccolta giornaliera si chiude solo pagando: e' il
+filtro per stagione del piano gratuito, non una limitazione del codice. Il
+giorno in cui il piano cambia, il lavoro e' due comandi.
+
+```bash
+python scripts/riempi_storico.py --solo-verifica   # il piano copre la stagione?
+python scripts/riempi_storico.py                   # la ricompra tutta
+```
+
+Il primo interroga l'endpoint di stato, l'unico che dice in chiaro che piano e'
+attivo: una stagione non coperta **non da' errore**, risponde con zero partite,
+e prenderla per buona sarebbe il modo piu' rapido per archiviare il vuoto. Il
+secondo scarica il calendario in una richiesta e poi i dettagli, tre per partita
+conclusa: circa **1140 richieste per stagione**. Si interrompe con ctrl-c e si
+rilancia quando si vuole, anche il giorno dopo: riprende da dove era.
+
+Le partite finiscono in `data/storico/<anno>/` e da li' entrano nel modello e
+nelle schede giocatore da sole, senza toccare `.env` e senza riavviare il sito.
+
+Cio' che non torna indietro per quanto si paghi: le **quote** delle partite gia'
+giocate (API-Football non le archivia) e i **pronostici** di quella stagione,
+che valgono solo se congelati prima del fischio d'inizio. Si guadagna un modello
+piu' informato, non uno storico di accuratezza piu' lungo.
 
 ## L'applicazione web
 

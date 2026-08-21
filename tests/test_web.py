@@ -87,6 +87,7 @@ def motore(tmp_path):
         cache_dir=tmp_path / "cache",
         budget_file=tmp_path / "budget.json",
         store_dir=tmp_path / "serie_a",
+        storico_dir=tmp_path / "storico",
         journal_file=tmp_path / "journal.json",
         predictions_db=tmp_path / "pronostici.db",
         database_url=None,
@@ -142,7 +143,8 @@ def test_l_hub_dice_quando_non_c_e_niente(tmp_path, monkeypatch):
     settings = Settings(
         api_key="k", api_provider="apisports", daily_request_limit=100,
         cache_dir=tmp_path / "c", budget_file=tmp_path / "b.json",
-        store_dir=tmp_path / "s", journal_file=tmp_path / "j.json",
+        store_dir=tmp_path / "s", storico_dir=tmp_path / "st",
+        journal_file=tmp_path / "j.json",
         predictions_db=tmp_path / "pronostici.db",
         database_url=None, league_id=135, seasons=(),
     )
@@ -191,6 +193,120 @@ def test_squadra_sconosciuta_al_modello(client, motore):
 
     assert r.status_code == 200
     assert "Nessun pronostico disponibile" in r.text
+
+
+# ---- affidabilita' del pronostico ------------------------------------------
+#
+# Il pronostico prudente di una squadra sconosciuta e quello di una partita
+# davvero equilibrata sono lo stesso numero. La scheda deve saperli
+# distinguere prima del fischio d'inizio, non mesi dopo con l'accuratezza.
+
+
+def test_la_scheda_dice_su_cosa_si_basa_il_pronostico(client):
+    r = client.get("/partita/9001")
+    assert "Su cosa si basa" in r.text
+    assert "verso la media" in r.text
+
+
+def test_la_scheda_mostra_una_riga_per_squadra(client, motore):
+    r = client.get("/partita/9001")
+    snap = motore.snapshot()
+    for squadra in ("Inter", "Lecce"):
+        evidenza = snap.model.evidence_for(squadra)
+        assert f"&minus;{round(evidenza.pull * 100)}%" in r.text
+
+
+def test_una_squadra_con_poche_partite_viene_dichiarata_debole(motore, monkeypatch):
+    """Chi ha giocato poco esce tirato verso la media, e la pagina lo dice.
+
+    E' il caso per cui l'indicatore esiste: senza, quel pronostico
+    prudentissimo sembrerebbe una lettura della partita.
+    """
+    # Una settima squadra che ha giocato due sole volte, contro l'Inter.
+    motore.store.upsert_fixtures([
+        _raw(9600, 1, 7, ADESSO - timedelta(days=10), gol=(2, 1), giornata=19),
+        _raw(9601, 7, 1, ADESSO - timedelta(days=5), gol=(1, 1), giornata=19),
+        _raw(9602, 1, 7, ADESSO + timedelta(days=2), giornata=21),
+    ])
+    monkeypatch.setattr(app_module, "_engine", motore)
+    client = TestClient(app_module.app)
+
+    snap = motore.snapshot()
+    novellina = snap.model.evidence_for(_nome(7))
+    veterana = snap.model.evidence_for("Inter")
+    assert novellina.n_matches == 2
+    assert novellina.pull > veterana.pull
+
+    r = client.get("/partita/9602")
+    assert r.status_code == 200
+    assert "il modello sa poco" in r.text or "stima debole" in r.text
+
+
+def test_senza_pronostico_non_si_parla_di_affidabilita(client, motore):
+    """Non sapere chi e' una squadra e saperne poco sono cose diverse.
+
+    Mostrare una riga sola farebbe sembrare solidissima l'altra, mentre il
+    motivo per cui manca e' esattamente l'opposto.
+    """
+    motore.store.upsert_fixtures([
+        _raw(9700, 1, 98, ADESSO + timedelta(days=3), giornata=21)
+    ])
+    r = client.get("/partita/9700")
+    assert r.status_code == 200
+    assert "Nessun pronostico disponibile" in r.text
+    assert "Su cosa si basa" not in r.text
+
+
+def test_un_archivio_fermo_da_un_anno_viene_dichiarato_tale(tmp_path, monkeypatch):
+    """Il caso che il solo tiro verso la media non vedrebbe.
+
+    Il decadimento temporale e' relativo alla partita piu' recente del
+    campione: un archivio fermo da un anno ha pesi identici a uno di ieri, e
+    la barra da sola direbbe "stima solida". La data dell'ultima partita e'
+    l'unica cosa che smaschera la fotografia vecchia, e deve comparire.
+    """
+    settings = Settings(
+        api_key="chiave-di-prova", api_provider="apisports", daily_request_limit=100,
+        cache_dir=tmp_path / "cache", budget_file=tmp_path / "budget.json",
+        store_dir=tmp_path / "serie_a", storico_dir=tmp_path / "storico",
+        journal_file=tmp_path / "journal.json",
+        predictions_db=tmp_path / "pronostici.db", database_url=None,
+        league_id=135, seasons=(),
+    )
+    eng = Engine(settings)
+
+    # Lo stesso campionato finto, ma giocato piu' di un anno fa.
+    vecchie = []
+    for grezza in _campionato_finto():
+        quando = datetime.fromisoformat(grezza["fixture"]["date"])
+        if grezza["goals"]["home"] is None:
+            continue  # le partite in programma restano nel futuro
+        grezza = {**grezza, "fixture": {
+            **grezza["fixture"], "date": (quando - timedelta(days=500)).isoformat()
+        }}
+        vecchie.append(grezza)
+    vecchie.append(_raw(9800, 1, 6, ADESSO + timedelta(days=2), giornata=20))
+    eng.store.upsert_fixtures(vecchie)
+
+    monkeypatch.setattr(app_module, "_engine", eng)
+    r = TestClient(app_module.app).get("/partita/9800")
+
+    assert r.status_code == 200
+    assert "giorni fa" in r.text
+    assert "dati vecchi" in r.text
+    assert "La barra da sola non basta" in r.text
+
+
+def test_un_archivio_fresco_non_grida_al_lupo(client):
+    """L'avviso sulla vecchiaia compare solo quando c'e' vecchiaia.
+
+    Un avviso che c'e' sempre non lo legge piu' nessuno, ed e' esattamente
+    cosi' che un limite dichiarato torna a essere un limite nascosto.
+    """
+    r = client.get("/partita/9001")
+    assert "Su cosa si basa" in r.text
+    assert "La barra da sola non basta" not in r.text
+    assert "dati vecchi" not in r.text
 
 
 # ---- stato e cache del modello ---------------------------------------------
@@ -455,3 +571,55 @@ def test_lo_stato_conta_pronostici_ed_esiti(motore, monkeypatch):
     # al precedente. E' il comportamento voluto — lo storico tiene entrambi.
     assert stato["pronostici_registrati"] == 3
     assert stato["esiti_risolti"] > 0
+
+
+# ---- stagioni ricomprate ----------------------------------------------------
+
+
+def _stagione_ricomprata(motore, fid=7001, quando=None):
+    """Scrive una partita in `data/storico/2025/`, come farebbe il riempimento."""
+    from serie_a_analyzer.data.storico import store_stagione
+
+    store = store_stagione(motore.settings.storico_dir, 2025)
+    store.upsert_fixtures([_raw(fid, 1, 2, quando or (ADESSO - timedelta(days=300)), gol=(3, 0))])
+    return store
+
+
+def test_una_stagione_ricomprata_entra_nel_modello_senza_riavvio(motore):
+    """Il riempimento dura ore e il sito resta aperto: deve accorgersene da solo.
+
+    L'impronta guardata dal motore comprende `data/storico/`, non solo
+    l'archivio della raccolta giornaliera: senza, il modello resterebbe fermo
+    alle stagioni di prima anche dopo aver ricomprato un campionato intero.
+    """
+    prima = motore.snapshot()
+    _stagione_ricomprata(motore)
+
+    dopo = motore.snapshot()
+
+    assert dopo is not prima
+    assert dopo.dataset.n_riempite == 1
+    assert dopo.dataset.stagioni_riempite == [2025]
+    assert dopo.model.n_matches == prima.model.n_matches + 1
+
+
+def test_il_pie_di_pagina_dichiara_le_stagioni_ricomprate(motore, monkeypatch):
+    """Compaiono solo quando ci sono: sul piano gratuito non esistono."""
+    monkeypatch.setattr(app_module, "_engine", motore)
+    client = TestClient(app_module.app)
+    assert "stagioni ricomprate" not in client.get("/").text
+
+    _stagione_ricomprata(motore)
+
+    assert "stagioni ricomprate (2025)" in client.get("/").text
+
+
+def test_i_tabellini_di_una_stagione_ricomprata_contano_nelle_schede(motore):
+    """Un giocatore ha una carriera sola, comunque sia stata pagata."""
+    store = _stagione_ricomprata(motore, fid=7002)
+    store.save_detail(7002, "players", _tabellino_finto())
+
+    archivio = motore.giocatori()
+
+    assert archivio.giocatori_conosciuti == 2
+    assert archivio.partite_con_statistiche == 1
