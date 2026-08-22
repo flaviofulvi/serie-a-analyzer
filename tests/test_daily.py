@@ -11,7 +11,7 @@ subito:
   cosa davvero irrecuperabile.
 """
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -24,6 +24,10 @@ from serie_a_analyzer.data.daily import (
     backfill_details,
     collect_day,
     collect_window,
+    dettagli_possono_aspettare,
+    DURATA_MOMENTO_DOPO,
+    MINUTI_PRIMA_DEL_VIA,
+    momento_utile,
     window_days,
 )
 from serie_a_analyzer.data.store import DayJournal, SeasonStore
@@ -78,6 +82,9 @@ def client(tmp_path, mondo):
         api_key="k",
         cache=ResponseCache(root=tmp_path / "cache"),
         budget=RequestBudget(state_path=tmp_path / "budget.json", daily_limit=100),
+        # Freno spento: qui la rete e' finta e non c'e' nessun tetto al
+        # minuto da rispettare. Lasciarlo acceso farebbe dormire la suite.
+        min_interval_seconds=0.0,
     )
 
     def router(request):
@@ -300,6 +307,165 @@ def test_il_recupero_non_spende_nulla_se_non_manca_niente(client, store, journal
     assert client.budget.used == speso
 
 
+def _tabellino(minuti):
+    """Un `/fixtures/players` con gli undici titolari fermi a ``minuti``."""
+    return [{
+        "team": {"id": 505, "name": "Inter"},
+        "players": [
+            {"player": {"id": pid, "name": f"Giocatore {pid}"},
+             "statistics": [{"games": {"minutes": minuti, "substitute": False},
+                             "goals": {"total": None, "assists": None}}]}
+            for pid in range(1, 12)
+        ],
+    }]
+
+
+def test_un_tabellino_fermo_a_meta_partita_viene_richiesto_di_nuovo(
+    client, store, journal, mondo
+):
+    """Il guasto del 22 agosto 2026, in piccolo.
+
+    L'API risponde prima con la fotografia del 64' e poi, ore dopo, col
+    tabellino vero. Se l'archivio considerasse chiusa la prima risposta,
+    la seconda non verrebbe mai chiesta e le pagelle resterebbero quelle di
+    meta' partita per sempre.
+    """
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    mondo["dettagli"][(1, "lineups")] = [{"dato": "lineups"}]
+    mondo["dettagli"][(1, "events")] = [{"dato": "events"}]
+    mondo["dettagli"][(1, "players")] = _tabellino(64)
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+    assert store.has_detail(1, "players")
+
+    # Ore dopo, l'API si consolida.
+    mondo["dettagli"][(1, "players")] = _tabellino(90)
+    backfill_details(client, store)
+
+    minuti = store.load_detail(1, "players")[0]["players"][0]["statistics"][0]
+    assert minuti["games"]["minutes"] == 90
+
+
+def test_la_ri_richiesta_di_un_tabellino_scavalca_la_cache(client, store, journal, mondo):
+    """La cache dei dettagli non scade mai: senza scavalcarla non si guarisce.
+
+    E' la meta' meno visibile del guasto. `needs_detail` rimetterebbe la
+    partita in coda, la richiesta verrebbe servita dalla copia sbagliata in
+    cache, e il contatore dei tentativi salirebbe fino al tetto senza che una
+    sola chiamata sia mai partita davvero.
+    """
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    mondo["dettagli"][(1, "lineups")] = [{"dato": "lineups"}]
+    mondo["dettagli"][(1, "events")] = [{"dato": "events"}]
+    mondo["dettagli"][(1, "players")] = _tabellino(64)
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+    mondo["dettagli"][(1, "players")] = _tabellino(90)
+    mondo["chiamate"].clear()
+
+    backfill_details(client, store)
+
+    assert "/fixtures/players" in mondo["chiamate"], (
+        "la richiesta non e' arrivata all'API: servita dalla cache"
+    )
+
+
+def test_un_tabellino_completo_non_si_richiede_due_volte(client, store, journal, mondo):
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    mondo["dettagli"][(1, "lineups")] = [{"dato": "lineups"}]
+    mondo["dettagli"][(1, "events")] = [{"dato": "events"}]
+    mondo["dettagli"][(1, "players")] = _tabellino(90)
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+    speso = client.budget.used
+
+    assert backfill_details(client, store) == {}
+    assert client.budget.used == speso
+
+
+# ---- i dettagli del posticipo aspettano il mattino ---------------------------
+#
+# Deciso dopo la sera del 22 agosto 2026: i tabellini del posticipo delle 20:45
+# si pagavano con le richieste avanzate di una giornata quasi finita, e per di
+# piu' erano ancora la fotografia del feed live. La soglia e' ancorata al reset
+# del budget (mezzanotte UTC), non a un'ora italiana, cosi' non si sposta col
+# cambio dell'ora legale.
+
+
+def _utc(quando: str) -> datetime:
+    return datetime.fromisoformat(quando).replace(tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize("quando", [
+    "2026-08-22T21:00",   # estate: dettagli del posticipo delle 20:45
+    "2026-08-22T21:45",   # estate: la corsa fissa delle 23:45
+    "2026-12-06T22:00",   # inverno: stesso posticipo, un'ora piu' in la' in UTC
+    "2026-12-06T22:45",   # inverno: stessa corsa fissa
+])
+def test_a_ridosso_del_reset_i_dettagli_aspettano(quando):
+    assert dettagli_possono_aspettare(_utc(quando))
+
+
+@pytest.mark.parametrize("quando", [
+    "2026-08-22T18:45",   # estate: dettagli della partita delle 18:30
+    "2026-08-22T15:15",   # estate: dettagli del pomeriggio
+    "2026-08-22T06:00",   # estate: la raccolta delle 08:00
+    "2026-12-06T19:15",   # inverno: dettagli della partita delle 18:00
+    "2026-12-06T07:00",   # inverno: la raccolta delle 08:00
+])
+def test_col_giorno_davanti_i_dettagli_si_prendono_subito(quando):
+    assert not dettagli_possono_aspettare(_utc(quando))
+
+
+def test_la_soglia_e_in_utc_e_non_si_sposta_con_l_ora_legale():
+    """Il posticipo va in campo alla stessa ora italiana tutto l'anno.
+
+    In UTC no: d'estate il fischio d'inizio delle 20:45 e' alle 18:45, d'inverno
+    alle 19:45. Una soglia scritta in ora italiana cadrebbe nel posto sbagliato
+    per meta' stagione; questa, ancorata al reset del budget, no.
+    """
+    for giorno in ("2026-08-22", "2026-12-06"):
+        assert dettagli_possono_aspettare(_utc(f"{giorno}T22:30"))
+        assert not dettagli_possono_aspettare(_utc(f"{giorno}T17:00"))
+
+
+def test_un_giorno_chiuso_senza_dettagli_li_recupera_il_mattino_dopo(
+    client, store, journal, mondo
+):
+    """La rete di sicurezza dello spostamento, ed e' quella che lo rende sicuro.
+
+    La corsa delle 23:45 chiude la giornata perche' i risultati sono
+    definitivi, ma i dettagli non li ha presi. Un giorno chiuso non viene piu'
+    richiesto, quindi `collect_window` non ci tornera' sopra: se non ci fosse
+    `backfill_details` a pescarli dall'id, quei tabellini non arriverebbero
+    mai piu'.
+    """
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1), _fixture(2)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    for i in (1, 2):
+        for kind in ("lineups", "players", "events"):
+            mondo["dettagli"][(i, kind)] = [{"dato": kind}]
+
+    # La sera: risultati si', dettagli no.
+    collect_day(client, store, journal, GIORNO, with_details=False, today=IL_GIORNO_DOPO)
+    assert journal.is_closed(GIORNO, today=IL_GIORNO_DOPO), "il giorno doveva chiudersi"
+    assert not store.has_detail(1, "players")
+
+    # Il mattino dopo: il giorno e' chiuso e non costa nulla...
+    speso = client.budget.used
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+    assert client.budget.used == speso, "un giorno chiuso non va richiesto"
+
+    # ...ma i dettagli arrivano lo stesso, perche' l'id non scade.
+    backfill_details(client, store)
+    for i in (1, 2):
+        for kind in ("lineups", "players", "events"):
+            assert store.has_detail(i, kind), f"partita {i}, {kind}"
+
+
 def test_il_recupero_parte_dalle_partite_piu_recenti(client, store, journal, mondo):
     """Col budget contato, prima i dati che pesano di piu' nel modello."""
     mondo["per_giorno"]["2026-08-22"] = [
@@ -407,3 +573,85 @@ def test_la_finestra_chiude_solo_ieri(client, store, journal, mondo):
     assert journal.is_closed(date(2026, 8, 21), today=GIORNO)
     assert not journal.is_closed(GIORNO, today=GIORNO)
     assert not journal.is_closed(date(2026, 8, 23), today=GIORNO)
+
+
+# ---- quando conviene raccogliere -------------------------------------------
+#
+# La raccolta a orari fissi passa vicino al fischio d'inizio per caso. Quote e
+# indisponibili invece valgono quanto sono VICINI al via: le prime dopo non
+# esistono piu', i secondi letti a partita finita sanno chi non e' sceso in
+# campo davvero. Da qui `momento_utile`, che decide guardando il calendario.
+
+
+class _Partita:
+    """Il minimo che `momento_utile` guarda di una partita."""
+
+    def __init__(self, kickoff):
+        self.kickoff_utc = kickoff
+
+
+VIA = datetime(2026, 8, 22, 18, 45, tzinfo=timezone.utc)
+
+
+def _quando(minuti_al_via):
+    """L'istante in cui mancano ``minuti_al_via`` minuti al fischio."""
+    return VIA - timedelta(minutes=minuti_al_via)
+
+
+@pytest.mark.parametrize("minuti_al_via", [40, 30, 10, 1])
+def test_e_vigilia_nei_minuti_prima_del_via(minuti_al_via):
+    assert momento_utile([_Partita(VIA)], _quando(minuti_al_via)) == "vigilia"
+
+
+@pytest.mark.parametrize("minuti_al_via", [41, 90, 600])
+def test_troppo_presto_non_e_il_momento(minuti_al_via):
+    """Leggere le quote di una partita di domani significa rileggerle domani."""
+    assert momento_utile([_Partita(VIA)], _quando(minuti_al_via)) is None
+
+
+def test_al_fischio_d_inizio_la_vigilia_e_finita():
+    """Un pronostico dopo il via e' barare, e le quote non esistono piu'."""
+    assert momento_utile([_Partita(VIA)], VIA) is None
+
+
+@pytest.mark.parametrize("minuti_dopo", [135, 160, 194])
+def test_e_il_momento_dei_dettagli_dopo_la_partita(minuti_dopo):
+    assert momento_utile([_Partita(VIA)], _quando(-minuti_dopo)) == "dopo"
+
+
+@pytest.mark.parametrize("minuti_dopo", [100, 134, 195, 400])
+def test_fuori_dalla_finestra_dopo_non_si_fa_niente(minuti_dopo):
+    """Prima si troverebbe una partita ancora in corso, dopo ci pensa la
+    raccolta delle 23:45."""
+    assert momento_utile([_Partita(VIA)], _quando(-minuti_dopo)) is None
+
+
+def test_la_vigilia_batte_il_dopo():
+    """Se una e' appena finita e un'altra sta per cominciare, contano le quote.
+
+    I dettagli della prima si leggono dall'id quando si vuole; le quote della
+    seconda dopo il fischio non esistono piu'.
+    """
+    finita = _Partita(VIA - timedelta(minutes=150))
+    imminente = _Partita(VIA + timedelta(minutes=20))
+    assert momento_utile([finita, imminente], VIA) == "vigilia"
+
+
+def test_una_finestra_larga_quanto_il_passo_di_chi_chiama():
+    """Chi chiama ogni quarto d'ora deve trovare il momento, non scavalcarlo.
+
+    Sia la vigilia (40 minuti) sia il dopo (60) sono piu' larghi del quarto
+    d'ora fra un controllo e l'altro: se fossero istanti, il momento giusto
+    cadrebbe fra due esecuzioni e non arriverebbe mai.
+    """
+    assert MINUTI_PRIMA_DEL_VIA >= 15
+    assert DURATA_MOMENTO_DOPO >= 15
+
+
+def test_senza_partite_non_e_mai_il_momento():
+    assert momento_utile([], VIA) is None
+
+
+def test_una_partita_senza_orario_non_rompe_niente():
+    """Il calendario cambia, e una riga monca non deve fermare la raccolta."""
+    assert momento_utile([_Partita(None), _Partita(VIA)], _quando(20)) == "vigilia"

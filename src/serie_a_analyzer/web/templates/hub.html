@@ -126,6 +126,11 @@
         squadra di casa, <b>grigio</b> pareggio, <b>arancio</b> ha vinto la
         trasferta. Piu' e' netto il risultato, piu' il punteggio e' acceso.
       </p>
+      <p class="spiega">
+        Il verdetto in fondo alla riga ha tre colori: <b>verde</b> il modello
+        aveva azzeccato anche il punteggio, <b>giallo</b> soltanto chi vince,
+        <b>rosso</b> nemmeno quello.
+      </p>
     </div>
 
     <div class="corpo">
@@ -153,10 +158,11 @@
                   <td class="destra mono {{ 'evidenzia tinta-1' if p.esito_reale == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
                   <td class="destra mono {{ 'evidenzia tinta-X' if p.esito_reale == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
                   <td class="destra mono {{ 'evidenzia tinta-2' if p.esito_reale == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
+                  {# Tre gradini invece di due: azzeccato col punteggio,
+                     azzeccato il solo esito, sbagliato. A dirlo e' il colore
+                     della pastiglia, che per il resto e' quella di sempre. #}
                   <td class="destra">
-                    {% if p.pronostico_azzeccato %}
-                      <span class="verdetto ok tinta-{{ p.esito_reale }}">azzeccato</span>
-                    {% else %}<span class="verdetto no">sbagliato</span>{% endif %}
+                    <span class="verdetto {{ p.precisione }}">{{ p.precisione_testo }}</span>
                   </td>
                 {% else %}
                   <td class="destra fioco" colspan="4">&mdash;</td>

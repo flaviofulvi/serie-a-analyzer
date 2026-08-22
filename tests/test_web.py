@@ -84,6 +84,9 @@ def motore(tmp_path):
         api_key="chiave-di-prova",
         api_provider="apisports",
         daily_request_limit=100,
+        # Il motore non tocca la rete qui, ma il freno del client dorme
+        # sul serio: spento.
+        api_min_interval_seconds=0.0,
         cache_dir=tmp_path / "cache",
         budget_file=tmp_path / "budget.json",
         store_dir=tmp_path / "serie_a",
@@ -142,7 +145,7 @@ def test_l_ordine_delle_forze_rispecchia_i_risultati(motore):
 def test_l_hub_dice_quando_non_c_e_niente(tmp_path, monkeypatch):
     """Un archivio vuoto deve produrre una spiegazione, non una pagina muta."""
     settings = Settings(
-        api_key="k", api_provider="apisports", daily_request_limit=100,
+        api_key="k", api_provider="apisports", daily_request_limit=100, api_min_interval_seconds=0.0,
         cache_dir=tmp_path / "c", budget_file=tmp_path / "b.json",
         store_dir=tmp_path / "s", storico_dir=tmp_path / "st",
         importato_dir=tmp_path / "imp",
@@ -175,6 +178,27 @@ def test_la_scheda_avvisa_del_limite_sull_over_under(client):
     """
     r = client.get("/partita/9001")
     assert "Attenzione all'Over/Under" in r.text
+
+
+def test_la_scheda_dichiara_la_compressione_dei_gol(client):
+    """Il totale atteso e' schiacciato sulla media di lega: va detto, non subito.
+
+    E' la stessa regola dell'avviso qui sopra. Un totale sempre uguale a
+    quello di ogni altra partita sembra un difetto se non si spiega che e'
+    una scelta, e che nasce da quattro stagioni rigiocate.
+    """
+    r = client.get("/partita/9001")
+    assert "vicino alla media del" in r.text
+    # Il numero arriva dal modello, non dal template: e' la media di lega
+    # stimata sullo stesso campione, e cambia con l'archivio.
+    media = client.get("/stato").json()["media_gol_lega"]
+    assert f"{media:.2f} gol a partita" in r.text
+
+
+def test_lo_stato_dice_quanto_si_comprime(client):
+    stato = client.get("/stato").json()
+    assert 0.0 <= stato["compressione_gol"] <= 1.0
+    assert stato["media_gol_lega"] > 0
 
 
 def test_gli_scontri_diretti_escludono_la_partita_stessa(client):
@@ -268,7 +292,7 @@ def test_un_archivio_fermo_da_un_anno_viene_dichiarato_tale(tmp_path, monkeypatc
     l'unica cosa che smaschera la fotografia vecchia, e deve comparire.
     """
     settings = Settings(
-        api_key="chiave-di-prova", api_provider="apisports", daily_request_limit=100,
+        api_key="chiave-di-prova", api_provider="apisports", daily_request_limit=100, api_min_interval_seconds=0.0,
         cache_dir=tmp_path / "cache", budget_file=tmp_path / "budget.json",
         store_dir=tmp_path / "serie_a", storico_dir=tmp_path / "storico",
         importato_dir=tmp_path / "importato",
@@ -538,6 +562,38 @@ def test_la_scheda_partita_mostra_le_formazioni(con_dettagli, client):
     assert 'href="/giocatore/10"' in r.text
 
 
+def test_la_scheda_partita_dichiara_il_tabellino_non_definitivo(motore, client):
+    """Pagelle vuote hanno due cause diverse, e vanno dette diverse.
+
+    Se il tabellino manca del tutto la pagina lo dice gia'. Se invece c'e' ma
+    e' la fotografia del feed live — come per Genoa-Napoli del 22 agosto 2026 —
+    le colonne restano vuote lo stesso, e senza una riga sembrerebbe una
+    raccolta mancata invece di un dato che si sistema da solo.
+    """
+    motore.store.save_detail(PARTITA_CON_DETTAGLI, "lineups", _formazioni_finte())
+    motore.store.save_detail(PARTITA_CON_DETTAGLI, "players", [
+        {"team": {"id": 1, "name": "Inter"}, "players": [
+            {"player": {"id": 10, "name": "Bomber"},
+             "statistics": [{"games": {"minutes": 64, "number": 9, "position": "F",
+                                       "rating": "6.5", "substitute": False},
+                             "shots": {"total": None, "on": None},
+                             "goals": {"total": None, "assists": None},
+                             "cards": {"yellow": None, "red": None}}]},
+        ]},
+    ])
+
+    r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
+
+    assert r.status_code == 200
+    assert "non e&#39; ancora definitivo" in r.text or "non e' ancora definitivo" in r.text
+
+
+def test_un_tabellino_buono_non_fa_comparire_l_avviso(con_dettagli, client):
+    r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
+
+    assert "ancora definitivo" not in r.text
+
+
 def test_la_scheda_partita_dichiara_le_formazioni_mancanti(client):
     r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
 
@@ -626,3 +682,172 @@ def test_i_tabellini_di_una_stagione_ricomprata_contano_nelle_schede(motore):
 
     assert archivio.giocatori_conosciuti == 2
     assert archivio.partite_con_statistiche == 1
+
+
+# ---- indisponibili ---------------------------------------------------------
+
+
+def test_la_scheda_non_parla_di_assenze_se_non_ne_conosce(client):
+    """Nessuna lettura in archivio: la sezione non compare per niente.
+
+    Una sezione "Indisponibili" vuota si leggerebbe come "non manca nessuno",
+    che e' un'informazione — e sarebbe inventata.
+    """
+    r = client.get("/partita/9001")
+    assert r.status_code == 200
+    assert "Indisponibili" not in r.text
+
+
+def test_la_scheda_mostra_assenti_e_in_dubbio_separati(client, motore):
+    from datetime import timedelta
+
+    from serie_a_analyzer.data.indisponibili import ASSENTE, IN_DUBBIO, Indisponibile
+
+    fixture = motore.snapshot().dataset.by_id[9001]
+    voci = [
+        Indisponibile(9001, 111, "Tizio Squalificato", fixture.home_team_id,
+                      "Casa", ASSENTE, "squalifica", "Suspended"),
+        Indisponibile(9001, 222, "Caio Acciaccato", fixture.away_team_id,
+                      "Ospite", IN_DUBBIO, "infortunio", "Thigh Injury"),
+    ]
+    motore.pronostici.salva_indisponibili(
+        fixture_id=9001, kickoff_utc=fixture.kickoff_utc, voci=voci,
+        now=fixture.kickoff_utc - timedelta(hours=3),
+    )
+
+    r = client.get("/partita/9001")
+    assert "Indisponibili" in r.text
+    assert "Tizio Squalificato" in r.text
+    assert "squalificato" in r.text
+    assert "In dubbio" in r.text
+    assert "Caio Acciaccato" in r.text
+    # E la pagina deve dire che il pronostico non ne tiene conto.
+    assert "non tiene conto" in r.text
+
+
+def test_una_lettura_dopo_il_fischio_non_finisce_nella_scheda(client, motore):
+    """Sapere chi non e' sceso in campo e' un'altra cosa dal saperlo prima."""
+    from datetime import timedelta
+
+    from serie_a_analyzer.data.indisponibili import ASSENTE, Indisponibile
+
+    fixture = motore.snapshot().dataset.by_id[9001]
+    motore.pronostici.salva_indisponibili(
+        fixture_id=9001, kickoff_utc=fixture.kickoff_utc,
+        voci=[Indisponibile(9001, 111, "Tizio Tardivo", fixture.home_team_id,
+                            "Casa", ASSENTE, "infortunio", "Injury")],
+        now=fixture.kickoff_utc + timedelta(hours=2),
+    )
+
+    r = client.get("/partita/9001")
+    assert "Tizio Tardivo" not in r.text
+
+
+# ---- i tre gradini del giudizio ---------------------------------------------
+#
+# Nell'elenco degli ultimi risultati la pastiglia in fondo alla riga dice
+# quanto ci ha preso il modello, e sono tre cose diverse: aver nominato il
+# punteggio, aver azzeccato solo chi vince, non aver azzeccato niente. I test
+# lavorano su matrici costruite a mano perche' e' l'unico modo di decidere
+# quale sia il risultato piu' probabile invece di sperarci.
+
+
+def _probabilita(celle):
+    """Un ``MatchProbabilities`` da una manciata di celle {(casa, ospite): p}."""
+    import numpy as np
+
+    from serie_a_analyzer.model.markets import derive_markets
+
+    matrice = np.zeros((5, 5))
+    for (casa, ospite), p in celle.items():
+        matrice[casa][ospite] = p
+    return derive_markets(matrice)
+
+
+def _riga(prob, gol_casa, gol_ospite):
+    from serie_a_analyzer.web.views import RigaPartita
+
+    return RigaPartita(
+        id=1, casa="Inter", ospite="Lecce", casa_id=1, ospite_id=6,
+        quando="sabato 22 ago, 18:30", giornata=1, conclusa=True,
+        gol_casa=gol_casa, gol_ospite=gol_ospite, prob=prob,
+    )
+
+
+# Il modello dava 2-1 come punteggio piu' probabile e la vittoria interna come
+# esito: 0.55 di 1, 0.20 di X, 0.25 di 2.
+_DAVA_2_1 = {
+    (2, 1): 0.25, (1, 0): 0.18, (2, 0): 0.12,
+    (1, 1): 0.12, (0, 0): 0.08,
+    (0, 1): 0.14, (1, 2): 0.11,
+}
+
+
+def test_il_punteggio_nominato_e_il_gradino_alto():
+    riga = _riga(_probabilita(_DAVA_2_1), 2, 1)
+    assert riga.precisione == "esatto"
+    assert riga.precisione_testo == "azzeccato"
+
+
+def test_azzeccare_solo_chi_vince_e_il_gradino_di_mezzo():
+    """Vittoria interna si', ma 3-0 non e' il 2-1 che il modello aveva nominato."""
+    riga = _riga(_probabilita(_DAVA_2_1), 3, 0)
+    assert riga.precisione == "esito"
+    # La parola e' la stessa del gradino sopra: a distinguerli e' il colore.
+    assert riga.precisione_testo == "azzeccato"
+
+
+def test_l_esito_sbagliato_e_il_gradino_basso():
+    riga = _riga(_probabilita(_DAVA_2_1), 0, 2)
+    assert riga.precisione == "niente"
+    assert riga.precisione_testo == "sbagliato"
+
+
+def test_senza_pronostico_non_si_giudica_niente():
+    """Il modello non conosceva le squadre: non c'e' niente da promuovere."""
+    riga = _riga(None, 2, 1)
+    assert riga.precisione is None
+    assert riga.precisione_testo == ""
+
+
+def test_una_partita_da_giocare_non_si_giudica():
+    from serie_a_analyzer.web.views import RigaPartita
+
+    riga = RigaPartita(
+        id=1, casa="Inter", ospite="Lecce", casa_id=1, ospite_id=6,
+        quando="sabato 22 ago, 18:30", giornata=1, conclusa=False,
+        gol_casa=None, gol_ospite=None, prob=_probabilita(_DAVA_2_1),
+    )
+    assert riga.precisione is None
+
+
+def test_il_punteggio_giusto_col_segno_sbagliato_resta_il_gradino_alto():
+    """Il caso raro in cui i due controlli non dicono la stessa cosa.
+
+    Il punteggio piu' probabile e' 1-1, ma sommando *tutte* le vittorie interne
+    si supera la somma di *tutti* i pareggi: il favorito e' l'1 mentre il
+    risultato nominato e' un pareggio. Finisce 1-1: il modello aveva detto
+    come sarebbe andata a finire, e la pagina non puo' chiamarlo sbagliato.
+    Per questo l'etichetta parla di risultato e non di esito.
+    """
+    prob = _probabilita({
+        (1, 1): 0.20, (0, 0): 0.05, (2, 2): 0.05,      # pareggi: 0.30
+        (1, 0): 0.12, (2, 0): 0.12, (2, 1): 0.12, (3, 0): 0.06,  # casa: 0.42
+        (0, 1): 0.16, (0, 2): 0.12,                    # trasferta: 0.28
+    })
+    riga = _riga(prob, 1, 1)
+
+    assert riga.esito_previsto == "1"
+    assert riga.pronostico_azzeccato is False
+    assert riga.precisione == "esatto"
+
+
+def test_l_hub_disegna_i_tre_gradini(client):
+    """La pastiglia c'e' e porta la classe del gradino, che e' cio' che tinge."""
+    r = client.get("/")
+    assert 'class="verdetto esatto"' in r.text \
+        or 'class="verdetto esito"' in r.text \
+        or 'class="verdetto niente"' in r.text
+    # Il verdetto non prende piu' l'alfabeto degli esiti: indaco, grigio e
+    # arancio restano ai fatti (punteggio e casella accaduta), qui si giudica.
+    assert "verdetto ok tinta-" not in r.text

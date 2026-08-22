@@ -17,9 +17,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..data.players import formazioni_partita, gol_partita, prestazioni_partita
+from ..data.store import tabellino_provvisorio
 from .engine import Engine
 from .views import (
     blocchi_formazione,
+    blocchi_indisponibili,
     formatta_data,
     formatta_giorno,
     griglia_risultati,
@@ -131,6 +133,17 @@ def partita(request: Request, fixture_id: int):
     formazioni = formazioni_partita(motore.store, fixture_id)
     prestazioni = prestazioni_partita(motore.store, fixture_id, fixture.kickoff_utc)
 
+    # Chi non gioca. A differenza dei tre dettagli qui sopra, questo dato
+    # esiste **prima** della partita ed e' quindi l'unica cosa che la scheda
+    # sappia dire su una gara non ancora giocata. Si legge la fotografia
+    # scattata piu' vicino al fischio d'inizio, mai una successiva.
+    fuori = blocchi_indisponibili(
+        motore.indisponibili(fixture_id),
+        fixture.home_team_id,
+        snap.dataset.name(fixture.home_team_id),
+        snap.dataset.name(fixture.away_team_id),
+    )
+
     return templates.TemplateResponse(request, "partita.html", {
         "p": riga,
         "griglia": griglia,
@@ -140,7 +153,15 @@ def partita(request: Request, fixture_id: int):
         "affidabilita": righe_affidabilita(
             motore.affidabilita(fixture.home_team_id, fixture.away_team_id), riga
         ),
+        # Le pagelle vuote hanno due cause diverse, e dirle uguali sarebbe
+        # sbagliato: o il tabellino non e' ancora stato raccolto, oppure c'e'
+        # ma e' la fotografia del feed live a partita in corso e l'archivio lo
+        # scarta apposta. La seconda si risolve da sola e va detto.
+        "tabellino_fermo": tabellino_provvisorio(
+            motore.store.load_detail(fixture_id, "players")
+        ),
         "formazioni": blocchi_formazione(formazioni, prestazioni),
+        "indisponibili": fuori,
         "gol": righe_gol(gol_partita(motore.store, fixture_id), fixture.home_team_id),
         "scontri": [
             {

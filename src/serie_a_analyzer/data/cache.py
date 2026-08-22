@@ -25,6 +25,10 @@ TTL_LINEUPS = 5 * 60               # formazioni: escono ~30 min prima, evolvono
 TTL_LIVE = 2 * 60                  # partite in corso
 TTL_UPCOMING_FIXTURES = 6 * 60 * 60  # calendario prossima giornata
 TTL_ODDS = 30 * 60
+# Indisponibili di una partita ancora da giocare: la lista si muove con le
+# conferenze stampa e le rifiniture. Per una partita gia' conclusa non cambia
+# piu' e il chiamante passa TTL_FOREVER.
+TTL_INJURIES = 30 * 60
 TTL_STATIC = 7 * 24 * 60 * 60      # anagrafiche squadre, stadi
 
 

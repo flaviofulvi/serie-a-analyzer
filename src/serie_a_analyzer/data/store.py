@@ -36,6 +36,20 @@ FINAL_STATUSES = frozenset({"finished", "cancelled"})
 # non lo copre" (riprovare all'infinito brucerebbe budget per niente).
 MAX_DETAIL_ATTEMPTS = 3
 
+# Quante volte riprovare un tabellino che c'e' ma e' una fotografia scattata a
+# partita in corso. Piu' generoso di MAX_DETAIL_ATTEMPTS perche' qui non si sta
+# aspettando un dato che forse non esiste: quel tabellino esistera' di sicuro,
+# e l'attesa si misura in ore. Un tetto serve lo stesso, per il caso in cui
+# l'API non lo consolidi mai: senza, si spenderebbe una richiesta a ogni
+# raccolta, per sempre. Dodici copre un paio di giorni di raccolte: il
+# tabellino di una partita giocata esiste, e vale la pena aspettarlo.
+MAX_TABELLINO_ATTEMPTS = 12
+
+# Sotto quanti minuti giocati un tabellino non e' finito. Un tabellino
+# definitivo ha sempre qualcuno arrivato in fondo; una fotografia scattata al
+# 64' ha tutti e ventidue i titolari fermi sullo stesso numero.
+MINUTI_DI_UNA_PARTITA_INTERA = 90
+
 
 def _write_json(path: Path, payload: Any) -> None:
     """Scrittura atomica: un'interruzione non lascia un archivio corrotto."""
@@ -43,6 +57,72 @@ def _write_json(path: Path, payload: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
+
+
+def tabellino_provvisorio(payload: Any) -> bool:
+    """Il tabellino di `/fixtures/players` e' una fotografia a partita in corso?
+
+    Nasce da un guasto vero, il 22 agosto 2026: Genoa-Napoli e Parma-Cagliari
+    sono state chiuse in archivio con tutti e ventidue i titolari fermi al 64'
+    e al 61', zero gol e zero sostituzioni, mentre gli eventi — chiesti nello
+    stesso minuto, allo stesso server — raccontavano la partita intera. Non e'
+    un errore nostro: e' l'API che per quelle due partite continuava a servire
+    l'ultima lettura del suo feed live, due ore dopo il fischio finale.
+
+    Diventa un errore nostro un attimo dopo, ed e' il punto: `needs_detail`
+    considerava concluso qualunque dettaglio non vuoto, quindi quel tabellino
+    sbagliato non sarebbe mai piu' stato richiesto. Un dato che non si puo'
+    correggere e' peggio di un dato che manca — un buco si vede, una pagella
+    del 64' spacciata per finale no.
+
+    Il segnale sono i **minuti**, non i gol. Verrebbe naturale confrontare i
+    gol del tabellino col risultato della partita, e su queste due partite
+    funzionerebbe (0 contro 2, 0 contro 1); ma gli autogol non entrano nel
+    conto del marcatore, e ogni partita con un autogol risulterebbe
+    provvisoria per sempre. I minuti non hanno questa ambiguita': in una
+    partita finita qualcuno arriva sempre in fondo.
+
+    Resta fuori un caso, e vale dichiararlo: una fotografia scattata al 90'
+    esatto, prima di un gol al 90'+3, passerebbe questo controllo. E' molto
+    meno probabile di quella al 64' e non c'e' un modo di scoprirla che non
+    apra la porta agli autogol.
+    """
+    if not payload:
+        # Vuoto e' un'altra cosa e ha gia' la sua regola: MAX_DETAIL_ATTEMPTS.
+        return False
+    minuti = [
+        statistiche[0].get("games", {}).get("minutes")
+        for squadra in payload
+        for giocatore in squadra.get("players", [])
+        if (statistiche := giocatore.get("statistics"))
+    ]
+    giocati = [m for m in minuti if m is not None]
+    if not giocati:
+        # Un tabellino senza nemmeno un minuto non dice niente: non e' una
+        # fotografia a meta' partita, e' un payload di forma inattesa. Non
+        # tocca a questa funzione decidere che farne.
+        return False
+    return max(giocati) < MINUTI_DI_UNA_PARTITA_INTERA
+
+
+def tabellini_arresi(store, fixture_ids: Iterable[int]) -> list[int]:
+    """Le partite il cui tabellino e' sbagliato e non verra' piu' richiesto.
+
+    E' il momento — l'unico — in cui vale la pena disturbare qualcuno. Un
+    tabellino provvisorio nelle ore dopo la partita e' normale e si risolve da
+    solo: dirlo ogni sera insegnerebbe a ignorare il messaggio. Quando invece i
+    tentativi sono finiti, il sistema ha smesso di poter rimediare e quel dato
+    resta sbagliato per sempre a meno che qualcuno non intervenga.
+
+    Sta qui e non in `notifiche.py` perche' la domanda e' sull'archivio, non
+    sul canale: chi manda i messaggi riceve la risposta gia' pronta e non sa
+    nulla di buste e tentativi.
+    """
+    return [
+        fid for fid in fixture_ids
+        if tabellino_provvisorio(store.load_detail(fid, "players"))
+        and not store.needs_detail(fid, "players")
+    ]
 
 
 def _oggi() -> date:
@@ -145,13 +225,24 @@ class SeasonStore:
         No se lo abbiamo gia', e no se abbiamo gia' provato abbastanza volte a
         prenderlo trovandolo vuoto: a quel punto il campionato semplicemente
         non lo copre.
+
+        C'e' un terzo caso, e sta qui in lettura per la stessa ragione di
+        `is_closed()`: un tabellino puo' esserci ed essere sbagliato, perche'
+        l'API a volte serve l'ultima lettura del feed live anche a partita
+        finita da un pezzo (vedi `tabellino_provvisorio`). Quello va richiesto
+        ancora. Metterlo nel dato scritto non basterebbe: le buste salvate
+        prima di questa regola resterebbero sbagliate per sempre.
         """
         busta = self.detail_envelope(fixture_id, kind)
         if busta is None:
             return True
-        if busta.get("payload"):
+        payload = busta.get("payload")
+        tentativi = int(busta.get("attempts", 0))
+        if payload:
+            if kind == "players" and tabellino_provvisorio(payload):
+                return tentativi < MAX_TABELLINO_ATTEMPTS
             return False
-        return int(busta.get("attempts", 0)) < MAX_DETAIL_ATTEMPTS
+        return tentativi < MAX_DETAIL_ATTEMPTS
 
     def details_signature(self) -> tuple[int, float]:
         """Impronta dei dettagli: cambia quando ne viene salvato uno nuovo.

@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterable
 
+from .store import tabellino_provvisorio
+
 logger = logging.getLogger(__name__)
 
 # Ruoli come li scrive API-Football, nelle formazioni e nelle statistiche.
@@ -164,6 +166,15 @@ def prestazioni_partita(store, fixture_id: int, quando: datetime) -> list[Presta
     """
     blocchi = store.load_detail(fixture_id, "players")
     if not blocchi:
+        return []
+    if tabellino_provvisorio(blocchi):
+        # Un tabellino fermo a partita in corso non e' un tabellino parziale:
+        # e' un tabellino SBAGLIATO. Genoa-Napoli del 22 agosto 2026 diceva
+        # zero gol e ventidue titolari al 64', e chi lo legge non ha modo di
+        # accorgersene — nel conto di una squadra entra come una partita in
+        # cui nessuno ha prodotto niente, e i pesi dei giocatori (data/pesi.py)
+        # ne escono schiacciati verso il basso senza che nulla lo segnali.
+        # Vale come "non ancora raccolto", che e' la verita': arrivera'.
         return []
 
     out: list[Prestazione] = []
@@ -418,6 +429,10 @@ class ArchivioGiocatori:
     prestazioni: list[Prestazione]
     partite_concluse: int = 0
     partite_con_statistiche: int = 0
+    # Quante sono ferme alla fotografia del feed live. Si contano invece di
+    # sparire, perche' "manca" e "l'API non l'ha ancora consolidato" sono due
+    # risposte diverse e la seconda si risolve da sola.
+    partite_provvisorie: int = 0
     _per_giocatore: dict[int, list[Prestazione]] = field(default_factory=dict, repr=False)
     _per_squadra: dict[int, set[int]] = field(default_factory=dict, repr=False)
     _nomi: dict[int, str] = field(default_factory=dict, repr=False)
@@ -512,19 +527,25 @@ def costruisci_archivio(store, fixtures: Iterable[Any]) -> ArchivioGiocatori:
     concluse = [f for f in fixtures if f.is_finished and f.api_id in raccolte]
     prestazioni: list[Prestazione] = []
     con_statistiche = 0
+    provvisorie = 0
 
     for f in concluse:
         righe = prestazioni_partita(store, f.api_id, f.kickoff_utc)
         if righe:
             con_statistiche += 1
             prestazioni.extend(righe)
+        elif tabellino_provvisorio(store.load_detail(f.api_id, "players")):
+            provvisorie += 1
 
     logger.info(
-        "archivio giocatori: %d prestazioni da %d partite su %d concluse",
+        "archivio giocatori: %d prestazioni da %d partite su %d concluse"
+        "%s",
         len(prestazioni), con_statistiche, len(concluse),
+        f" ({provvisorie} col tabellino fermo a meta' partita)" if provvisorie else "",
     )
     return ArchivioGiocatori(
         prestazioni=prestazioni,
         partite_concluse=len(concluse),
         partite_con_statistiche=con_statistiche,
+        partite_provvisorie=provvisorie,
     )

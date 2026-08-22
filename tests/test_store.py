@@ -12,8 +12,11 @@ import pytest
 
 from serie_a_analyzer.data.store import (
     MAX_DETAIL_ATTEMPTS,
+    MAX_TABELLINO_ATTEMPTS,
     DayJournal,
     SeasonStore,
+    tabellini_arresi,
+    tabellino_provvisorio,
 )
 
 
@@ -107,6 +110,117 @@ def test_un_dettaglio_che_arriva_dopo_un_vuoto_chiude_la_partita(store):
     store.save_detail(1, "lineups", [{"team": {"name": "Inter"}}])
     assert store.has_detail(1, "lineups")
     assert not store.needs_detail(1, "lineups")
+
+
+# ---- tabellini fermi a partita in corso --------------------------------------
+#
+# Genoa-Napoli e Parma-Cagliari, 22 agosto 2026: l'API ha servito per ore
+# l'ultima lettura del feed live come se fosse il tabellino finale. Ventidue
+# titolari al 64', nessun gol, nessuna sostituzione. Il rischio non e' la
+# giornata storta dell'API — succede — ma che l'archivio la consideri chiusa.
+
+
+def _tabellino(minuti: int, gol: int = 0, con_riserve: bool = True):
+    """Un `/fixtures/players` con tutti i titolari fermi a ``minuti``."""
+    def giocatore(pid, min_giocati, gol_suoi=0):
+        return {
+            "player": {"id": pid, "name": f"Giocatore {pid}"},
+            "statistics": [{
+                "games": {"minutes": min_giocati, "rating": "6.5",
+                          "substitute": min_giocati is None},
+                "goals": {"total": gol_suoi or None, "assists": None},
+            }],
+        }
+
+    squadra = [giocatore(i, minuti) for i in range(1, 12)]
+    if gol:
+        squadra[10]["statistics"][0]["goals"]["total"] = gol
+    if con_riserve:
+        squadra += [giocatore(100 + i, None) for i in range(5)]
+    return [{"team": {"id": 1, "name": "Genoa"}, "players": squadra}]
+
+
+def test_tabellino_fermo_a_meta_partita_e_provvisorio():
+    assert tabellino_provvisorio(_tabellino(64))
+    assert tabellino_provvisorio(_tabellino(61))
+
+
+def test_tabellino_arrivato_in_fondo_e_definitivo():
+    assert not tabellino_provvisorio(_tabellino(90))
+    # I recuperi portano oltre il 90': resta definitivo.
+    assert not tabellino_provvisorio(_tabellino(96))
+
+
+def test_un_tabellino_con_un_autogol_non_e_provvisorio():
+    """Il controllo guarda i minuti, non i gol, e questo e' il motivo.
+
+    Con un autogol la somma dei gol del tabellino non torna col risultato:
+    confrontarli marcherebbe quella partita come provvisoria per sempre.
+    """
+    assert not tabellino_provvisorio(_tabellino(90, gol=0))
+
+
+def test_un_tabellino_vuoto_non_e_provvisorio_ma_mancante():
+    """Sono due casi diversi e hanno due tetti diversi di tentativi."""
+    assert not tabellino_provvisorio([])
+    assert not tabellino_provvisorio(None)
+
+
+def test_tabellino_provvisorio_va_richiesto_di_nuovo(store):
+    store.save_detail(1, "players", _tabellino(64))
+    assert store.has_detail(1, "players")
+    assert store.needs_detail(1, "players")
+
+
+def test_tabellino_definitivo_chiude_la_partita(store):
+    store.save_detail(1, "players", _tabellino(64))
+    store.save_detail(1, "players", _tabellino(90))
+    assert not store.needs_detail(1, "players")
+
+
+def test_tabellino_provvisorio_non_si_riprova_per_sempre(store):
+    """Se l'API non lo consolida mai, prima o poi si smette di pagarlo."""
+    for tentativo in range(1, MAX_TABELLINO_ATTEMPTS):
+        store.save_detail(1, "players", _tabellino(64))
+        assert store.needs_detail(1, "players"), f"tentativo {tentativo}"
+
+    store.save_detail(1, "players", _tabellino(64))
+    assert not store.needs_detail(1, "players")
+
+
+def test_un_tabellino_provvisorio_non_e_subito_un_caso_perso(store):
+    """Nelle ore dopo la partita e' normale: nessuno va disturbato."""
+    store.save_detail(1, "players", _tabellino(64))
+
+    assert tabellini_arresi(store, [1]) == []
+
+
+def test_quando_i_tentativi_finiscono_e_un_caso_perso(store):
+    """E' l'unico momento che vale un messaggio: il sistema ha smesso di provare."""
+    for _ in range(MAX_TABELLINO_ATTEMPTS):
+        store.save_detail(1, "players", _tabellino(64))
+
+    assert not store.needs_detail(1, "players")
+    assert tabellini_arresi(store, [1]) == [1]
+
+
+def test_un_tabellino_buono_non_e_mai_un_caso_perso(store):
+    store.save_detail(1, "players", _tabellino(90))
+    store.save_detail(2, "players", [])
+
+    assert tabellini_arresi(store, [1, 2]) == []
+
+
+def test_la_regola_del_tabellino_vale_solo_per_i_tabellini(store):
+    """Formazioni ed eventi non hanno minuti giocati: non vanno toccati.
+
+    Gli eventi delle due partite del 22 agosto erano completi mentre il
+    tabellino era fermo: applicare la regola a tutto rimetterebbe in coda
+    dettagli che vanno benissimo.
+    """
+    for kind in ("lineups", "events"):
+        store.save_detail(2, kind, _tabellino(64))
+        assert not store.needs_detail(2, kind), kind
 
 
 def test_i_dettagli_non_si_mescolano_fra_partite_e_tipi(store):

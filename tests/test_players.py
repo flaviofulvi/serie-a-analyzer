@@ -140,11 +140,18 @@ def _archivio_di_due_partite(store):
         {"fixture": {"id": 1, "date": prima.kickoff_utc.isoformat()}},
         {"fixture": {"id": 2, "date": seconda.kickoff_utc.isoformat()}},
     ])
+    # Il portiere a 90 minuti c'e' in tutte e due, e non e' un dettaglio
+    # decorativo: un tabellino in cui NESSUNO arriva in fondo e' la fotografia
+    # di una partita ancora in corso, e l'archivio lo scarta (vedi
+    # `tabellino_provvisorio`). In una partita vera non puo' succedere — i
+    # cambi sono cinque per parte, quindi almeno dodici giocatori finiscono.
     store.save_detail(1, "players", _tabellino((INTER, [
+        _giocatore(1, "Portiere", minuti=90, posizione="G", voto="6.0"),
         _giocatore(30556, "L. Martinez", gol=1, assist=0, voto="7.5", minuti=90),
         _giocatore(200, "Riserva", minuti=20, titolare=False, voto=None),
     ])))
     store.save_detail(2, "players", _tabellino((INTER, [
+        _giocatore(1, "Portiere", minuti=90, posizione="G", voto="6.0"),
         _giocatore(30556, "Lautaro Martinez", gol=2, assist=1, voto="8.5", minuti=80),
         _giocatore(200, "Riserva", minuti=45, titolare=True, voto="6.0"),
     ])))
@@ -166,7 +173,7 @@ def test_l_identita_e_l_id_non_il_nome(store):
     """Due grafie dello stesso giocatore restano un giocatore solo."""
     archivio = _archivio_di_due_partite(store)
 
-    assert archivio.giocatori_conosciuti == 2
+    assert archivio.giocatori_conosciuti == 3
     # Vince il nome dell'ultima partita: e' quello piu' aggiornato.
     assert archivio.scheda(30556).nome == "Lautaro Martinez"
 
@@ -184,6 +191,64 @@ def test_il_voto_medio_ignora_le_partite_senza_voto(store):
     assert scheda.presenze == 2
     assert scheda.partite_con_voto == 1
     assert scheda.voto_medio == pytest.approx(6.0)
+
+
+# ---- tabellini fermi a partita in corso --------------------------------------
+#
+# Il 22 agosto 2026 l'API ha servito per ore la fotografia del feed live come
+# se fosse il tabellino finale. `needs_detail` ora la rimette in coda, ma chi
+# quel tabellino lo LEGGE era rimasto cieco: il Napoli entrava nell'archivio
+# con 704 minuti, zero gol e zero assist, e i pesi dei giocatori ne uscivano
+# schiacciati senza che niente lo segnalasse.
+
+
+def _tabellino_fermo(minuto: int):
+    """Undici titolari tutti fermi allo stesso minuto: nessuno e' arrivato in fondo."""
+    return _tabellino((INTER, [
+        _giocatore(i, f"Giocatore {i}", minuti=minuto, gol=None, voto="6.5")
+        for i in range(1, 12)
+    ]))
+
+
+def test_un_tabellino_fermo_a_meta_partita_non_entra_nell_archivio(store):
+    store.upsert_fixtures([{"fixture": {"id": 1}}])
+    store.save_detail(1, "players", _tabellino_fermo(64))
+
+    archivio = costruisci_archivio(store, [_partita(1, ADESSO)])
+
+    assert archivio.vuoto, "un tabellino sbagliato non deve diventare una statistica"
+    assert archivio.partite_con_statistiche == 0
+    assert prestazioni_partita(store, 1, ADESSO) == []
+
+
+def test_un_tabellino_fermo_si_dichiara_invece_di_sparire(store):
+    """"Manca" e "l'API non l'ha consolidato" sono due risposte diverse."""
+    store.upsert_fixtures([{"fixture": {"id": 1}}, {"fixture": {"id": 2}}])
+    store.save_detail(1, "players", _tabellino_fermo(64))
+    # La 2 non ha proprio nessun tabellino: e' l'altro caso.
+
+    archivio = costruisci_archivio(
+        store, [_partita(1, ADESSO), _partita(2, ADESSO)]
+    )
+
+    assert archivio.partite_concluse == 2
+    assert archivio.partite_con_statistiche == 0
+    assert archivio.partite_provvisorie == 1
+
+
+def test_quando_il_tabellino_si_consolida_l_archivio_lo_prende(store):
+    store.upsert_fixtures([{"fixture": {"id": 1}}])
+    store.save_detail(1, "players", _tabellino_fermo(64))
+    store.save_detail(1, "players", _tabellino((INTER, [
+        _giocatore(1, "Portiere", minuti=90, posizione="G"),
+        _giocatore(30556, "L. Martinez", minuti=90, gol=2),
+    ])))
+
+    archivio = costruisci_archivio(store, [_partita(1, ADESSO)])
+
+    assert archivio.partite_con_statistiche == 1
+    assert archivio.partite_provvisorie == 0
+    assert archivio.scheda(30556).gol == 2
 
 
 def test_senza_nessun_voto_la_media_non_esiste(store):

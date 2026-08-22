@@ -18,6 +18,11 @@ Due accorgimenti separano un modello utilizzabile da uno ingenuo:
   campionato. Senza, dopo tre giornate il modello e' convinto che la neopromossa
   che ha vinto due volte sia da scudetto. Con poche partite vince la media della
   lega, con molte partite vincono i dati.
+
+Un terzo accorgimento sta fuori dalla stima e dentro il pronostico, ed e'
+spiegato in ``comprimi_totale``: le forze delle squadre dicono bene chi vince e
+male quanti gol si fanno, quindi il TOTALE dei gol attesi si comprime verso la
+media di lega mentre il rapporto fra le due squadre resta intatto.
 """
 
 from __future__ import annotations
@@ -42,6 +47,93 @@ DEFAULT_REGULARIZATION = 2.0
 
 # rho e' negativo nel calcio reale; i limiti tengono la correzione tau valida.
 RHO_BOUNDS = (-0.3, 0.1)
+
+# Quanto delle differenze fra squadre resta nei gol TOTALI attesi.
+#
+# Sapere chi e' piu' forte dice chi vince, non quanti gol si fanno: rigiocando
+# quattro stagioni col backtest l'1X2 batte le sue baseline, mentre Over 2.5 e
+# Gol/NoGol fanno leggermente peggio di chi dichiara ogni volta la media di
+# campionato. Il motivo, letto nella scomposizione del Brier, non e' che il
+# modello sia storto: e' che sui gol la sua risoluzione e' quasi zero e la
+# correlazione con cio' che accade oscilla intorno allo zero cambiando segno
+# da una stagione all'altra. Il modello VARIA le previsioni sui gol, e quelle
+# variazioni sono rumore — la baseline non si muove e non paga niente, il
+# modello si muove a vuoto e paga ogni movimento.
+#
+# La cura e' togliere il movimento che non serve, non aggiungerne di nuovo:
+# il totale atteso si avvicina alla media di lega, il RAPPORTO fra le due
+# squadre resta identico. Con 1.0 non cambia niente; con 0.0 sui gol si
+# dichiara sempre la media di campionato, tenendo intatto l'1X2.
+#
+# Il valore viene dal backtest, scelto lasciando fuori la stagione su cui lo
+# si misura (`scripts/backtest.py --cerca-compressione`). Misurato cosi', sulle
+# quattro stagioni 2022-2025, il Brier medio si muove di:
+#
+#     Over 2.5    -0.0031      Gol/NoGol   -0.0038      1X2   +0.0008
+#
+# I gol guadagnano dieci volte quello che l'1X2 perde, ed e' la condizione
+# posta prima di cominciare: il mercato che funziona vale piu' di quello che
+# non funziona, e se il conto fosse uscito al contrario questa costante non
+# esisterebbe. Sotto lo 0.15 i gol non migliorano piu' e l'1X2 continua a
+# perdere, sopra lo 0.35 il guadagno sui gol si spegne: la scelta sta dentro
+# un tratto piatto, non su una punta.
+#
+# Non e' un numero grande e non deve esserlo: col fattore migliore i mercati
+# dei gol arrivano a PAREGGIARE con la loro baseline, non a batterla. Toglie
+# un danno, non aggiunge una capacita'.
+DEFAULT_GOAL_COMPRESSION = 0.2
+
+
+def comprimi_totale(
+    lam: float, mu: float, media_lega: float, fattore: float
+) -> tuple[float, float]:
+    """Avvicina il totale dei gol attesi alla media di lega, a rapporto invariato.
+
+    I gol attesi delle due squadre si leggono come due cose diverse::
+
+        totale   = lam + mu     governa Over/Under e Gol/NoGol
+        rapporto = lam / mu     governa chi vince
+
+    Qui si comprime **solo il totale**, moltiplicando entrambi per la stessa
+    costante: il rapporto non si muove di un millesimo, quindi l'1X2 resta
+    quello che era a meno dell'effetto — piccolo ma non nullo — che il numero
+    di gol ha sulla probabilita' di pareggio.
+
+    Perche' qui e non sui mercati: schiacciare direttamente P(Over 2.5)
+    sarebbe piu' semplice e romperebbe la regola su cui poggia tutto il
+    progetto, cioe' che ogni mercato e' una somma di celle della stessa
+    matrice. Over 2.5 non combacerebbe piu' con la somma dei risultati esatti
+    che lo compongono, e due numeri sulla stessa pagina si contraddirebbero.
+    Agendo su ``lam`` e ``mu`` la matrice resta una matrice, e la coerenza fra
+    esiti e' garantita per costruzione come prima.
+
+    Args:
+        lam: gol attesi della squadra di casa.
+        mu: gol attesi della squadra in trasferta.
+        media_lega: gol totali medi del campionato su cui si e' stimato. Zero
+            o negativo significa "non la so": in quel caso non si comprime,
+            perche' comprimere verso un centro inventato sposterebbe ogni
+            pronostico senza che nessuno l'abbia misurato.
+        fattore: quanto della distanza dalla media si conserva, da 0 a 1.
+
+    Returns:
+        La coppia ``(lam, mu)`` compressa. Il totale finisce sempre fra quello
+        di partenza e la media di lega — con un fattore fra 0 e 1 non puo'
+        fare altro — quindi resta positivo per costruzione e non serve un
+        pavimento a proteggerlo.
+    """
+    if not 0.0 <= fattore <= 1.0:
+        raise ValueError(
+            f"la compressione dei gol deve stare fra 0 e 1, ricevuto {fattore!r}"
+        )
+    if fattore == 1.0 or media_lega <= 0.0:
+        return lam, mu
+    totale = lam + mu
+    if totale <= 0.0:
+        return lam, mu
+    compresso = media_lega + fattore * (totale - media_lega)
+    k = compresso / totale
+    return lam * k, mu * k
 
 
 @dataclass(frozen=True)
@@ -116,18 +208,34 @@ class FittedModel:
     # sarebbe piu' ricostruibile a distanza di mesi.
     half_life_days: float = DEFAULT_HALF_LIFE_DAYS
     regularization: float = DEFAULT_REGULARIZATION
+    # Quanto delle differenze fra squadre resta nei gol totali attesi, e
+    # verso quale media si comprime il resto. La media e' stimata dallo
+    # stesso campione con cui si stima il modello, non scritta a mano: i gol
+    # per partita cambiano da stagione a stagione (2.43-2.61 nelle quattro
+    # che abbiamo) e una costante invecchia. Zero significa "non la so", e
+    # allora non si comprime niente.
+    goal_compression: float = DEFAULT_GOAL_COMPRESSION
+    league_total_goals: float = 0.0
     # Quanto il modello sa di ogni squadra. Non entra nell'impronta della
     # versione (`data/predictions.py`): descrive la stima, non la definisce,
     # e due modelli con gli stessi parametri restano lo stesso modello.
     evidence: dict[str, TeamEvidence] = field(default_factory=dict)
 
     def expected_goals(self, home: str, away: str) -> tuple[float, float]:
-        """Gol attesi di casa e trasferta per un accoppiamento."""
+        """Gol attesi di casa e trasferta per un accoppiamento.
+
+        E' il collo di bottiglia da cui passa ogni pronostico: la matrice dei
+        risultati nasce da qui, e ogni mercato e' una somma di celle di quella
+        matrice. Per questo la compressione dei gol totali
+        (``comprimi_totale``) sta in questo punto e non a valle sui singoli
+        mercati — cosi' Over 2.5 continua a combaciare con la somma dei
+        risultati esatti che lo compongono.
+        """
         self._check_known(home)
         self._check_known(away)
         lam = math.exp(self.base + self.attack[home] - self.defense[away] + self.home_advantage)
         mu = math.exp(self.base + self.attack[away] - self.defense[home])
-        return lam, mu
+        return comprimi_totale(lam, mu, self.league_total_goals, self.goal_compression)
 
     def scoreline(
         self, home: str, away: str, max_goals: int = DEFAULT_MAX_GOALS
@@ -289,6 +397,7 @@ def fit_dixon_coles(
     as_of: date | None = None,
     half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
     regularization: float = DEFAULT_REGULARIZATION,
+    goal_compression: float = DEFAULT_GOAL_COMPRESSION,
     max_iterations: int = 500,
 ) -> FittedModel:
     """Stima attacco, difesa, fattore campo e rho per massima verosimiglianza.
@@ -301,6 +410,9 @@ def fit_dixon_coles(
             partita piu' recente fra quelle passate.
         half_life_days: dopo quanti giorni una partita pesa la meta'.
         regularization: intensita' dello shrinkage verso la media di lega.
+        goal_compression: quanto delle differenze fra squadre resta nei gol
+            totali attesi (1 = niente compressione). Non entra nella stima:
+            agisce sul pronostico, in ``expected_goals``.
         max_iterations: tetto di iterazioni dell'ottimizzatore.
 
     Returns:
@@ -386,6 +498,17 @@ def fit_dixon_coles(
     lam_finale = np.exp(base + attack[home_idx] - defense[away_idx] + home_adv)
     mu_finale = np.exp(base + attack[away_idx] - defense[home_idx])
 
+    # La media di lega verso cui si comprimono i gol totali. E' la media
+    # OSSERVATA nel campione, pesata come lo e' la stima: le partite vecchie
+    # contano meno anche qui, altrimenti si comprimerebbe verso un campionato
+    # che non si gioca piu'. Osservata e non implicata dal modello, perche'
+    # con `fattore = 0` il pronostico sui gol deve coincidere con la baseline
+    # vera — dire ogni volta la frequenza di campionato — e non con la media
+    # che il modello crede.
+    gol_totali = home_goals + away_goals
+    peso_totale = float(weights.sum())
+    media_gol = float(np.sum(weights * gol_totali) / peso_totale) if peso_totale > 0 else 0.0
+
     return FittedModel(
         teams=teams,
         attack={team: float(attack[i]) for team, i in index.items()},
@@ -399,6 +522,8 @@ def fit_dixon_coles(
         converged=bool(result.success),
         half_life_days=half_life_days,
         regularization=regularization,
+        goal_compression=goal_compression,
+        league_total_goals=media_gol,
         evidence=_team_evidence(
             matches, weights, lam_finale, mu_finale, regularization
         ),

@@ -237,6 +237,26 @@ class Engine:
         except KeyError:
             return None
 
+    # ---- indisponibili -----------------------------------------------------
+
+    def indisponibili(self, fixture_id: int) -> list[dict]:
+        """Chi non gioca questa partita, secondo l'ultima lettura utile.
+
+        Non passa dallo snapshot: sono righe del registro, non un pezzo del
+        modello, e cambiano fra una ristima e l'altra — una raccolta a ridosso
+        della partita non deve aspettare che qualcosa invalidi l'archivio per
+        comparire nella pagina.
+
+        Come tutto cio' che questa classe espone alle pagine, un guasto qui
+        vale una sezione vuota, non un errore: la scheda partita deve aprirsi
+        anche se il registro non risponde.
+        """
+        try:
+            return self.pronostici.indisponibili_alla_vigilia(fixture_id)
+        except Exception as exc:  # sqlite, file mancante, schema vecchio
+            logger.warning("indisponibili non letti per la partita %s: %s", fixture_id, exc)
+            return []
+
     # ---- giocatori ---------------------------------------------------------
 
     def giocatori(self) -> ArchivioGiocatori:
@@ -309,10 +329,19 @@ class Engine:
             "ultimo_giorno_raccolto": giorni[-1].isoformat() if giorni else None,
             "modello_pronto": snap.ready,
             "modello_partite": snap.model.n_matches if snap.model else 0,
+            # Quanto delle differenze fra squadre resta nei gol totali, e la
+            # media verso cui si comprime il resto. Sta qui perche' e' la
+            # sola cosa del pronostico che non si legge dalle forze: due
+            # numeri diversi, a parita' di squadre, danno due Over diversi.
+            "compressione_gol": snap.model.goal_compression if snap.model else None,
+            "media_gol_lega": (
+                round(snap.model.league_total_goals, 3) if snap.model else None
+            ),
             "aggiornato_alle": snap.built_at,
             "pronostici_registrati": self._conteggio_pronostici(),
             "esiti_risolti": self._conteggio_esiti(),
             "partite_quotate": self._conteggio("partite_quotate"),
+            "partite_con_indisponibili": self._conteggio("partite_con_indisponibili"),
             "budget_usato": self.client.budget.used,
             "budget_limite": self.settings.daily_request_limit,
             "errore": snap.error,

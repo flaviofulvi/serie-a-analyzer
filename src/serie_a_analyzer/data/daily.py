@@ -35,6 +35,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from typing import Any, Iterable
 
 from .budget import BudgetExhausted, Priority
 from .cache import TTL_FOREVER, TTL_LIVE
@@ -58,6 +59,123 @@ _DETAIL_PRIORITY = {
     "players": Priority.BACKFILL,
     "events": Priority.BACKFILL,
 }
+
+# --- quando conviene raccogliere ------------------------------------------
+#
+# La raccolta a orari fissi ha un difetto che si vede solo guardando cosa
+# raccoglie: le quote e gli indisponibili valgono quanto sono VICINI al
+# fischio d'inizio, e un orario fisso ci passa vicino per caso. Il 22 agosto
+# 2026 la corsa delle 20:00 ha letto le quote di una partita delle 20:45 (bene)
+# e insieme quelle di una partita del giorno dopo (inutile, verranno rilette).
+#
+# Da qui la regola: non un orario, ma un MOMENTO, calcolato da ogni partita.
+#
+# Prima del via, per le due cose che dopo il fischio non si prendono piu' o
+# non valgono piu': le quote spariscono, e la lista degli indisponibili letta
+# a partita finita sa chi non e' sceso in campo davvero — usarla per
+# pronosticare sarebbe barare.
+MINUTI_PRIMA_DEL_VIA = 40
+
+# Dopo, per i dettagli e il risultato definitivo. 90 minuti di gioco, 15 di
+# intervallo e mezz'ora di margine per recuperi, VAR e interviste: 2h15. Non
+# c'e' fretta — i dettagli si leggono dall'id in qualsiasi momento — ma prima
+# di cosi' si troverebbe una partita ancora in corso e si spenderebbe una
+# richiesta per niente.
+MINUTI_DOPO_IL_VIA = 135
+
+# Quanto resta "utile" il momento dopo. Serve perche' chi chiama passa ogni
+# 15 minuti: senza una finestra larga almeno quanto quel passo, il momento
+# giusto cadrebbe fra un controllo e l'altro e non arriverebbe mai.
+DURATA_MOMENTO_DOPO = 60
+
+
+def momento_utile(
+    fixtures: Iterable[Any], adesso: datetime | None = None
+) -> str | None:
+    """Questo istante serve a qualcosa, o e' meglio non spendere niente?
+
+    Risponde ``"vigilia"`` se c'e' una partita che sta per cominciare,
+    ``"dopo"`` se ce n'e' una finita da poco, ``None`` se non c'e' motivo di
+    chiamare l'API — ed e' la risposta piu' frequente, perche' in una giornata
+    di Serie A i momenti utili sono cinque o sei su novantasei controlli.
+
+    La vigilia vince sul dopo: se una partita e' appena finita e un'altra sta
+    per cominciare, cio' che si perde per sempre sono le quote della seconda.
+
+    Args:
+        fixtures: partite con ``kickoff_utc``, come le legge ``parse_fixtures``.
+        adesso: istante di riferimento, per i test. Default: ora, UTC.
+
+    Returns:
+        ``"vigilia"``, ``"dopo"`` oppure ``None``.
+    """
+    ora = adesso or datetime.now(timezone.utc)
+    dopo = False
+
+    for f in fixtures:
+        via = getattr(f, "kickoff_utc", None)
+        if via is None:
+            continue
+        minuti = (via - ora).total_seconds() / 60.0
+        if 0 < minuti <= MINUTI_PRIMA_DEL_VIA:
+            return "vigilia"
+        passati = -minuti
+        if MINUTI_DOPO_IL_VIA <= passati < MINUTI_DOPO_IL_VIA + DURATA_MOMENTO_DOPO:
+            dopo = True
+
+    return "dopo" if dopo else None
+
+
+# Quanto margine deve restare prima che il budget si azzeri, perche' valga la
+# pena prendere i dettagli adesso invece che alla raccolta del mattino.
+#
+# L'ancora e' la mezzanotte UTC — il momento in cui API-Football rimette il
+# contatore a cento — e non un'ora italiana, per due motivi. Il primo e' che
+# quella e' la cosa vera: i dettagli presi in coda di giornata si pagano con
+# le richieste avanzate, quelli presi la mattina con un budget intero, ed e'
+# esattamente il guasto del 22 agosto 2026 (la corsa delle 23:45 trovo' 75
+# richieste su 100 gia' spese e non prese' niente). Il secondo e' che un'ora
+# italiana si sposterebbe da sola due volte l'anno: col cambio dell'ora legale
+# il posticipo delle 20:45 passa dalle 18:45 UTC alle 19:45 UTC, e una soglia
+# scritta in ora locale cadrebbe nel posto sbagliato per sei mesi.
+#
+# Quattro ore separano il posticipo da tutto il resto, in entrambi i fusi:
+#
+#   via 20:45 (18:45 o 19:45 UTC) -> dettagli pronti 3h o 2h prima del reset
+#   via 18:30 (16:30 o 17:30 UTC) -> 5h15 o 4h15 prima
+#   via 15:00 (13:00 o 14:00 UTC) -> 8h45 o 7h45 prima
+#
+# Solo il posticipo aspetta il mattino: e' quello che finisce a ridosso del
+# reset ed e' quello i cui tabellini l'API consegna piu' tardi.
+ORE_DI_MARGINE_PER_I_DETTAGLI = 4
+
+
+def dettagli_possono_aspettare(adesso: datetime | None = None) -> bool:
+    """Conviene lasciare i dettagli alla raccolta del mattino?
+
+    Vale per **qualunque** raccolta, non solo per il momento "dopo": anche la
+    corsa fissa delle 23:45 cade dentro questa finestra, e il suo compito e'
+    chiudere la giornata con i risultati definitivi — non raccogliere
+    tabellini, che sono la cosa meno urgente che il sistema conosca.
+
+    Aspettare non costa niente e guadagna due cose. Il budget: dopo il reset
+    le stesse richieste si pagano con un contatore intero. E il tempo: il
+    tabellino di una partita finita da poco puo' essere ancora la fotografia
+    del feed live (vedi `tabellino_provvisorio` in `store.py`), e ogni ora di
+    attesa e' un'ora in cui l'API puo' consolidarlo.
+
+    Non e' pero' una garanzia, e non va raccontata come tale: la sera del 22
+    agosto 2026 due tabellini erano ancora fermi **quattro ore** dopo il
+    fischio finale. Questa regola riduce quante volte si prende una fotografia
+    invece di un tabellino; a ripescarla quando succede resta `needs_detail`.
+    """
+    ora = adesso or datetime.now(timezone.utc)
+    reset = (ora + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    ore_al_reset = (reset - ora).total_seconds() / 3600.0
+    return ore_al_reset < ORE_DI_MARGINE_PER_I_DETTAGLI
+
 
 # Quanti errori di fila si accettano prima di smettere. Un errore isolato e'
 # normale (una partita senza tabellino, un timeout); cinque di fila vogliono
@@ -223,10 +341,19 @@ def collect_details_for(
                 logger.info("dettagli: budget %s esaurito, si riprende domani", prio.name)
                 continue
 
+            # Se un dettaglio ce l'abbiamo gia' e lo stiamo richiedendo, e'
+            # perche' quello che abbiamo non va (`needs_detail`): un tabellino
+            # fermo a partita in corso. La cache di quei dettagli non scade
+            # mai, quindi senza `force_refresh` la richiesta verrebbe servita
+            # dalla copia sbagliata — nessuna chiamata all'API, nessuna
+            # correzione, e il contatore dei tentativi che sale fino al tetto
+            # senza aver mai chiesto niente a nessuno.
+            riprova = store.has_detail(fid, kind)
             try:
                 payload = client.get(
                     f"fixtures/{kind}", {"fixture": fid},
                     ttl=TTL_FOREVER, priority=prio,
+                    force_refresh=riprova,
                 )
             except (ApiFootballError, BudgetExhausted) as exc:
                 logger.warning("dettagli %s per la partita %s: %s", kind, fid, exc)

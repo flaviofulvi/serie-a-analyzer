@@ -23,6 +23,8 @@ stagione diversa da quelle che il modello conosce misura un altro programma.
 
     python scripts/backtest.py                  # l'ultima stagione completa
     python scripts/backtest.py --stagione 2024  # una in particolare
+    python scripts/backtest.py --compressione 0 # sui gol, sempre la media di lega
+    python scripts/backtest.py --cerca-compressione   # quale compressione conviene
 """
 
 from __future__ import annotations
@@ -30,9 +32,10 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import log
 from pathlib import Path
+from typing import Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -46,8 +49,13 @@ from serie_a_analyzer.config import (
 )
 from serie_a_analyzer.data.dataset import Dataset, load_dataset
 from serie_a_analyzer.data.parsers import FixtureRecord
-from serie_a_analyzer.model.dixon_coles import fit_dixon_coles
-from serie_a_analyzer.model.markets import MatchProbabilities
+from serie_a_analyzer.model.dixon_coles import (
+    DEFAULT_GOAL_COMPRESSION,
+    comprimi_totale,
+    fit_dixon_coles,
+)
+from serie_a_analyzer.model.markets import MatchProbabilities, derive_markets
+from serie_a_analyzer.model.scoreline import scoreline_matrix
 
 # Sotto questa soglia di partite il modello non ha abbastanza storia perche'
 # il confronto sia informativo.
@@ -59,10 +67,22 @@ MIN_TRAINING_MATCHES = 200
 # scambiare per completa la stagione appena cominciata.
 PARTITE_STAGIONE_COMPLETA = 300
 
+# I valori di compressione provati da `--cerca-compressione`. Venti passi
+# bastano: il fattore migliore oscilla parecchio da una stagione all'altra,
+# quindi cercarlo al centesimo sarebbe misurare il rumore.
+GRIGLIA_COMPRESSIONE = tuple(round(x / 20, 2) for x in range(21))
+
 
 @dataclass
 class Prediction:
-    """Un pronostico e cio' che e' realmente accaduto."""
+    """Un pronostico e cio' che e' realmente accaduto.
+
+    Conserva anche gli ingredienti grezzi del pronostico — i gol attesi
+    **prima** della compressione, il rho e la media di lega di quel momento —
+    e non solo le probabilita' che ne sono uscite. E' cio' che permette di
+    provare venti compressioni diverse rigiocando la stagione **una volta
+    sola**: la parte cara e' la stima, che non dipende dal fattore.
+    """
 
     matchday: int
     home: str
@@ -70,6 +90,16 @@ class Prediction:
     probs: MatchProbabilities
     home_goals: int
     away_goals: int
+    # Gol attesi non compressi, piu' quello che serve a ricostruire la matrice.
+    lam: float = 0.0
+    mu: float = 0.0
+    rho: float = 0.0
+    media_lega: float = 0.0
+
+    def con_compressione(self, fattore: float) -> "Prediction":
+        """Lo stesso pronostico, con un'altra compressione dei gol totali."""
+        lam, mu = comprimi_totale(self.lam, self.mu, self.media_lega, fattore)
+        return replace(self, probs=derive_markets(scoreline_matrix(lam, mu, self.rho)))
 
     @property
     def outcome(self) -> str:
@@ -178,7 +208,9 @@ def stagione_predefinita(dataset: Dataset) -> int | None:
     return max(complete) if complete else None
 
 
-def run_backtest(dataset: Dataset, target: int) -> tuple[list[Prediction], dict]:
+def run_backtest(
+    dataset: Dataset, target: int, compressione: float = DEFAULT_GOAL_COMPRESSION
+) -> tuple[list[Prediction], dict]:
     """Rigioca la stagione ``target`` giornata per giornata. Zero richieste API.
 
     Lo storico su cui il modello si stima non e' solo quello della stagione
@@ -219,12 +251,17 @@ def run_backtest(dataset: Dataset, target: int) -> tuple[list[Prediction], dict]
             saltate += len(partite)
             continue
 
+        # La stima non conosce la compressione — non la usa e non ne dipende:
+        # il fattore agisce sul pronostico. Chiedendo qui `goal_compression=1`
+        # si ottengono i gol attesi grezzi, da cui qualunque fattore si ricava
+        # dopo senza ristimare niente.
         modello = fit_dixon_coles(
             [
                 _to_match(f, nomi)
                 for f in storico
             ],
             as_of=taglio.date(),
+            goal_compression=1.0,
         )
         giornate_usate += 1
 
@@ -232,21 +269,26 @@ def run_backtest(dataset: Dataset, target: int) -> tuple[list[Prediction], dict]
             casa = nomi.get(f.home_team_id, str(f.home_team_id))
             ospite = nomi.get(f.away_team_id, str(f.away_team_id))
             try:
-                probs = modello.predict(casa, ospite)
+                lam, mu = modello.expected_goals(casa, ospite)
             except KeyError:
                 # Neopromossa che non ha ancora giocato: nessuna storia da cui
                 # stimarla. Escluderla e' piu' onesto che inventarle una forza.
                 saltate += 1
                 continue
+            grezzo = Prediction(
+                matchday=giornata,
+                home=casa,
+                away=ospite,
+                probs=derive_markets(scoreline_matrix(lam, mu, modello.rho)),
+                home_goals=f.home_goals,
+                away_goals=f.away_goals,
+                lam=lam,
+                mu=mu,
+                rho=modello.rho,
+                media_lega=modello.league_total_goals,
+            )
             predizioni.append(
-                Prediction(
-                    matchday=giornata,
-                    home=casa,
-                    away=ospite,
-                    probs=probs,
-                    home_goals=f.home_goals,
-                    away_goals=f.away_goals,
-                )
+                grezzo if compressione == 1.0 else grezzo.con_compressione(compressione)
             )
 
     return predizioni, {
@@ -295,6 +337,142 @@ def brier_costante(preds: list[Prediction], trio: tuple[float, float, float]) ->
     return totale / len(preds)
 
 
+# ---- calibrazione della compressione ---------------------------------------
+
+
+def brier_dei_tre(preds: list[Prediction]) -> tuple[float, float, float]:
+    """Brier di 1X2, Over 2.5 e Gol/NoGol sullo stesso campione."""
+    return (
+        brier_1x2(preds),
+        brier_binary([p.probs.over[2.5] for p in preds], [p.total_goals >= 3 for p in preds]),
+        brier_binary([p.probs.btts for p in preds], [p.both_scored for p in preds]),
+    )
+
+
+def scansione(
+    preds: list[Prediction], griglia: Sequence[float] = GRIGLIA_COMPRESSIONE
+) -> dict[float, tuple[float, float, float]]:
+    """Per ogni compressione della griglia, i Brier dei tre mercati.
+
+    Non ristima niente: i pronostici arrivano gia' rigiocati, e cambiare il
+    fattore vuol dire solo rifare la matrice dei risultati.
+    """
+    return {f: brier_dei_tre([p.con_compressione(f) for p in preds]) for f in griglia}
+
+
+def _somma_gol(riga: tuple[float, float, float]) -> float:
+    """Il criterio da minimizzare: i due mercati dei gol, insieme.
+
+    L'1X2 non entra nel criterio — e' il mercato che gia' funziona, e non si
+    tocca per migliorarne un altro — ma va guardato accanto al risultato: se
+    la compressione lo peggiorasse piu' di quanto migliora i gol, il lavoro
+    andrebbe buttato.
+    """
+    return riga[1] + riga[2]
+
+
+def migliore(scansioni: Sequence[dict[float, tuple[float, float, float]]]) -> float:
+    """La compressione che minimizza i mercati dei gol su piu' stagioni insieme."""
+    griglia = sorted(scansioni[0])
+    def costo(f: float) -> float:
+        return sum(_somma_gol(s[f]) for s in scansioni) / len(scansioni)
+    return min(griglia, key=costo)
+
+
+def cerca_compressione(dataset: Dataset, stagioni: Sequence[int]) -> int:
+    """Sceglie il fattore di compressione, e lo misura senza barare.
+
+    Il fattore non si sceglie sulla stagione su cui lo si giudica: si sceglie
+    sulle ALTRE, e si guarda cosa fa su quella lasciata fuori. Fatto in altro
+    modo, si misura la propria capacita' di indovinare il passato — che e'
+    perfetta per costruzione e non serve a niente.
+    """
+    titolo("COMPRESSIONE DEI GOL TOTALI - quale fattore, e quanto vale davvero")
+    print("Le forze delle squadre dicono bene CHI VINCE e male QUANTI GOL.")
+    print("Comprimere avvicina il totale atteso alla media di lega lasciando")
+    print("intatto il rapporto fra le due squadre: 1.00 = niente compressione,")
+    print("0.00 = sui gol si dichiara sempre la media di campionato.\n")
+
+    scansioni: dict[int, dict[float, tuple[float, float, float]]] = {}
+    for stagione in stagioni:
+        preds, _ = run_backtest(dataset, stagione, compressione=1.0)
+        if not preds:
+            continue
+        scansioni[stagione] = scansione(preds)
+        media = preds[0].media_lega
+        print(f"  stagione {stagione}: {len(preds)} partite rigiocate "
+              f"(media di lega finale {media:.2f} gol)")
+
+    if len(scansioni) < 2:
+        print("\nServono almeno due stagioni complete per scegliere onestamente.\n")
+        return 1
+
+    print(f"\n{'stagione':<10}{'miglior f':>11}{'Over 2.5':>22}{'Gol/NoGol':>22}")
+    print(f"{'':<10}{'(su di se)':>11}{'oggi -> con f':>22}{'oggi -> con f':>22}")
+    print("-" * 66)
+    for stagione, s in scansioni.items():
+        f = min(sorted(s), key=lambda x: _somma_gol(s[x]))
+        print(f"{stagione:<10}{f:>11.2f}"
+              f"{f'{s[1.0][1]:.4f} -> {s[f][1]:.4f}':>22}"
+              f"{f'{s[1.0][2]:.4f} -> {s[f][2]:.4f}':>22}")
+    print("\nQuesta tabella e' solo per vedere quanto oscilla il fattore migliore:")
+    print("scelto sulla stessa stagione su cui si misura, e' ottimismo puro.")
+
+    titolo("La misura onesta: fattore scelto sulle altre stagioni")
+    print(f"{'stagione':<10}{'f dalle altre':>15}{'1X2':>16}{'Over 2.5':>16}{'Gol/NoGol':>16}")
+    print("-" * 74)
+    deltas = [0.0, 0.0, 0.0]
+    for stagione, s in scansioni.items():
+        altre = [x for y, x in scansioni.items() if y != stagione]
+        f = migliore(altre)
+        base, con = s[1.0], s[f]
+        for i in range(3):
+            deltas[i] += con[i] - base[i]
+        print(f"{stagione:<10}{f:>15.2f}"
+              f"{f'{base[0]:.4f}->{con[0]:.4f}':>16}"
+              f"{f'{base[1]:.4f}->{con[1]:.4f}':>16}"
+              f"{f'{base[2]:.4f}->{con[2]:.4f}':>16}")
+    n = len(scansioni)
+    print("-" * 74)
+    print(f"{'variazione media':<25}"
+          f"{deltas[0] / n:>+16.4f}{deltas[1] / n:>+16.4f}{deltas[2] / n:>+16.4f}")
+    print("\nNegativo = migliora. La colonna 1X2 e' la guardia: se peggiorasse")
+    print("piu' di quanto migliorano i gol, la compressione andrebbe buttata.")
+
+    titolo("Il quadro intero: ogni fattore, in media sulle stagioni")
+    print("Serve a vedere la forma del compromesso, non a scegliere: qui il")
+    print("fattore e' misurato sulle stesse stagioni su cui e' scelto.\n")
+    print(f"{'fattore':<10}{'1X2':>12}{'Over 2.5':>12}{'Gol/NoGol':>12}{'gol, somma':>14}")
+    print("-" * 60)
+    quante = len(scansioni)
+    for f in sorted(scansioni[next(iter(scansioni))]):
+        medie = [
+            sum(s[f][i] for s in scansioni.values()) / quante for i in range(3)
+        ]
+        print(f"{f:<10.2f}{medie[0]:>12.4f}{medie[1]:>12.4f}{medie[2]:>12.4f}"
+              f"{medie[1] + medie[2]:>14.4f}")
+    print("\nL'1X2 peggiora piano scendendo, i gol migliorano in fretta e poi")
+    print("si fermano: il fattore giusto sta dove le due curve si incrociano.")
+
+    f_finale = migliore(list(scansioni.values()))
+    titolo(f"IL FATTORE DA USARE: {f_finale:.2f}")
+    print("Scelto su tutte le stagioni insieme. E' il valore da mettere in")
+    print("DEFAULT_GOAL_COMPRESSION (model/dixon_coles.py).")
+    print("\nCosa fa, stagione per stagione, rispetto a oggi:")
+    print(f"\n{'stagione':<10}{'1X2':>16}{'Over 2.5':>16}{'Gol/NoGol':>16}")
+    print("-" * 58)
+    for stagione, s in scansioni.items():
+        base, con = s[1.0], s[f_finale]
+        print(f"{stagione:<10}"
+              f"{f'{base[0]:.4f}->{con[0]:.4f}':>16}"
+              f"{f'{base[1]:.4f}->{con[1]:.4f}':>16}"
+              f"{f'{base[2]:.4f}->{con[2]:.4f}':>16}")
+    print("\nAttenzione a cosa NON dice questo numero: col fattore migliore i")
+    print("mercati dei gol arrivano a PAREGGIARE con la loro baseline, non a")
+    print("batterla. Toglie un danno, non aggiunge una capacita'.")
+    return 0
+
+
 # ---- presentazione ---------------------------------------------------------
 
 
@@ -313,7 +491,25 @@ def main() -> int:
         help="anno di partenza della stagione da rigiocare "
              "(default: l'ultima completa fra quelle in archivio)",
     )
+    parser.add_argument(
+        "--compressione",
+        type=float,
+        default=DEFAULT_GOAL_COMPRESSION,
+        help="quanto delle differenze fra squadre resta nei gol totali "
+             "(0 = sui gol sempre la media di lega, 1 = niente compressione; "
+             f"default: {DEFAULT_GOAL_COMPRESSION})",
+    )
+    parser.add_argument(
+        "--cerca-compressione",
+        action="store_true",
+        help="prova tutti i fattori su tutte le stagioni complete e dice "
+             "quale conviene, scegliendolo ogni volta sulle stagioni diverse "
+             "da quella su cui lo misura",
+    )
     args = parser.parse_args()
+    if not 0.0 <= args.compressione <= 1.0:
+        print("\n--compressione va da 0 a 1.\n")
+        return 1
 
     try:
         settings = load_settings()
@@ -333,6 +529,16 @@ def main() -> int:
         importati=build_importato_stores(settings),
     )
 
+    if args.cerca_compressione:
+        complete = [
+            s for s, quante in stagioni_disponibili(dataset).items()
+            if quante >= PARTITE_STAGIONE_COMPLETA
+        ]
+        if not complete:
+            print("\nNessuna stagione completa in archivio: non c'e' niente da rigiocare.\n")
+            return 1
+        return cerca_compressione(dataset, complete)
+
     target = args.stagione or stagione_predefinita(dataset)
     if target is None:
         print("\nNessuna stagione completa in archivio: non c'e' niente da rigiocare.\n")
@@ -347,7 +553,7 @@ def main() -> int:
           + ", ".join(f"{s} ({n})" for s, n in disponibili.items()))
 
     try:
-        preds, info = run_backtest(dataset, target)
+        preds, info = run_backtest(dataset, target, compressione=args.compressione)
     except RuntimeError as exc:
         # Chiedere una stagione che non c'e' e' un errore di chi lancia il
         # comando, non un guasto: si dice cosa c'e', senza traceback.
@@ -361,6 +567,9 @@ def main() -> int:
     print(f"Giornate rigiocate:   {info['giornate']}")
     print(f"Partite escluse:      {info['saltate']} (storico insufficiente)")
     print(f"Richieste API spese:  {client.budget.used - prima}")
+    if args.compressione < 1.0:
+        print(f"Compressione dei gol: {args.compressione:.2f} "
+              f"(media di lega {preds[0].media_lega:.2f} gol a partita)")
 
     # --- 1X2 ---------------------------------------------------------------
     titolo("1X2 - il modello contro i suoi concorrenti")

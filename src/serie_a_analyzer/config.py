@@ -8,6 +8,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Import diretto e non differito come gli altri di `data`: qui serve solo una
+# costante, e leggerla altrove significherebbe scrivere due volte lo stesso
+# numero — che e' il modo classico di farne divergere uno.
+from .data.client import DEFAULT_MIN_INTERVAL_SECONDS
+
 # Radice del progetto: da qui pendono cache e stato del budget.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,6 +28,7 @@ class Settings:
     api_key: str
     api_provider: str            # 'apisports' oppure 'rapidapi'
     daily_request_limit: int
+    api_min_interval_seconds: float  # secondi minimi fra due richieste spedite
     cache_dir: Path
     budget_file: Path
     store_dir: Path              # archivio della stagione in corso
@@ -33,6 +39,16 @@ class Settings:
     database_url: str | None
     league_id: int
     seasons: tuple[int, ...]     # stagioni su cui stimare il modello
+
+    # Le notifiche hanno un default e le altre no, ed e' una distinzione
+    # voluta: senza chiave API il sistema non puo' funzionare, senza Telegram
+    # funziona identico e in silenzio. Un campo obbligatorio direbbe il
+    # contrario a chi legge, e costringerebbe a nominarlo ovunque si costruisca
+    # una configurazione — test compresi.
+    telegram_token: str | None = None
+    telegram_chat_id: str | None = None
+    telegram_verboso: bool = False
+    notifiche_file: Path = PROJECT_ROOT / "data" / "notifiche.json"
 
     @property
     def has_database(self) -> bool:
@@ -58,6 +74,15 @@ def load_settings() -> Settings:
         api_key=api_key,
         api_provider=os.getenv("API_FOOTBALL_PROVIDER", "apisports").strip().lower(),
         daily_request_limit=int(os.getenv("DAILY_REQUEST_LIMIT", "100")),
+        # Il tetto al minuto di API-Football, che e' cosa diversa da quello
+        # giornaliero: sul piano gratuito sono 10 richieste al minuto, e
+        # superarlo fa perdere il dato pagando lo stesso la richiesta. Sui
+        # piani superiori il tetto e' molto piu' alto e questo valore si
+        # abbassa da .env, altrimenti un riempimento storico impiegherebbe
+        # ore di attesa invece che minuti.
+        api_min_interval_seconds=float(
+            os.getenv("API_MIN_INTERVAL_SECONDS", str(DEFAULT_MIN_INTERVAL_SECONDS))
+        ),
         cache_dir=Path(os.getenv("CACHE_DIR", data_dir / "cache")),
         budget_file=Path(os.getenv("BUDGET_FILE", data_dir / "budget.json")),
         store_dir=Path(os.getenv("STORE_DIR", data_dir / "serie_a")),
@@ -66,6 +91,13 @@ def load_settings() -> Settings:
         journal_file=Path(os.getenv("JOURNAL_FILE", data_dir / "journal.json")),
         predictions_db=Path(os.getenv("PREDICTIONS_DB", data_dir / "pronostici.db")),
         database_url=os.getenv("DATABASE_URL") or None,
+        # Senza token o senza chat il canale resta spento e nessuna riga di
+        # codice se ne accorge: una notifica e' un di piu', mai un requisito.
+        telegram_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or None,
+        telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", "").strip() or None,
+        telegram_verboso=os.getenv("TELEGRAM_VERBOSO", "").strip().lower()
+        in ("1", "true", "si", "s"),
+        notifiche_file=Path(os.getenv("NOTIFICHE_FILE", data_dir / "notifiche.json")),
         league_id=int(os.getenv("LEAGUE_ID", "135")),
         seasons=_parse_seasons(os.getenv("SEASONS", "2022,2023,2024")),
     )
@@ -84,8 +116,34 @@ def build_client(settings: Settings | None = None):
     )
 
     if settings.api_provider == "rapidapi":
-        return ApiFootballClient.for_rapidapi(settings.api_key, cache, budget)
-    return ApiFootballClient(api_key=settings.api_key, cache=cache, budget=budget)
+        return ApiFootballClient.for_rapidapi(
+            settings.api_key, cache, budget,
+            min_interval_seconds=settings.api_min_interval_seconds,
+        )
+    return ApiFootballClient(
+        api_key=settings.api_key, cache=cache, budget=budget,
+        min_interval_seconds=settings.api_min_interval_seconds,
+    )
+
+
+def build_telegram(settings: Settings | None = None):
+    """Il canale delle notifiche. Spento se manca il token: non e' un errore."""
+    from .notifiche import Telegram
+
+    settings = settings or load_settings()
+    return Telegram(
+        token=settings.telegram_token,
+        chat_id=settings.telegram_chat_id,
+        verboso=settings.telegram_verboso,
+    )
+
+
+def build_registro_invii(settings: Settings | None = None):
+    """Cosa e' gia' stato detto: serve a non dirlo due volte."""
+    from .notifiche import RegistroInvii
+
+    settings = settings or load_settings()
+    return RegistroInvii(path=settings.notifiche_file)
 
 
 def build_store(settings: Settings | None = None):

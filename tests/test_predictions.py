@@ -232,6 +232,28 @@ def test_registrare_due_volte_di_fila_non_aggiunge_nulla(store):
     assert store.conteggi()["pronostici"] == 1
 
 
+def test_la_compressione_dei_gol_cambia_la_versione_del_modello(store):
+    """Cambia le probabilita', quindi e' un altro modello.
+
+    Il rovescio del test qui sotto: l'affidabilita' descrive la stima e non
+    la definisce, la compressione invece riscrive ogni numero che esce. Due
+    pronostici prodotti con compressioni diverse non devono finire sulla
+    stessa riga di ``model_versions``, altrimenti confrontare i Brier di
+    prima e di dopo misurerebbe due cose mescolate.
+    """
+    prima = replace(_modello(), goal_compression=1.0, league_total_goals=2.5)
+    dopo = replace(prima, goal_compression=0.2)
+    assert store.versione_modello(prima) != store.versione_modello(dopo)
+
+
+def test_la_media_di_lega_cambia_la_versione_del_modello(store):
+    """Stesso fattore, media diversa: i gol attesi finiscono altrove."""
+    prima = replace(_modello(), goal_compression=0.2, league_total_goals=2.5)
+    assert store.versione_modello(prima) != store.versione_modello(
+        replace(prima, league_total_goals=2.7)
+    )
+
+
 def test_l_affidabilita_non_cambia_la_versione_del_modello(store):
     """Sapere *su cosa* poggia una stima non la rende una stima diversa.
 

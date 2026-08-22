@@ -1,18 +1,34 @@
-"""Client per API-Football, con cache e budget integrati.
+"""Client per API-Football, con cache, budget e freno integrati.
 
-Ogni chiamata passa da tre porte, in quest'ordine:
+Ogni chiamata passa da quattro porte, in quest'ordine:
 
     1. cache — se il dato c'e' ed e' fresco, costa zero
     2. budget — se non c'e' margine per questa priorita', si rifiuta subito
-    3. rete — solo a quel punto si spende davvero una richiesta
+    3. freno — si aspetta che sia passato abbastanza dalla richiesta precedente
+    4. rete — solo a quel punto si spende davvero una richiesta
 
 Non esiste un modo per bypassare il budget: e' l'unica difesa contro il
 restare senza richieste alle 19:00 di domenica.
+
+Il **freno** difende da un limite diverso e piu' insidioso: oltre al tetto
+giornaliero, API-Football impone un tetto **al minuto** (10 sul piano
+gratuito). Superarlo fa rispondere 429 mentre il contatore locale continua a
+segnare richieste spese — cioe' si paga la richiesta e non si riceve il dato.
+E' successo davvero il 22 agosto 2026: la raccolta ha sparato una ventina di
+chiamate di fila e ha perso gli indisponibili di quattro partite, con il
+budget locale fermo a 47/100.
+
+Il freno sta qui e non nei chiamanti per la stessa ragione per cui ci sta il
+budget: e' l'unico punto da cui passano tutte le richieste, e una regola che
+vive in un posto solo non si puo' dimenticare in un ramo nuovo del codice.
+Vale sulle richieste **davvero spedite**: una risposta servita dalla cache non
+tocca la rete e non aspetta niente.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +37,7 @@ import httpx
 from .budget import Priority, RequestBudget
 from .cache import (
     TTL_FOREVER,
+    TTL_INJURIES,
     TTL_LINEUPS,
     TTL_LIVE,
     TTL_ODDS,
@@ -40,6 +57,23 @@ RAPIDAPI_BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
 # l'estensione ad altri campionati non richiede una caccia alle costanti.
 SERIE_A_LEAGUE_ID = 135
 
+# Secondi minimi fra due richieste davvero spedite.
+#
+# Il piano gratuito concede 10 richieste al minuto: 7 secondi ne fanno passare
+# 8 al minuto, cioe' si sta sotto il tetto con un margine che regge anche se
+# l'orologio dell'API conta le finestre in modo leggermente diverso dal nostro.
+#
+# E' volutamente prudente. Il costo e' tempo di attesa, che qui non serve a
+# nessuno: la raccolta gira quattro volte al giorno da sola e nessuno la
+# guarda. Il costo di sbagliare dall'altra parte e' perdere un dato non
+# recuperabile — le quote di una partita, che dopo il fischio non esistono
+# piu'.
+#
+# Chi passa a un piano a pagamento lo abbassa da .env con
+# API_MIN_INTERVAL_SECONDS: con 7 secondi le 4500 richieste al giorno di un
+# riempimento storico vorrebbero quasi nove ore di esecuzione.
+DEFAULT_MIN_INTERVAL_SECONDS = 7.0
+
 
 class ApiFootballError(RuntimeError):
     """Errore restituito dall'API o risposta non interpretabile."""
@@ -56,6 +90,12 @@ class ApiFootballClient:
     key_header: str = "x-apisports-key"
     timeout: float = 20.0
     extra_headers: dict[str, str] = field(default_factory=dict)
+    # Secondi minimi fra due richieste spedite davvero. Zero disattiva il
+    # freno: ha senso solo nei test, dove non c'e' nessuna rete da proteggere.
+    min_interval_seconds: float = DEFAULT_MIN_INTERVAL_SECONDS
+    # Quando e' partita l'ultima richiesta, su orologio monotono. `None`
+    # finche' non se n'e' spedita nessuna: la prima non aspetta mai.
+    _ultima_richiesta: float | None = field(default=None, init=False, repr=False)
 
     @classmethod
     def for_rapidapi(cls, api_key: str, cache: ResponseCache, budget: RequestBudget, **kw):
@@ -112,6 +152,7 @@ class ApiFootballClient:
             endpoint, params, self.budget.used, self.budget.daily_limit,
         )
 
+        self._attendi_il_turno()
         payload = self._fetch(endpoint, params)
         # Si spacchetta PRIMA di salvare: `_unwrap` solleva se la risposta e'
         # un errore, e un errore in cache con TTL_FOREVER congelerebbe per
@@ -120,6 +161,26 @@ class ApiFootballClient:
         result = self._unwrap(payload, endpoint)
         self.cache.set(endpoint, params, payload)
         return result
+
+    def _attendi_il_turno(self) -> None:
+        """Aspetta, se dall'ultima richiesta e' passato troppo poco.
+
+        Il tempo si misura su ``time.monotonic``, non sull'ora del giorno: un
+        aggiustamento dell'orologio di sistema — o l'ora legale — non deve
+        poter far credere al freno che sia passato un secolo, o meno di zero.
+        """
+        if self.min_interval_seconds <= 0:
+            return
+        if self._ultima_richiesta is not None:
+            attesa = self.min_interval_seconds - (time.monotonic() - self._ultima_richiesta)
+            if attesa > 0:
+                logger.debug("freno: attendo %.1fs prima della prossima richiesta", attesa)
+                time.sleep(attesa)
+        # Si segna PRIMA di spedire, come per il budget: se la chiamata
+        # fallisce e il chiamante riprova subito, il freno deve valere lo
+        # stesso — un tentativo andato male ha consumato la sua quota al
+        # minuto esattamente come uno riuscito.
+        self._ultima_richiesta = time.monotonic()
 
     def _fetch(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         headers = {self.key_header: self.api_key, **self.extra_headers}
@@ -131,8 +192,11 @@ class ApiFootballClient:
 
         if response.status_code == 429:
             raise ApiFootballError(
-                "limite di richieste superato lato API (429). Il contatore locale "
-                "e' fuori sincrono: verifica il budget giornaliero."
+                "limite di richieste superato lato API (429). Se il budget "
+                f"giornaliero non e' esaurito ({self.budget.used}/"
+                f"{self.budget.daily_limit}), il tetto superato e' quello al "
+                f"MINUTO: alza API_MIN_INTERVAL_SECONDS, oggi a "
+                f"{self.min_interval_seconds:g}s."
             )
         if response.status_code >= 400:
             raise ApiFootballError(
@@ -282,7 +346,33 @@ class ApiFootballClient:
         )
 
     def injuries(self, season: int, league: int = SERIE_A_LEAGUE_ID):
+        """Indisponibili di un'intera stagione. **Bloccato dal piano gratuito.**
+
+        Verificato il 22/08/2026: risponde "Free plans do not have access to
+        this season, try from 2022 to 2024" — lo stesso filtro league+season
+        che tiene fuori la stagione in corso dalle fixtures. Resta qui per il
+        giorno di un piano superiore; per lavorare oggi si usa
+        `injuries_fixture`.
+        """
         return self.get("injuries", {"league": league, "season": season}, ttl=TTL_UPCOMING_FIXTURES)
+
+    def injuries_fixture(self, fixture_id: int, ttl: int | None = TTL_INJURIES):
+        """Chi salta *questa* partita: infortunati, squalificati e in dubbio.
+
+        La strada che funziona sul piano gratuito, perche' come tutti gli
+        endpoint per singola partita non passa dal filtro league+season.
+
+        Priorita' `BACKFILL` e non `CRITICAL`, e non e' un dettaglio: gli
+        indisponibili di una partita **si recuperano anche dopo** (verificato
+        su una gara del 17/08/2024, che risponde ancora). Non sono come le
+        quote o come gli id delle partite: se una raccolta salta, si riprende
+        domani. Chiederli a priorita' alta significherebbe intaccare la
+        riserva che protegge le formazioni ufficiali di oggi per un dato che
+        aspetta.
+        """
+        return self.get(
+            "injuries", {"fixture": fixture_id}, ttl=ttl, priority=Priority.BACKFILL
+        )
 
     def odds(self, fixture_id: int):
         return self.get("odds", {"fixture": fixture_id}, ttl=TTL_ODDS)

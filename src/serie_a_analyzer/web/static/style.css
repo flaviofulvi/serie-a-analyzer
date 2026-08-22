@@ -9,10 +9,15 @@
       altezza, stesso allineamento a sinistra. Chi impara a leggerne una le
       sa leggere tutte.
 
-   2. IL COLORE DICE UNA COSA SOLA. Indaco = 1, grigio = X, arancio = 2:
-      una scala che va dalla casa alla trasferta passando per il neutro, e
-      non viene usata per nient'altro. Il rosso compare in un posto solo,
-      dove il modello sfonda il muro. Tutto il resto e' carta e inchiostro. */
+   2. IL COLORE DICE UNA COSA SOLA, E LA DICE IN UN POSTO SOLO. Indaco = 1,
+      grigio = X, arancio = 2: una scala che va dalla casa alla trasferta
+      passando per il neutro, e che descrive **fatti** — chi ha vinto, quanto
+      e' probabile un punteggio. Accanto ne vive una seconda, e una sola:
+      verde/giallo/rosso, che non descrive un fatto ma **giudica il modello**,
+      e per questo sta confinata nell'ultima colonna degli ultimi risultati e
+      nel rosso che sfonda il muro dei Brier. Due alfabeti, due colonne
+      diverse, mai mescolati nella stessa cifra. Tutto il resto e' carta e
+      inchiostro. */
 
 :root {
   --fondo: #e9ecf1;          /* la pagina */
@@ -27,7 +32,16 @@
   --uno: #2f4be0;            /* 1 — casa */
   --ics: #949daf;            /* X — pareggio */
   --due: #d4560a;            /* 2 — trasferta */
-  --allarme: #cf2020;        /* solo dove si sfonda il muro */
+  --allarme: #cf2020;        /* il modello ha sbagliato: muro sfondato o pronostico mancato */
+
+  /* La scala del giudizio, usata solo dove si dice quanto ci ha preso il
+     modello. Sono colori di *scritta* — dietro ci va un velo, non una
+     tinta piena — e vanno percio' scelti per il contrasto contro la carta e
+     non contro il bianco: e' il motivo per cui il giallo qui e' un oro
+     scuro, perche' un giallo vero, su fondo chiaro, a undici pixel non si
+     legge. */
+  --esatto: #12784a;
+  --parziale: #96670a;
 
   /* Le caselle della matrice si tingono fino all'82%: servono tinte
      proprie, perche' il testo ci sta sopra e deve restare leggibile. */
@@ -79,6 +93,13 @@
     --ics: #7b8598;
     --due: #ff8b3d;
     --allarme: #ff5f5f;
+
+    /* Al buio si ribalta: le stesse due tinte del tema chiaro sarebbero
+       macchie scure sulla carta scura, e servono schiarite. Il giallo tira
+       via dall'arancio piu' che sul chiaro, perche' la cella del 2 sta sulla
+       stessa riga a due colonne di distanza. */
+    --esatto: #3ed18d;
+    --parziale: #e9c94b;
 
     --uno-cella: #25378f;
     --ics-cella: #3d4553;
@@ -395,9 +416,10 @@ h3 {
 /* Un solo alfabeto, applicato ovunque compaia un esito: indaco = ha vinto
    la squadra di casa, grigio = pareggio, arancio = ha vinto la trasferta.
    Sono gli stessi tre colori delle barre e delle caselle della matrice, e
-   dicono la stessa identica cosa. Nessun verde da "bravo": un pronostico
-   azzeccato si riconosce perche' il colore del modello e il colore di quel
-   che e' successo coincidono, non perche' arriva un applauso. */
+   dicono la stessa identica cosa. Qui dentro non entra il verde: queste
+   tinte raccontano cosa e' successo in campo, non se il modello e' stato
+   bravo. Il giudizio ha una scala sua e una colonna sua — vedi .verdetto —
+   e le due non si toccano mai sulla stessa cifra. */
 .tinta-1 { --tinta: var(--tinto-1); }
 .tinta-X { --tinta: var(--tinto-X); }
 .tinta-2 { --tinta: var(--tinto-2); }
@@ -684,10 +706,38 @@ h3 {
   white-space: nowrap;
   border: 1px solid transparent;
 }
-/* Azzeccato: la pastiglia prende il colore dell'esito accaduto, lo stesso
-   che tinge il punteggio e la casella evidenziata su quella riga. Tre segni
-   dello stesso colore lungo la riga = il modello e la realta' hanno detto
-   la stessa cosa. Sbagliato: nessun riempimento, solo il contorno rosso. */
+/* --- i tre gradini del giudizio (ultimi risultati) ---------------------
+   Tre tinte e una scala sola. Verde: azzeccato anche il punteggio. Giallo:
+   azzeccato il solo esito. Rosso: nemmeno quello — ed e' lo stesso rosso
+   che sfonda il muro dei Brier, perche' i due posti parlano l'alfabeto del
+   giudizio e due rossi diversi lo spezzerebbero in due.
+
+   Ogni gradino porta un velo della propria tinta nella carta, l'idioma gia'
+   usato per la casella dell'esito accaduto. Il contorno da solo, a undici
+   pixel, e' pochissimo colore: il gradino di mezzo finiva per assomigliare
+   all'arancio del "2", che gli sta due colonne piu' in la'. Il velo resta
+   ben sotto la pastiglia piena delle tabelle di accuratezza — tre livelli
+   di riempimento per tre mestieri diversi, e nessuno che imiti l'altro. */
+.verdetto.esatto {
+  color: var(--esatto);
+  border-color: var(--esatto);
+  background: color-mix(in srgb, var(--esatto) var(--velo), var(--carta));
+}
+.verdetto.esito {
+  color: var(--parziale);
+  border-color: var(--parziale);
+  background: color-mix(in srgb, var(--parziale) var(--velo), var(--carta));
+}
+.verdetto.niente {
+  color: var(--allarme);
+  border-color: var(--allarme);
+  background: color-mix(in srgb, var(--allarme) var(--velo), var(--carta));
+}
+
+/* --- i verdetti delle tabelle di accuratezza --------------------------
+   Altra colonna, altro mestiere: qui non si giudica una singola partita ma
+   un mercato contro il suo muro, e la pastiglia piena prende il colore
+   dell'esito quando ce n'e' uno (l'hub la usa senza, e resta grigia). */
 .verdetto.ok {
   background: var(--tinta, var(--tinto-X));
   color: var(--su-tinto);

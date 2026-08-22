@@ -44,7 +44,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
 
-pytest                          # 240 test
+pytest                          # 399 test
 python scripts/demo_engine.py   # dimostrazione su dati sintetici
 ```
 
@@ -122,8 +122,36 @@ resto domani senza che si sia perso nulla.
 
 ```bash
 python scripts/daily_collect.py       # ieri, oggi, domani + dettagli mancanti
-.\scripts\schedule_windows.ps1        # 4 esecuzioni al giorno + recupero all'accensione
+python scripts/daily_collect.py --solo-al-momento-giusto   # solo se serve adesso
+.\scripts\schedule_windows.ps1        # registra tutte le attivita' pianificate
 ```
+
+### Non un orario, un momento
+
+Due sole esecuzioni hanno un orario fisso, e fanno due cose che nessuna partita
+puo' decidere: alle **08:00** si legge il calendario (gli id vivono solo nella
+finestra di tre giorni, e persi sono persi) e alle **23:45** si chiude la
+giornata.
+
+Tutto il resto e' agganciato alle partite, perche' quote e indisponibili
+valgono quanto sono **vicini al fischio d'inizio**: le quote dopo il via non
+esistono piu', e una lista di assenti letta a partita finita sa chi non e'
+sceso in campo davvero — usarla per pronosticare sarebbe barare. Un orario
+fisso ci passa vicino per caso: il 22 agosto 2026 la corsa delle 20:00 ha letto
+insieme le quote di una partita delle 20:45 e quelle di una del giorno dopo,
+che sarebbero state rilette comunque.
+
+Un'attivita' pianificata gira quindi ogni quarto d'ora dalle 11:00 alle 23:30 e
+chiede a `momento_utile` se questo istante serve a qualcosa:
+
+| momento | quando | cosa prende |
+|---|---|---|
+| **vigilia** | la partita comincia entro **40 minuti** | quote e indisponibili, solo delle partite imminenti |
+| **dopo** | la partita e' cominciata da **2h15** (90' + 15' + mezz'ora di margine) | risultato definitivo e dettagli |
+| *niente* | tutto il resto, cioe' quasi sempre | esce senza spedire una richiesta |
+
+La vigilia batte il dopo: se una partita e' appena finita e un'altra sta per
+cominciare, cio' che si perde per sempre sono le quote della seconda.
 
 Un giorno le cui partite sono tutte in stato definitivo viene marcato
 **chiuso** sul `DayJournal` e non viene piu' richiesto: le esecuzioni
@@ -138,6 +166,33 @@ risveglio dalla sospensione (che non e' un accesso, e Windows da solo non
 sempre se ne accorge), confronta l'ultima raccolta finita bene con l'ultimo
 orario previsto e raccoglie solo se manca qualcosa: se non manca niente esce
 senza spendere una richiesta.
+
+### Le notifiche su Telegram
+
+Facoltative: senza `TELEGRAM_BOT_TOKEN` in `.env` il sistema funziona identico
+e in silenzio. Quando ci sono, arrivano **due messaggi al giorno** e **cinque
+allarmi**, e nient'altro:
+
+| messaggio | quando |
+|---|---|
+| i pronostici della giornata | la mattina, se si gioca e non e' ancora cominciato niente |
+| com'e' andata | quando l'ultima partita del giorno e' finita |
+| quote perse per sempre | una partita e' cominciata senza che ne avessimo una quota |
+| raccolta fallita | un giorno della finestra non e' entrato in archivio |
+| la raccolta e' ferma | nessuna esecuzione riuscita da 16 ore |
+| budget quasi esaurito | restano meno di 15 richieste |
+| **le formazioni si sono accese** | i tabellini bastano: da oggi due pronostici per partita |
+
+Nessuno di questi e' legato a un orario. Si decide da **cosa c'e' sul disco e
+cosa non e' ancora stato detto**, ed e' per questo che il resoconto della sera
+arriva la mattina dopo se il computer era spento — senza che quel caso sia
+previsto da nessuna parte. Un registro degli invii (`data/notifiche.json`)
+impedisce di ripetersi.
+
+Le ~90 esecuzioni quotidiane che non fanno niente **non mandano niente**: un
+bot che ripete la stessa riga ogni quarto d'ora e' un log con le notifiche
+accese, e si finisce per silenziarlo proprio quando avrebbe qualcosa da dire.
+Per i primi giorni si puo' accendere `TELEGRAM_VERBOSO=1` e vedere tutto.
 
 > ⚠️ **`data/serie_a/` e' l'unica copia esistente della stagione in corso.**
 > Non e' una cache: cancellarla significa perdere i giorni gia' passati, che
@@ -239,8 +294,9 @@ ricostruzione.
 
 Due cose che la pagina dice invece di nascondere: quando una squadra non ha
 storia sufficiente non compare un pronostico inventato ma il motivo, e accanto
-all'Over/Under c'e' l'avvertenza che nel backtest quel mercato non ha battuto
-la media di campionato.
+all'Over/Under c'e' scritto che su quegli esiti il modello dichiara quasi
+sempre la media di campionato — con il perche', e col totale atteso che ne
+esce volutamente schiacciato verso quella media.
 
 ## Il modello
 
@@ -251,7 +307,7 @@ log(gol attesi casa)      = base + attacco[casa]  - difesa[ospite] + fattore_cam
 log(gol attesi trasferta) = base + attacco[ospite] - difesa[casa]
 ```
 
-Tre elementi lo rendono utilizzabile invece che ingenuo:
+Quattro elementi lo rendono utilizzabile invece che ingenuo:
 
 - **Correzione di Dixon-Coles** (`rho`) sui risultati bassi. Due Poisson
   indipendenti sottostimano 0-0 e 1-1: nel calcio reale il punteggio corrente
@@ -261,6 +317,10 @@ Tre elementi lo rendono utilizzabile invece che ingenuo:
 - **Shrinkage**. Una penalita' ridge tira attacco e difesa verso la media del
   campionato. Senza, dopo tre giornate il modello e' convinto che la neopromossa
   che ha vinto due volte sia da scudetto.
+- **Compressione dei gol totali**. L'unico dei quattro che non sta nella stima
+  ma nel pronostico: il totale dei gol attesi si avvicina alla media di lega,
+  il rapporto fra le due squadre resta intatto. Le forze dicono bene chi vince
+  e male quanti gol, e il backtest lo misura. Vedi i risultati piu' sotto.
 
 ### Perche' non lo storico giocatore-contro-avversario
 
@@ -288,40 +348,90 @@ Zero richieste API: legge dalle stesse sorgenti del sito.
 ```bash
 python scripts/backtest.py                  # l'ultima stagione completa
 python scripts/backtest.py --stagione 2024  # una in particolare
+python scripts/backtest.py --compressione 1 # senza compressione dei gol
+python scripts/backtest.py --cerca-compressione   # quanto conviene comprimere
 ```
 
 | 1X2 | 2024/25 | 2025/26 |
 |---|---|---|
-| **Modello Dixon-Coles** | **0.5862** | **0.5955** |
+| **Modello Dixon-Coles** | **0.5886** | **0.5942** |
 | sempre 1/3 - 1/3 - 1/3 | 0.6667 | 0.6667 |
 | sempre le frequenze di lega | 0.6602 | 0.6575 |
-| guadagno sul caso puro | 12.1% | 10.7% |
+| guadagno sul caso puro | 11.7% | 10.9% |
 
-Log loss 0.9798 e 0.9978. Esito piu' probabile azzeccato nel 52.0% e 52.8% dei
+Log loss 0.9839 e 0.9960. Esito piu' probabile azzeccato nel 51.7% e 52.8% dei
 casi. Le due stagioni sono state rigiocate in modo indipendente: il taglio e'
 sull'ora di inizio, quindi nessuna partita del 2025/26 entra nella stima di una
 del 2024/25 (il numero del 2024/25 infatti non si e' mosso di un millesimo dopo
 aver aggiunto in archivio la stagione successiva).
 
 **Sull'1X2 il modello aggiunge informazione reale, e lo fa due volte su due.**
-Sui gol totali no, e nemmeno questo e' un caso isolato:
+Sui gol totali no: e' il limite che ha dato origine alla **compressione dei
+gol** descritta qui sotto.
 
-| | 2024/25 | baseline | 2025/26 | baseline |
+### I mercati dei gol, e perche' il modello ci dice poco
+
+Rigiocate quattro stagioni, Over 2.5 e Gol/NoGol facevano **peggio** che
+dichiarare ogni volta la media di campionato. La diagnosi non e' quella che
+sembra: scomponendo il Brier, sui gol la *risoluzione* del modello e' quasi
+zero e la correlazione con cio' che accade oscilla intorno allo zero cambiando
+segno da una stagione all'altra. Il modello varia le sue previsioni sui gol, e
+quelle variazioni sono **rumore**: la baseline non si muove e non paga niente,
+il modello si muove a vuoto e paga ogni movimento.
+
+Sapere chi e' piu' forte dice *chi vince*, non *quanti gol*.
+
+La cura non e' una distribuzione a coda piu' grassa — nei nostri dati i gol
+totali sono **sotto**-dispersi (varianza minore della media in tutte e quattro
+le stagioni) e il modello e' gia' troppo largo. E' togliere il movimento che
+non serve: i gol attesi si leggono come *totale* piu' *rapporto*, si comprime
+solo il totale verso la media di lega e il rapporto resta identico.
+
+    totale' = media_lega + f * (totale - media_lega)
+
+Il fattore `f` esce dal backtest scelto **sulle stagioni diverse da quella su
+cui si misura** (`--cerca-compressione`), e vale **0.20**: del divario sui gol
+totali il modello si tiene un quinto. Cosa cambia, in Brier medio sulle
+quattro stagioni:
+
+| | variazione |
+|---|---|
+| Over 2.5 | **-0.0031** |
+| Gol/NoGol | **-0.0038** |
+| 1X2 (la guardia) | +0.0008 |
+
+I gol guadagnano dieci volte quello che l'1X2 perde. La condizione era posta
+prima di cominciare — il mercato che funziona vale piu' di quello che non
+funziona — e se il conto fosse uscito al contrario il lavoro sarebbe stato
+buttato.
+
+Dove si arriva, stagione per stagione, contro la baseline:
+
+| | 2022/23 | 2023/24 | 2024/25 | 2025/26 |
 |---|---|---|---|---|
-| Over 2.5 | 0.2530 | 0.2496 | 0.2552 | 0.2483 |
-| Gol/NoGol | 0.2556 | 0.2498 | 0.2511 | 0.2476 |
+| Over 2.5 | 0.2470 / 0.2431 | 0.2479 / 0.2499 | 0.2489 / 0.2496 | 0.2495 / 0.2483 |
+| Gol/NoGol | 0.2518 / 0.2492 | 0.2494 / 0.2495 | 0.2490 / 0.2498 | 0.2491 / 0.2476 |
 
-In entrambe le stagioni il modello fa leggermente **peggio** che dire sempre la
-media di campionato. La distribuzione dei gol totali e' quasi tutta rumore in
-Serie A; sapere chi e' piu' forte sposta il *chi vince*, non il *quanti gol*.
-E' un limite del modello, non un bug, e va detto invece che nascosto dietro il
-buon numero dell'1X2.
+(modello / baseline; prima erano otto sconfitte su otto, ora sono tre vittorie,
+un pareggio e quattro sconfitte)
 
-La calibrazione lo mostra bene. Sull'1X2 e' buona nella fascia centrale (scarti
-dell'1-3%) e peggiora agli estremi, dove i campioni sono piccoli. Sull'Over 2.5
-invece sbanda: nel 2025/26, quando il modello dava 35.5% l'Over si e' avverato
-il 48.4% delle volte, e quando dava 63.9% si e' avverato il 45.5%. Il modello
-non e' incerto sui gol, e' **sistematicamente storto**.
+**Il punto onesto: si pareggia con la baseline, non la si batte.** La
+compressione toglie un danno, non aggiunge una capacita'. Chi si aspettava di
+saper pronosticare i gol resta deluso, e le pagine lo dicono con queste parole.
+
+La calibrazione mostra il prima e il dopo meglio di ogni altra cosa. Sull'1X2 e'
+buona nella fascia centrale (scarti dell'1-3%) e peggiora agli estremi, dove i
+campioni sono piccoli. Sull'Over 2.5, **prima**, sbandava: nel 2025/26 quando il
+modello dava 35.5% l'Over si avverava il 48.4% delle volte, e quando dava 63.9%
+si avverava il 45.5% — non incertezza, storture. **Dopo**, tutti i 379
+pronostici della stagione stanno in una fascia sola:
+
+| fascia | n | previsto | reale | scarto |
+|---|---|---|---|---|
+| 40%-60% | 379 | 44.8% | 45.9% | +1.1% |
+
+Non e' un modello diventato bravo sui gol: e' un modello che ha smesso di
+fingere di saperne.
 
 Manca ancora il confronto con le quote di chiusura, che e' la baseline seria:
 senza quello sappiamo di battere l'ignoranza, non il mercato.
@@ -358,6 +468,52 @@ Il margine del banco viene tolto normalizzando dentro ogni gruppo esaustivo, e
 fra i bookmaker si prende la mediana. Il confronto e' ristretto agli esiti per
 cui esistono entrambe le cose: pronostico congelato prima del via e quota.
 
+### Chi non gioca
+
+La raccolta legge anche gli **indisponibili** delle partite entro 48 ore:
+infortunati, squalificati e giocatori in dubbio, una richiesta per partita.
+Compaiono nella scheda partita, e sono l'unica cosa che quella pagina sappia
+dire su una gara non ancora giocata.
+
+Il pronostico **non ne tiene conto**, e la pagina lo dichiara. Il modello stima
+la forza di una squadra, e la squadra e' la stessa che ci giochi il suo
+migliore o la sua riserva: sapere chi manca e' meta' dell'informazione, l'altra
+meta' — quanto pesa chi manca — e' un lavoro ancora da fare.
+
+Due differenze rispetto alle quote, che cambiano come vengono trattati:
+
+* **si recuperano.** Una partita del 2024 risponde ancora oggi. Quindi si
+  chiedono a priorita' bassa, e una raccolta saltata non fa danni;
+* **il momento della lettura conta lo stesso.** La lista di una partita
+  conclusa sa chi non e' sceso in campo davvero, e usarla per pronosticare
+  sarebbe barare. Di ogni lettura si conserva quanto mancava al fischio
+  d'inizio, e le pagine guardano solo l'ultima lettura *precedente* al via.
+
+### Le formazioni ufficiali (predisposto, e per ora spento)
+
+Il pronostico normale non sa chi gioca: stima la forza di una squadra, e la
+squadra e' la stessa che ci giochi il suo migliore o la sua riserva. Una
+mezz'ora prima del via, pero', le formazioni escono.
+
+    python scripts/formazioni_ufficiali.py --stato
+
+Quel comando dice a che punto e' la macchina, senza spendere richieste. Oggi
+risponde che e' **spenta**, ed e' la risposta giusta: il peso di un giocatore
+si misura da quanto ha prodotto — gol e assist per minuto — e quella
+produzione sta nei tabellini, che si accumulano una giornata alla volta con la
+raccolta. Finche' non ce ne sono abbastanza non viene scritto **niente**, e
+non e' un guasto: i pronostici sono immutabili, e una riga "con le formazioni"
+identica a quella secca direbbe "misurato" dove non c'era niente da misurare.
+
+Si accende da sola. Quando i tabellini bastano, ogni partita ha due pronostici
+invece di uno — quello secco e quello con le formazioni — e dopo qualche mese
+si confrontano i loro Brier. Se il secondo non e' migliore, questo lavoro si
+butta senza rimpianti: e' per questo che le due modalita' esistono separate.
+
+Il metodo **vede gli attaccanti, non i difensori**: gol e assist misurano chi
+sta davanti, e un centrale che salta la partita risulta quasi gratis. Va
+saputo leggendo il numero.
+
 ## Struttura
 
 ```
@@ -379,6 +535,9 @@ src/serie_a_analyzer/
     predictions.py   storico immutabile dei pronostici (SQLite)
     outcomes.py      confronto fra pronostico e risultato, Brier e calibrazione
     odds.py          quote dei bookmaker: il metro di paragone del modello
+    indisponibili.py infortunati, squalificati e giocatori in dubbio
+    pesi.py          quanto pesa un giocatore, dai gol e assist che ha prodotto
+    ufficiali.py     il pronostico rifatto quando escono le formazioni
     store.py         archivio della stagione e diario dei giorni raccolti
     dataset.py       unione di storico e archivio corrente
   web/
@@ -387,17 +546,19 @@ src/serie_a_analyzer/
     views.py         dal dominio a cio' che i template disegnano
     templates/       hub e scheda partita
     static/          foglio di stile
-tests/               240 test
+tests/               399 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata
   predict_next_round.py  pronostici sui dati reali
   daily_collect.py       raccolta giornaliera (da schedulare)
+  formazioni_ufficiali.py pronostico rifatto a ridosso del calcio d'inizio
   verifica_raccolta.py   controllo di prontezza, senza spendere richieste
   storico_pronostici.py  cosa c'e' nel registro dei pronostici
   accuratezza.py         quanto valgono i pronostici gia' verificati
   run_daily.ps1          wrapper con log, per l'Utilita' di pianificazione
-  orari_raccolta.ps1     gli orari, letti da chi registra e da chi recupera
+  run_momento.ps1        wrapper della raccolta agganciata alle partite
+  orari_raccolta.ps1     i due orari fissi, letti da chi registra e da chi recupera
   schedule_windows.ps1   registra le attivita' pianificate
   serve.py               avvia l'applicazione web
 ```

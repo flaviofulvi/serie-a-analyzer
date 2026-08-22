@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from ..data.indisponibili import ASSENTE, traduci_motivo
 from ..data.parsers import FixtureRecord
 from ..model.dixon_coles import TeamEvidence
 from ..model.markets import MatchProbabilities
@@ -54,6 +55,16 @@ def margine_gol(gol_casa: int, gol_ospite: int) -> float:
     nell'elenco dell'hub, nella scheda squadra e in quella del giocatore.
     """
     return min(abs(gol_casa - gol_ospite), 3) / 3
+
+
+# Quanto ci ha preso il modello su una partita gia' giocata. Le parole restano
+# due, azzeccato e sbagliato: a distinguere il punteggio azzeccato dal solo
+# esito e' il colore della pastiglia, non un'etichetta diversa.
+TESTI_PRECISIONE = {
+    "esatto": "azzeccato",
+    "esito": "azzeccato",
+    "niente": "sbagliato",
+}
 
 
 @dataclass
@@ -120,6 +131,39 @@ class RigaPartita:
             return ""
         (casa, ospite), _ = self.prob.top_scorelines[0]
         return f"{casa}-{ospite}"
+
+    @property
+    def risultato_azzeccato(self) -> bool | None:
+        """Il punteggio piu' probabile e' proprio quello finito sul tabellone."""
+        if self.prob is None or not self.conclusa or self.gol_casa is None:
+            return None
+        return self.risultato_probabile == self.risultato
+
+    @property
+    def precisione(self) -> str | None:
+        """Quanto ci ha preso il modello: 'esatto', 'esito' o 'niente'.
+
+        L'ordine dei due controlli non e' indifferente. Quasi sempre azzeccare
+        il punteggio implica azzeccare anche l'esito, ma non sempre: il
+        risultato piu' probabile puo' essere 1-1 mentre la somma di tutte le
+        vittorie interne supera quella di tutti i pareggi, e allora il modello
+        nomina il punteggio giusto pur avendo come favorito il segno sbagliato.
+        Guardare prima il punteggio fa finire quel caso nel gradino alto, che e'
+        dove deve stare: aver detto *come* finiva e' piu' di aver detto *chi*
+        vinceva. Per questo l'etichetta parla di risultato e non di esito — non
+        promette una cosa che in quel caso non e' vera.
+        """
+        esatto = self.risultato_azzeccato
+        if esatto is None:
+            return None
+        if esatto:
+            return "esatto"
+        return "esito" if self.pronostico_azzeccato else "niente"
+
+    @property
+    def precisione_testo(self) -> str:
+        """L'etichetta della pastiglia. I template non conoscono le chiavi."""
+        return TESTI_PRECISIONE.get(self.precisione or "", "")
 
 
 def riga_partita(
@@ -501,6 +545,43 @@ def blocchi_formazione(formazioni, prestazioni) -> list[dict]:
         }
         for f in formazioni
     ]
+
+
+def blocchi_indisponibili(righe, casa_id: int, casa: str, ospite: str) -> list[dict]:
+    """Chi non gioca, diviso per squadra e con le assenze certe davanti.
+
+    Assenti e "in dubbio" restano separati anche qui: sono due informazioni
+    diverse, e presentarle nella stessa lista farebbe leggere come sicuro un
+    giocatore che potrebbe scendere in campo.
+
+    Il numero di assenze non e' un giudizio sulla partita: questa pagina dice
+    **chi** manca, non **quanto** pesa: quello e' un altro lavoro, e finche'
+    non c'e' e' meglio non alludervi.
+    """
+    per_squadra: dict[int, dict] = {}
+    for r in righe:
+        team_id = int(r["team_id"])
+        blocco = per_squadra.setdefault(team_id, {
+            "squadra_id": team_id,
+            "squadra": r.get("team_name") or (casa if team_id == casa_id else ospite),
+            "in_casa": team_id == casa_id,
+            "assenti": [],
+            "in_dubbio": [],
+        })
+        voce = {
+            "id": int(r["player_id"]),
+            "nome": r["player_name"],
+            "motivo": r["motivo"],
+            "spiegazione": traduci_motivo(r.get("descrizione")),
+        }
+        blocco["assenti" if r["stato"] == ASSENTE else "in_dubbio"].append(voce)
+
+    for blocco in per_squadra.values():
+        for chiave in ("assenti", "in_dubbio"):
+            blocco[chiave].sort(key=lambda v: v["nome"])
+
+    # Prima la squadra di casa, come ovunque nel progetto.
+    return sorted(per_squadra.values(), key=lambda b: not b["in_casa"])
 
 
 def righe_gol(gol, casa_id: int) -> list[dict]:

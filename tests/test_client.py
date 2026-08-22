@@ -24,6 +24,9 @@ def client(tmp_path):
         api_key="chiave-di-prova",
         cache=ResponseCache(root=tmp_path / "cache"),
         budget=RequestBudget(state_path=tmp_path / "budget.json", daily_limit=10),
+        # Freno spento: qui la rete e' finta e non c'e' nessun tetto al
+        # minuto da rispettare. Lasciarlo acceso farebbe dormire la suite.
+        min_interval_seconds=0.0,
     )
 
 
@@ -128,3 +131,119 @@ def test_variante_rapidapi(tmp_path, risposta_api):
     c.get("fixtures", {"season": 2024})
     assert route.calls[0].request.headers["x-rapidapi-key"] == "k"
     assert route.calls[0].request.headers["x-rapidapi-host"]
+
+
+# ---- il freno fra una richiesta e l'altra -----------------------------------
+#
+# API-Football ha DUE tetti: quello giornaliero, che il budget difende, e uno
+# al minuto — 10 richieste sul piano gratuito. Il secondo e' piu' insidioso,
+# perche' superarlo fa rispondere 429 mentre la richiesta viene contata lo
+# stesso: si paga e non si riceve il dato. E' successo il 22/08/2026, e la
+# raccolta ha perso gli indisponibili di quattro partite.
+
+
+@pytest.fixture
+def orologio(monkeypatch):
+    """Un orologio finto, cosi' i test del freno non dormono davvero."""
+
+    class Orologio:
+        def __init__(self):
+            self.adesso = 1000.0
+            self.dormite = []
+
+        def monotonic(self):
+            return self.adesso
+
+        def sleep(self, secondi):
+            self.dormite.append(secondi)
+            self.adesso += secondi
+
+    falso = Orologio()
+    monkeypatch.setattr("serie_a_analyzer.data.client.time.monotonic", falso.monotonic)
+    monkeypatch.setattr("serie_a_analyzer.data.client.time.sleep", falso.sleep)
+    return falso
+
+
+def _client_frenato(tmp_path, secondi=7.0):
+    return ApiFootballClient(
+        api_key="k",
+        cache=ResponseCache(root=tmp_path / "cache"),
+        budget=RequestBudget(state_path=tmp_path / "budget.json", daily_limit=100),
+        min_interval_seconds=secondi,
+    )
+
+
+@respx.mock
+def test_la_prima_richiesta_non_aspetta(tmp_path, orologio, risposta_api):
+    _mock(risposta_api)
+    _client_frenato(tmp_path).fixtures(season=2024)
+    assert orologio.dormite == []
+
+
+@respx.mock
+def test_il_freno_distanzia_due_richieste(tmp_path, orologio, risposta_api):
+    _mock(risposta_api)
+    c = _client_frenato(tmp_path)
+    c.fixtures(season=2024)
+    c.fixtures(season=2023)
+    assert orologio.dormite == [pytest.approx(7.0)]
+
+
+@respx.mock
+def test_il_freno_scala_il_tempo_gia_passato(tmp_path, orologio, risposta_api):
+    """Chi ha fatto altro nel frattempo non deve aspettare due volte."""
+    _mock(risposta_api)
+    c = _client_frenato(tmp_path)
+    c.fixtures(season=2024)
+    orologio.adesso += 5.0          # cinque secondi di lavoro fra le due
+    c.fixtures(season=2023)
+    assert orologio.dormite == [pytest.approx(2.0)]
+
+
+@respx.mock
+def test_una_risposta_dalla_cache_non_aspetta(tmp_path, orologio, risposta_api):
+    """Il freno protegge la rete, e la cache la rete non la tocca."""
+    _mock(risposta_api)
+    c = _client_frenato(tmp_path)
+    c.fixtures(season=2024)
+    c.fixtures(season=2024)         # stessa chiamata: cache hit
+    assert orologio.dormite == []
+    assert c.budget.used == 1
+
+
+@respx.mock
+def test_il_freno_vale_anche_dopo_un_errore(tmp_path, orologio, risposta_api):
+    """Un tentativo fallito ha consumato la sua quota al minuto lo stesso.
+
+    E' il motivo per cui il momento della richiesta si segna PRIMA di
+    spedirla: se il freno partisse solo dalle chiamate riuscite, un 429
+    seguito da un tentativo immediato ne genererebbe un altro.
+    """
+    rotta = respx.get(url__startswith=f"{API_SPORTS_BASE_URL}/fixtures")
+    rotta.mock(return_value=httpx.Response(429, json={}))
+    c = _client_frenato(tmp_path)
+    with pytest.raises(ApiFootballError):
+        c.fixtures(season=2024)
+
+    rotta.mock(return_value=httpx.Response(200, json=risposta_api))
+    c.fixtures(season=2023)
+    assert orologio.dormite == [pytest.approx(7.0)]
+
+
+@respx.mock
+def test_il_messaggio_del_429_indica_il_tetto_al_minuto(tmp_path, orologio, risposta_api):
+    """Il messaggio vecchio mandava a guardare il budget giornaliero, che era a posto."""
+    respx.get(url__startswith=f"{API_SPORTS_BASE_URL}/fixtures").mock(
+        return_value=httpx.Response(429, json={})
+    )
+    with pytest.raises(ApiFootballError, match="MINUTO"):
+        _client_frenato(tmp_path).fixtures(season=2024)
+
+
+@respx.mock
+def test_il_freno_si_puo_spegnere(tmp_path, orologio, risposta_api):
+    _mock(risposta_api)
+    c = _client_frenato(tmp_path, secondi=0.0)
+    c.fixtures(season=2024)
+    c.fixtures(season=2023)
+    assert orologio.dormite == []

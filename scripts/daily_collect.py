@@ -27,29 +27,194 @@ from serie_a_analyzer.config import (
     ConfigError,
     build_client,
     build_prediction_store,
+    build_registro_invii,
     build_store,
+    build_telegram,
     load_settings,
 )
-from serie_a_analyzer.data.daily import backfill_details, collect_window
+from serie_a_analyzer.data.daily import (
+    MINUTI_DOPO_IL_VIA,
+    MINUTI_PRIMA_DEL_VIA,
+    ORE_DI_MARGINE_PER_I_DETTAGLI,
+    backfill_details,
+    collect_window,
+    dettagli_possono_aspettare,
+    momento_utile,
+)
+from serie_a_analyzer.data.indisponibili import (
+    ORE_DI_RACCOLTA as ORE_INDISPONIBILI,
+    raccogli_indisponibili,
+)
 from serie_a_analyzer.data.odds import ORE_DI_RACCOLTA, raccogli_quote
 from serie_a_analyzer.data.parsers import parse_fixtures
+from serie_a_analyzer.data.store import tabellini_arresi
 
 logging.basicConfig(level=logging.INFO, format="  %(message)s")
 
 # Da quanti giorni indietro cercare buchi nell'archivio.
 FINESTRA_CONTROLLO_BUCHI = 30
 
+# Quanto avanti guardare per quote e indisponibili quando si raccoglie a
+# ridosso di una partita. Un'ora copre le partite che stanno per cominciare e
+# lascia fuori quelle di domani, che verranno lette al loro momento: leggerle
+# adesso significherebbe rileggerle poi, pagando due volte lo stesso dato.
+ORE_VIGILIA = 1
+
+# Quanto avanti guardano invece le due corse a orario fisso. Il loro compito
+# qui non e' prendere il dato buono — quello lo prende la corsa a ridosso del
+# via — ma fare da PRESIDIO: se il computer e' spento nei 40 minuti prima del
+# fischio, le quote di quella partita sono perse per sempre, e una lettura
+# lontana vale piu' di nessuna lettura.
+#
+# Ventiquattro ore, e non e' un numero tondo a caso: e' "tutto cio' che
+# comincia prima che io ripassi". Guardare piu' avanti significherebbe leggere
+# quote che verranno rilette domani mattina dal presidio di domani, pagando
+# due volte lo stesso dato — che e' esattamente il difetto degli orari fissi
+# da cui si e' partiti.
+ORE_PRESIDIO = 24
+
 
 def separatore(titolo: str) -> None:
     print(f"\n{'=' * 72}\n{titolo}\n{'=' * 72}")
 
 
+def _ultima_raccolta(settings) -> datetime | None:
+    """Quando e' finita bene l'ultima raccolta, secondo il marcatore su disco.
+
+    Lo scrive `run_daily.ps1` in ora locale. Serve all'allarme "la raccolta e'
+    ferma", che e' il modo in cui ci si accorge che il computer e' rimasto
+    spento o che l'attivita' pianificata non parte piu'.
+    """
+    marcatore = settings.store_dir.parent / "logs" / "ultima-esecuzione.txt"
+    try:
+        testo = marcatore.read_text(encoding="utf-8-sig").strip()
+        return datetime.strptime(testo, "%Y-%m-%d %H:%M:%S").astimezone()
+    except (OSError, ValueError):
+        return None
+
+
+def _righe_esito(registro_pronostici, partite) -> list:
+    """Le partite finite col pronostico che era stato congelato prima del via.
+
+    Legge dal registro e non dal modello: il resoconto deve raccontare cosa il
+    sistema aveva DETTO, non cosa direbbe oggi sapendo com'e' finita.
+    """
+    from serie_a_analyzer.notifiche import RigaEsito
+
+    righe = []
+    for f in partite:
+        if not f.is_finished:
+            continue
+        prob = {}
+        riga = registro_pronostici.ultimo_per_partita(f.api_id)
+        if riga:
+            for m in registro_pronostici.mercati(riga["id"]):
+                if m["market"] == "1x2":
+                    prob[m["selection"]] = m["probability"]
+        righe.append(RigaEsito(
+            casa=f.home_team_name, ospite=f.away_team_name,
+            gol_casa=f.home_goals, gol_ospite=f.away_goals,
+            prob_1=prob.get("home"), prob_x=prob.get("draw"), prob_2=prob.get("away"),
+        ))
+    return righe
+
+
+def _righe_pronostico(settings, partite) -> list:
+    """I pronostici delle partite di oggi, stimando il modello.
+
+    E' l'unica parte cara di tutto il giro — un paio di secondi — ed e' per
+    questo che viene chiamata solo quando c'e' davvero un messaggio da
+    mandare, cioe' una volta al giorno e non a ogni esecuzione.
+    """
+    from serie_a_analyzer.notifiche import RigaPronostico
+    from serie_a_analyzer.web.engine import Engine
+
+    motore = Engine(settings)
+    snap = motore.snapshot()
+    righe = []
+    for f in partite:
+        prob = motore.predict(f.home_team_id, f.away_team_id)
+        attesi = motore.expected_goals(f.home_team_id, f.away_team_id)
+        risultato = None
+        if prob is not None:
+            casa, ospite = prob.top_scorelines[0][0]
+            risultato = f"{casa}-{ospite}"
+        righe.append(RigaPronostico(
+            ora=f.kickoff_utc.astimezone().strftime("%H:%M"),
+            casa=snap.dataset.name(f.home_team_id),
+            ospite=snap.dataset.name(f.away_team_id),
+            prob_1=prob.home_win if prob else None,
+            prob_x=prob.draw if prob else None,
+            prob_2=prob.away_win if prob else None,
+            gol_casa=attesi[0] if attesi else None,
+            gol_ospite=attesi[1] if attesi else None,
+            risultato_probabile=risultato,
+            motivo=None if prob else "senza storia sufficiente: nessun pronostico",
+        ))
+    return righe
+
+
+def _notifica(settings, client, store, reports=()) -> list[str]:
+    """Manda i messaggi che non sono ancora stati mandati oggi."""
+    from serie_a_analyzer.notifiche import invia_quel_che_serve
+
+    telegram = build_telegram(settings)
+    if not telegram.attivo:
+        return []
+
+    registro_pronostici = build_prediction_store(settings)
+    partite = parse_fixtures(list(store.load_fixtures().values()))
+    falliti = [r.day.isoformat() for r in reports if r.error]
+
+    # I tabellini su cui il sistema ha smesso di provare. Si calcolano qui,
+    # dove c'e' l'archivio: `notifiche.py` riceve partite, non buste.
+    fermi = set(tabellini_arresi(store, (f.api_id for f in partite)))
+
+    return invia_quel_che_serve(
+        telegram,
+        build_registro_invii(settings),
+        partite,
+        pronostici=lambda del_giorno: _righe_pronostico(settings, del_giorno),
+        quotate=registro_pronostici.partite_quotate(),
+        esiti_congelati=lambda del_giorno: _righe_esito(registro_pronostici, del_giorno),
+        budget=client.budget,
+        ultima_raccolta=_ultima_raccolta(settings),
+        giorni_falliti=falliti,
+        errore_raccolta=next((r.error for r in reports if r.error), None),
+        tabellini_fermi=[f for f in partite if f.api_id in fermi],
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Raccolta giornaliera della Serie A")
+    parser.add_argument(
+        "--solo-al-momento-giusto",
+        action="store_true",
+        help=f"non fare niente se non c'e' una partita che comincia entro "
+             f"{MINUTI_PRIMA_DEL_VIA} minuti o che e' finita da poco. Pensato "
+             f"per essere lanciato spesso: quando non e' il momento esce "
+             f"subito senza spendere una richiesta",
+    )
+    parser.add_argument(
+        "--entro-ore",
+        type=int,
+        default=None,
+        help="quanto avanti guardare per quote e indisponibili "
+             f"(default: {ORE_PRESIDIO}, oppure {ORE_VIGILIA} a ridosso "
+             f"di una partita; il massimo utile e' {ORE_DI_RACCOLTA}, oltre "
+             "il quale i bookmaker non hanno ancora pubblicato)",
+    )
     parser.add_argument(
         "--no-details",
         action="store_true",
         help="salta formazioni, statistiche giocatori ed eventi",
+    )
+    parser.add_argument(
+        "--dettagli-subito",
+        action="store_true",
+        help=f"prendi i dettagli anche nelle ultime {ORE_DI_MARGINE_PER_I_DETTAGLI} "
+             "ore prima che il budget si azzeri, che di norma vengono lasciate "
+             "alla raccolta del mattino",
     )
     parser.add_argument(
         "--max-detail-requests",
@@ -68,6 +233,17 @@ def main() -> int:
         default=15,
         help="tetto di richieste da spendere in quote (una per partita)",
     )
+    parser.add_argument(
+        "--no-indisponibili",
+        action="store_true",
+        help="salta infortunati e squalificati",
+    )
+    parser.add_argument(
+        "--max-indisponibili-requests",
+        type=int,
+        default=10,
+        help="tetto di richieste da spendere in indisponibili (una per partita)",
+    )
     args = parser.parse_args()
 
     try:
@@ -79,9 +255,71 @@ def main() -> int:
     client = build_client(settings)
     store, journal = build_store(settings)
 
+    # --- e' il momento? ------------------------------------------------------
+    #
+    # Chi lancia questo script ogni quarto d'ora non vuole quattro raccolte
+    # complete al giorno: vuole che si svegli quando c'e' qualcosa da prendere
+    # e dorma il resto del tempo. Il momento decide anche COSA prendere, ed e'
+    # la parte che fa risparmiare: a ridosso del via contano le quote e gli
+    # indisponibili, dopo contano i dettagli.
+    momento = None
+    # Due finestre e non una: quote e indisponibili hanno oggi lo stesso
+    # valore di default, ma sono due decisioni diverse prese in due moduli
+    # diversi, e unificarle qui le farebbe divergere in silenzio il giorno in
+    # cui una delle due cambia.
+    ore_quote = args.entro_ore if args.entro_ore is not None else ORE_PRESIDIO
+    ore_fuori = args.entro_ore if args.entro_ore is not None else ORE_PRESIDIO
+    if args.solo_al_momento_giusto:
+        momento = momento_utile(parse_fixtures(list(store.load_fixtures().values())))
+        if momento is None:
+            print(
+                "Non e' il momento: nessuna partita comincia entro "
+                f"{MINUTI_PRIMA_DEL_VIA} minuti ne' e' finita da circa "
+                f"{MINUTI_DOPO_IL_VIA // 60}h{MINUTI_DOPO_IL_VIA % 60:02d}. "
+                "Zero richieste spese."
+            )
+            return 0
+        if momento == "vigilia":
+            # I dettagli non hanno fretta — dall'id si leggono quando si
+            # vuole — e qui ruberebbero il posto alle quote, che dopo il
+            # fischio non esistono piu'.
+            args.no_details = True
+            if args.entro_ore is None:
+                ore_quote = ore_fuori = ORE_VIGILIA
+        else:
+            # A partita finita non c'e' piu' niente da quotare, e la lista
+            # degli indisponibili letta adesso saprebbe chi non e' sceso in
+            # campo davvero: si prende al prossimo giro, prima del via.
+            args.no_quote = True
+            args.no_indisponibili = True
+
+    # --- i dettagli possono aspettare? --------------------------------------
+    #
+    # Vale per ogni raccolta e non solo per il momento "dopo": anche la corsa
+    # fissa delle 23:45 cade in questa finestra, e se prendesse lei i
+    # tabellini del posticipo lo spostamento al mattino non esisterebbe.
+    # Il controllo sta qui, dopo il momento, perche' la vigilia ha gia' detto
+    # la sua — li' i dettagli si saltano per un motivo diverso e piu' urgente,
+    # cioe' non rubare il posto alle quote.
+    dettagli_rimandati = False
+    if not args.no_details and not args.dettagli_subito and dettagli_possono_aspettare():
+        args.no_details = True
+        dettagli_rimandati = True
+
     separatore("RACCOLTA GIORNALIERA")
     print(f"Budget disponibile: {client.budget.remaining}/{settings.daily_request_limit}")
     print(f"Archivio:           {settings.store_dir}")
+    if dettagli_rimandati:
+        print(
+            f"Dettagli:           rimandati al mattino (meno di "
+            f"{ORE_DI_MARGINE_PER_I_DETTAGLI}h al reset del budget). "
+            "Si rileggono dall'id: niente va perso."
+        )
+    if momento == "vigilia":
+        print("Momento:            vigilia — quote e indisponibili delle partite imminenti")
+    elif momento == "dopo":
+        cosa = "risultati" if dettagli_rimandati else "risultati e dettagli"
+        print(f"Momento:            dopo — {cosa} delle partite appena finite")
 
     reports = collect_window(
         client, store, journal,
@@ -138,7 +376,7 @@ def main() -> int:
         partite = parse_fixtures(list(store.load_fixtures().values()))
         quote = raccogli_quote(
             client, build_prediction_store(settings), partite,
-            entro_ore=ORE_DI_RACCOLTA,
+            entro_ore=ore_quote,
             max_richieste=args.max_quote_requests,
         )
         if quote["richieste"]:
@@ -147,6 +385,27 @@ def main() -> int:
             print(f"Quote archiviate:   {quote['quote']}")
             print(f"Senza quote ancora: {quote['senza_quote']}")
             print(f"Richieste spese:    {quote['richieste']}")
+
+    # --- infortunati e squalificati ------------------------------------------
+    #
+    # Per ultimi, ed e' voluto: sono l'unica cosa raccolta qui che si puo'
+    # rileggere anche a partita finita (verificato su una gara del 2024). Se il
+    # budget e' agli sgoccioli, e' giusto che a saltare siano loro e non le
+    # quote, che dopo il fischio d'inizio non esistono piu'.
+    if not args.no_indisponibili:
+        partite = parse_fixtures(list(store.load_fixtures().values()))
+        fuori = raccogli_indisponibili(
+            client, build_prediction_store(settings), partite,
+            entro_ore=ore_fuori,
+            max_richieste=args.max_indisponibili_requests,
+        )
+        if fuori["letture"]:
+            separatore("Infortunati e squalificati")
+            print(f"Partite controllate: {fuori['partite']}")
+            print(f"Indisponibili:       {fuori['indisponibili']}")
+            print(f"Senza lista ancora:  {fuori['senza_lista']}")
+            print(f"Letture:             {fuori['letture']}")
+            print(f"Richieste spese:     {fuori['richieste']}")
 
     # --- buchi nell'archivio ------------------------------------------------
     oggi = datetime.now(timezone.utc).date()
@@ -164,6 +423,19 @@ def main() -> int:
                 print(f"  {g.isoformat()}")
             print("\nSe fra questi c'e' una giornata di campionato, le statistiche")
             print("della stagione in corso saranno incomplete.")
+
+    # --- notifiche ----------------------------------------------------------
+    #
+    # Per ultime, e senza poter far fallire niente: un messaggio perso e' un
+    # fastidio, una raccolta interrotta puo' costare un giorno di partite.
+    try:
+        mandati = _notifica(settings, client, store, reports)
+        if mandati:
+            separatore("Messaggi mandati")
+            for chiave in mandati:
+                print(f"  {chiave}")
+    except Exception as exc:  # noqa: BLE001 - vedi sopra: qui non si solleva
+        logging.getLogger(__name__).warning("notifiche non mandate: %s", exc)
 
     # --- riepilogo ----------------------------------------------------------
     separatore("Archivio")

@@ -149,6 +149,73 @@
 </section>
 {% endif %}
 
+{% if indisponibili %}
+<section class="blocco disteso">
+  <div class="lato">
+    <p class="occhiello">Chi non gioca</p>
+    <h2>Indisponibili</h2>
+    <p class="spiega">
+      Infortunati e squalificati come risultavano nella lettura piu' vicina al
+      fischio d'inizio. E' l'unica cosa che questa pagina sappia dire su una
+      partita non ancora giocata: le formazioni, i gol e le pagelle arrivano
+      dopo.
+    </p>
+    <p class="spiega">
+      Chi e' <b>in dubbio</b> sta in una lista separata perche' e' un'altra
+      informazione: puo' giocare. Mescolarlo agli assenti farebbe leggere come
+      sicuro cio' che sicuro non e'.
+    </p>
+    <p class="spiega">
+      Il pronostico qui sopra <b>non tiene conto</b> di queste assenze: il
+      modello stima la forza di una squadra, e la squadra e' la stessa che ci
+      giochi il suo migliore o la sua riserva. Quanto pesi chi manca e' un
+      lavoro ancora da fare.
+    </p>
+  </div>
+
+  <div class="corpo">
+    <div class="pannelli">
+      {% for b in indisponibili %}
+        <div class="pannello">
+          <h2><a href="/squadra/{{ b.squadra_id }}">{{ b.squadra }}</a></h2>
+          {% if b.assenti %}
+            <table class="tabella compatta">
+              <thead>
+                <tr><th>Assenti</th><th class="destra">Motivo</th></tr>
+              </thead>
+              <tbody>
+                {% for v in b.assenti %}
+                  <tr>
+                    <td><a href="/giocatore/{{ v.id }}">{{ v.nome }}</a></td>
+                    <td class="destra fioco">{{ v.spiegazione }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="spiega">Nessun assente dichiarato.</p>
+          {% endif %}
+
+          {% if b.in_dubbio %}
+            <h3>In dubbio</h3>
+            <table class="tabella compatta">
+              <tbody>
+                {% for v in b.in_dubbio %}
+                  <tr>
+                    <td><a href="/giocatore/{{ v.id }}">{{ v.nome }}</a></td>
+                    <td class="destra fioco">{{ v.spiegazione }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
 <section class="blocco">
   <div class="lato">
     <p class="occhiello">Quanti gol</p>
@@ -162,6 +229,19 @@
       Anche queste percentuali escono dalla stessa matrice: Over 2.5 e' la
       somma di tutte le caselle in cui i gol totali sono tre o piu'.
     </p>
+    {% if salute.compressione_gol is not none and salute.compressione_gol < 1 %}
+    <p class="spiega">
+      Il <b>totale</b> qui accanto e' di proposito vicino alla media del
+      campionato, {{ "%.2f"|format(salute.media_gol_lega) }} gol a partita,
+      qualunque siano le due squadre: sui gol totali il modello si tiene solo
+      il <b>{{ (salute.compressione_gol * 100)|round|int }}%</b> della
+      differenza che vedrebbe. Sapere chi e' piu' forte dice bene
+      <b>chi vince</b> e male <b>quanti gol</b>, e rigiocando quattro stagioni
+      quelle differenze sono risultate rumore: dichiararle costava punti.
+      Il rapporto fra le due squadre, quello che decide l'1X2, non viene
+      toccato.
+    </p>
+    {% endif %}
   </div>
 
   <div class="corpo">
@@ -198,10 +278,13 @@
         </table>
 
         <p class="avviso">
-          <strong>Attenzione all'Over/Under.</strong> Nel backtest il modello
-          su questi esiti non ha battuto la semplice media di campionato: ne'
-          nel 2024/25 ne' nel 2025/26, le due stagioni rigiocate. Sull'1X2
-          si', su questi no: vanno letti con molta prudenza.
+          <strong>Attenzione all'Over/Under.</strong> Su questi esiti — e sul
+          Gol/NoGol — il modello dichiara quasi sempre la media di campionato,
+          perche' e' quanto sa davvero. Lasciato libero di variare faceva
+          <em>peggio</em> di quella media in tutte e quattro le stagioni
+          rigiocate; ora si muove poco e arriva a pareggiarla, non a batterla.
+          Sull'1X2 la storia e' diversa e li' i numeri valgono: qui non
+          aspettarsi che una partita si stacchi molto dall'altra.
         </p>
       </div>
     </div>
@@ -315,6 +398,16 @@
       Dove il tabellino manca le colonne dicono &mdash;, non uno zero che
       sembrerebbe un dato.
     </p>
+    {% if tabellino_fermo %}
+    <p class="spiega avviso">
+      <b>Di questa partita il tabellino non e' ancora definitivo.</b> L'API sta
+      ancora servendo la lettura del feed live &mdash; minuti fermi a meta'
+      partita, nessun gol &mdash; invece del tabellino finale, quindi minuti,
+      gol e voti qui sotto restano vuoti. Non e' un dato mancante: il
+      risultato e i marcatori qui sopra sono giusti. Viene richiesto da solo
+      finche' non si consolida.
+    </p>
+    {% endif %}
   </div>
 
   <div class="corpo">

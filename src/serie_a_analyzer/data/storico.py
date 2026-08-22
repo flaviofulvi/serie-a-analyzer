@@ -52,13 +52,12 @@ from .store import SeasonStore
 
 logger = logging.getLogger(__name__)
 
-# Secondi di attesa fra una richiesta e l'altra durante un riempimento.
-# I piani a pagamento hanno un limite **al minuto** oltre a quello giornaliero
-# (il piu' piccolo concede 300/min): mille richieste sparate di fila lo
-# supererebbero e l'API risponderebbe 429 mentre il contatore locale continua
-# a segnare richieste spese. Un quarto di secondo tiene il ritmo a ~240 al
-# minuto, sotto il piu' basso dei limiti a pagamento.
-PAUSA_PREDEFINITA = 0.25
+# Pausa AGGIUNTIVA dopo ogni richiesta del riempimento. A zero perche' il
+# distanziamento lo garantisce gia' il client, che e' l'unico punto da cui
+# passano tutte le richieste (DEFAULT_MIN_INTERVAL_SECONDS in client.py).
+# Resta un parametro perche' un giorno potrebbe servire rallentare SOLO il
+# riempimento, senza toccare la raccolta di oggi.
+PAUSA_PREDEFINITA = 0.0
 
 # Nome della cartella di una stagione riempita: solo cifre, cosi' un file
 # qualsiasi finito li' dentro non viene scambiato per un archivio.

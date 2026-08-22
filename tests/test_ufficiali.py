@@ -1,0 +1,349 @@
+"""Test del pronostico con le formazioni ufficiali.
+
+Due comportamenti valgono piu' di tutti gli altri messi insieme, e sono
+entrambi dei "non fare".
+
+**Non scrivere quando non si sa.** I pronostici sono immutabili e non si
+cancellano: una riga `formazione_ufficiale` identica a quella secca non e'
+innocua, e' un dato falso nel confronto fra le due modalita' — la partita
+risulterebbe "misurata" quando non c'era niente da misurare. Finche' i
+tabellini sul disco non bastano, qui non deve comparire nessuna riga. E' anche
+la condizione di oggi, non un caso di scuola.
+
+**Non salvare una formazione vuota.** Prima che escano, l'API risponde con una
+lista vuota. Salvarla come dettaglio farebbe scattare il contatore dei
+tentativi, e dopo tre letture anticipate le formazioni vere — quelle di fine
+serata — non verrebbero piu' chieste da nessuno. Si perderebbe un dato per aver
+guardato troppo presto.
+"""
+
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+
+import pytest
+
+from serie_a_analyzer.data.pesi import GIOCATORI_IN_CAMPO
+from serie_a_analyzer.data.players import ArchivioGiocatori, Prestazione
+from serie_a_analyzer.data.predictions import (
+    MODE_SECCO,
+    MODE_UFFICIALE,
+    PredictionStore,
+)
+from serie_a_analyzer.data.store import SeasonStore
+from serie_a_analyzer.data.ufficiali import (
+    leggi_formazioni,
+    partite_imminenti,
+    pronostica_con_formazioni,
+)
+from serie_a_analyzer.model.dixon_coles import FittedModel
+
+ADESSO = datetime(2026, 8, 22, 16, 0, tzinfo=timezone.utc)
+FISCHIO = datetime(2026, 8, 22, 16, 30, tzinfo=timezone.utc)
+CASA, OSPITE = 505, 503
+
+
+@dataclass
+class PartitaFinta:
+    api_id: int = 1
+    kickoff_utc: datetime = FISCHIO
+    home_team_id: int = CASA
+    away_team_id: int = OSPITE
+
+
+class DatasetFinto:
+    def __init__(self, partite):
+        self._partite = partite
+        self._nomi = {CASA: "Inter", OSPITE: "Torino"}
+
+    def upcoming(self):
+        return list(self._partite)
+
+    def name(self, team_id):
+        return self._nomi[team_id]
+
+
+class ClienteFinto:
+    """Restituisce le formazioni che gli si danno, e conta le chiamate."""
+
+    def __init__(self, payload):
+        self.payload = payload
+        self.chiamate = 0
+
+    def lineups(self, fixture_id):
+        self.chiamate += 1
+        return self.payload
+
+
+def _modello() -> FittedModel:
+    return FittedModel(
+        teams=("Inter", "Torino"),
+        attack={"Inter": 0.35, "Torino": -0.10},
+        defense={"Inter": 0.20, "Torino": -0.05},
+        home_advantage=0.25,
+        base=0.2,
+        rho=-0.05,
+        n_matches=380,
+        effective_sample_size=210.0,
+        fitted_on=date(2026, 8, 20),
+        converged=True,
+    )
+
+
+def _blocco(team_id, nome, titolari):
+    return {
+        "team": {"id": team_id, "name": nome},
+        "formation": "4-3-3",
+        "coach": {"id": 99, "name": "Un Allenatore"},
+        "startXI": [
+            {"player": {"id": pid, "name": f"Giocatore {pid}", "number": None,
+                        "pos": "M", "grid": None}}
+            for pid in titolari
+        ],
+        "substitutes": [],
+    }
+
+
+def _prestazione(fixture_id, player_id, team_id, minuti=90, gol=0):
+    return Prestazione(
+        fixture_id=fixture_id,
+        quando=ADESSO - timedelta(days=fixture_id),
+        player_id=player_id,
+        nome=f"Giocatore {player_id}",
+        team_id=team_id,
+        squadra="Squadra",
+        minuti=minuti,
+        titolare=True,
+        posizione="M",
+        numero=None,
+        gol=gol,
+        assist=0,
+        gialli=0,
+        rossi=0,
+        tiri=None,
+        tiri_in_porta=None,
+        voto=None,
+    )
+
+
+def _archivio_pieno():
+    """Dieci giornate per entrambe le squadre, con un bomber per parte."""
+    righe = []
+    for f in range(1, 11):
+        for i in range(GIOCATORI_IN_CAMPO):
+            righe.append(_prestazione(f, 100 + i, CASA, gol=3 if i == 0 else 0))
+            righe.append(_prestazione(f, 200 + i, OSPITE, gol=3 if i == 0 else 0))
+    return ArchivioGiocatori(prestazioni=righe)
+
+
+@pytest.fixture
+def store(tmp_path):
+    return SeasonStore(root=tmp_path / "serie_a")
+
+
+@pytest.fixture
+def registro(tmp_path):
+    return PredictionStore(path=tmp_path / "pronostici.db")
+
+
+@pytest.fixture
+def formazioni_vere():
+    """Entrambe schierano il bomber in panchina: la produzione cala."""
+    casa = [100 + i for i in range(1, GIOCATORI_IN_CAMPO + 1)]
+    ospite = [200 + i for i in range(1, GIOCATORI_IN_CAMPO + 1)]
+    return [_blocco(CASA, "Inter", casa), _blocco(OSPITE, "Torino", ospite)]
+
+
+# ---- la finestra -------------------------------------------------------------
+
+
+def test_solo_le_partite_che_stanno_per_cominciare():
+    partite = [
+        PartitaFinta(1, ADESSO + timedelta(minutes=30)),
+        PartitaFinta(2, ADESSO + timedelta(minutes=10)),
+        PartitaFinta(3, ADESSO + timedelta(hours=5)),    # troppo lontana
+        PartitaFinta(4, ADESSO - timedelta(minutes=5)),  # gia' iniziata
+    ]
+    scelte = partite_imminenti(partite, now=ADESSO, entro_minuti=75)
+    assert [p.api_id for p in scelte] == [2, 1]
+
+
+# ---- la trappola della formazione vuota --------------------------------------
+
+
+def test_una_formazione_vuota_non_si_salva(store):
+    """Salvarla brucerebbe i tentativi e farebbe perdere quelle vere."""
+    cliente = ClienteFinto([])
+    assert leggi_formazioni(cliente, store, 1) == []
+    assert cliente.chiamate == 1
+    # Nessuna busta scritta: la partita resta da leggere.
+    assert store.detail_envelope(1, "lineups") is None
+    assert store.needs_detail(1, "lineups")
+
+
+def test_una_formazione_vera_si_salva(store, formazioni_vere):
+    formazioni = leggi_formazioni(ClienteFinto(formazioni_vere), store, 1)
+    assert len(formazioni) == 2
+    assert store.has_detail(1, "lineups")
+
+
+def test_un_errore_dell_api_non_propaga(store):
+    class ClienteRotto:
+        def lineups(self, fixture_id):
+            raise RuntimeError("500")
+
+    assert leggi_formazioni(ClienteRotto(), store, 1) == []
+    assert store.needs_detail(1, "lineups")
+
+
+# ---- la macchina spenta ------------------------------------------------------
+
+
+def test_senza_tabellini_non_si_registra_niente(store, registro, formazioni_vere):
+    """La condizione di oggi: l'archivio e' vuoto, e va bene cosi'."""
+    esito = pronostica_con_formazioni(
+        ClienteFinto(formazioni_vere), store, registro,
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=ArchivioGiocatori(prestazioni=[]),
+        now=ADESSO,
+    )
+    assert esito["registrate"] == 0
+    assert esito["senza_pesi"] == 1
+    assert registro.ultimo_per_partita(1, mode=MODE_UFFICIALE) is None
+
+
+def test_senza_formazioni_non_si_registra_niente(store, registro):
+    esito = pronostica_con_formazioni(
+        ClienteFinto([]), store, registro,
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+    )
+    assert esito["registrate"] == 0
+    assert esito["senza_formazioni"] == 1
+
+
+def test_una_formazione_identica_alla_tipo_non_merita_una_riga(store, registro):
+    """Se schieri gli undici di sempre, non c'e' niente da aggiungere."""
+    archivio = _archivio_pieno()
+    tipo_casa = [100 + i for i in range(GIOCATORI_IN_CAMPO)]
+    tipo_ospite = [200 + i for i in range(GIOCATORI_IN_CAMPO)]
+    payload = [_blocco(CASA, "Inter", tipo_casa), _blocco(OSPITE, "Torino", tipo_ospite)]
+
+    esito = pronostica_con_formazioni(
+        ClienteFinto(payload), store, registro,
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=archivio,
+        now=ADESSO,
+    )
+    assert esito["registrate"] == 0
+    assert esito["senza_pesi"] == 1
+
+
+# ---- la macchina accesa ------------------------------------------------------
+
+
+def test_col_bomber_in_panchina_si_registra_un_pronostico_diverso(
+    store, registro, formazioni_vere
+):
+    modello = _modello()
+    partita = PartitaFinta()
+
+    # Il pronostico secco, quello che esisterebbe comunque.
+    lam, mu = modello.expected_goals("Inter", "Torino")
+    registro.registra(
+        fixture_id=partita.api_id, kickoff_utc=FISCHIO,
+        home_team_id=CASA, away_team_id=OSPITE,
+        model_version_id=registro.versione_modello(modello),
+        matrice=modello.scoreline("Inter", "Torino"),
+        probabilita=modello.predict("Inter", "Torino"),
+        lambda_home=lam, lambda_away=mu, rho=modello.rho,
+        mode=MODE_SECCO, now=ADESSO,
+    )
+
+    esito = pronostica_con_formazioni(
+        ClienteFinto(formazioni_vere), store, registro,
+        model=modello,
+        dataset=DatasetFinto([partita]),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+    )
+
+    assert esito["registrate"] == 1
+    secco = registro.ultimo_per_partita(1, mode=MODE_SECCO)
+    ufficiale = registro.ultimo_per_partita(1, mode=MODE_UFFICIALE)
+    assert ufficiale is not None
+    # Senza il suo marcatore la squadra di casa segna meno.
+    assert ufficiale["lambda_home"] < secco["lambda_home"]
+
+
+def test_non_si_riscrive_una_partita_gia_fatta(store, registro, formazioni_vere):
+    cliente = ClienteFinto(formazioni_vere)
+    argomenti = dict(
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+    )
+    primo = pronostica_con_formazioni(cliente, store, registro, **argomenti)
+    secondo = pronostica_con_formazioni(cliente, store, registro, **argomenti)
+
+    assert primo["registrate"] == 1
+    assert secondo["registrate"] == 0
+    assert secondo["gia_registrate"] == 1
+    # E la seconda volta non ha nemmeno chiesto le formazioni.
+    assert cliente.chiamate == 1
+
+
+def test_una_squadra_senza_storia_non_si_pronostica(store, registro, formazioni_vere):
+    class DatasetConSconosciuta(DatasetFinto):
+        def name(self, team_id):
+            return "Inter" if team_id == CASA else "Neopromossa"
+
+    esito = pronostica_con_formazioni(
+        ClienteFinto(formazioni_vere), store, registro,
+        model=_modello(),
+        dataset=DatasetConSconosciuta([PartitaFinta()]),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+    )
+    assert esito["registrate"] == 0
+    assert esito["senza_modello"] == 1
+
+
+def test_il_tetto_di_letture_si_rispetta(store, registro, formazioni_vere):
+    cliente = ClienteFinto(formazioni_vere)
+    partite = [
+        PartitaFinta(api_id=i, kickoff_utc=ADESSO + timedelta(minutes=10 * i))
+        for i in range(1, 6)
+    ]
+    esito = pronostica_con_formazioni(
+        cliente, store, registro,
+        model=_modello(),
+        dataset=DatasetFinto(partite),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+        entro_minuti=75,
+        max_richieste=2,
+    )
+    assert cliente.chiamate == 2
+    assert esito["letture"] == 2
+
+
+def test_il_fattore_a_zero_spegne_l_aggiustamento(store, registro, formazioni_vere):
+    """Serve al backtest: e' il confronto "con e senza" a un parametro solo."""
+    esito = pronostica_con_formazioni(
+        ClienteFinto(formazioni_vere), store, registro,
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+        fattore=0.0,
+    )
+    modello = _modello()
+    lam, _ = modello.expected_goals("Inter", "Torino")
+    ufficiale = registro.ultimo_per_partita(1, mode=MODE_UFFICIALE)
+    assert esito["registrate"] == 1
+    assert ufficiale["lambda_home"] == pytest.approx(lam)

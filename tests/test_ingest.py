@@ -63,6 +63,9 @@ def client(tmp_path):
         api_key="k",
         cache=ResponseCache(root=tmp_path / "cache"),
         budget=RequestBudget(state_path=tmp_path / "budget.json", daily_limit=100),
+        # Freno spento: qui la rete e' finta e non c'e' nessun tetto al
+        # minuto da rispettare. Lasciarlo acceso farebbe dormire la suite.
+        min_interval_seconds=0.0,
     )
 
 

@@ -74,7 +74,23 @@ def main() -> None:
     print(f"  difesa  {ospite:<22} {-modello.defense[ospite]:+.3f}")
     print(f"  fattore campo                  {modello.home_advantage:+.3f}")
     print(f"  {'-' * 46}")
-    print(f"  log(gol attesi casa)           {np.log(lam):+.3f}  ->  {lam:.2f} gol")
+    somma = (
+        modello.base + modello.attack[casa]
+        - modello.defense[ospite] + modello.home_advantage
+    )
+    print(f"  log(gol attesi casa)           {somma:+.3f}  ->  {np.exp(somma):.2f} gol")
+
+    # L'ultimo passo non sta nella stima ma nel pronostico: il TOTALE dei gol
+    # attesi si avvicina alla media di lega, il rapporto fra le due squadre no.
+    # Senza mostrarlo, i quattro addendi qui sopra non tornerebbero col numero
+    # stampato in cima — che e' il modo piu' rapido di far sembrare sbagliato
+    # un conto giusto.
+    if modello.goal_compression < 1.0:
+        print(f"\n  compressione dei gol totali verso la media di lega "
+              f"({modello.league_total_goals:.2f} gol),")
+        print(f"  di cui si tiene il {modello.goal_compression:.0%} dello "
+              f"scarto, lasciando intatto il rapporto fra le squadre:")
+        print(f"  gol attesi casa                            ->  {lam:.2f} gol")
 
     print(f"\n{'Esito 1X2':<24}{PROB:>14}")
     print("-" * 38)

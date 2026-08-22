@@ -10,7 +10,7 @@ from datetime import date, timedelta
 import numpy as np
 import pytest
 
-from serie_a_analyzer.model.dixon_coles import Match, fit_dixon_coles
+from serie_a_analyzer.model.dixon_coles import Match, comprimi_totale, fit_dixon_coles
 from serie_a_analyzer.model.simulation import generate_league
 
 
@@ -251,3 +251,98 @@ def test_la_tabella_parte_dalle_squadre_meno_note(modello):
 def test_evidence_for_su_squadra_sconosciuta(modello):
     """Come ``predict``, ma senza eccezione: qui il vuoto e' una risposta."""
     assert modello.evidence_for("Squadra Che Non Esiste") is None
+
+
+# ---- compressione dei gol totali -------------------------------------------
+#
+# Le forze delle squadre dicono bene chi vince e male quanti gol: il totale
+# atteso si comprime verso la media di lega, il rapporto fra le due squadre
+# no. Questi test difendono le due meta' di quella frase.
+
+
+def test_compressione_a_uno_non_tocca_niente():
+    assert comprimi_totale(2.0, 1.0, 2.6, 1.0) == (2.0, 1.0)
+
+
+def test_compressione_a_zero_dichiara_la_media_di_lega():
+    lam, mu = comprimi_totale(2.0, 1.0, 2.6, 0.0)
+    assert lam + mu == pytest.approx(2.6)
+
+
+@pytest.mark.parametrize("fattore", [0.0, 0.2, 0.5, 0.9, 1.0])
+def test_il_rapporto_fra_le_squadre_resta_identico(fattore):
+    """E' cio' che tiene l'1X2 al riparo: si comprime il totale, non la forza."""
+    lam, mu = comprimi_totale(2.4, 0.6, 2.6, fattore)
+    assert lam / mu == pytest.approx(2.4 / 0.6)
+
+
+def test_comprime_da_tutte_e_due_le_parti():
+    tanti, _ = comprimi_totale(2.5, 1.5, 2.6, 0.2)
+    pochi, _ = comprimi_totale(0.6, 0.4, 2.6, 0.2)
+    # Una partita da tanti gol scende verso la media, una da pochi sale.
+    assert tanti < 2.5
+    assert pochi > 0.6
+
+
+def test_senza_media_di_lega_non_si_comprime():
+    """Zero significa "non la so", e non e' una media verso cui tirare.
+
+    Comprimere verso un centro inventato sposterebbe ogni pronostico senza
+    che nessuno l'abbia mai misurato: e' la stessa distinzione fra `None` e
+    1.0 dei pesi dei giocatori.
+    """
+    assert comprimi_totale(2.0, 1.0, 0.0, 0.0) == (2.0, 1.0)
+
+
+@pytest.mark.parametrize("fattore", [-0.1, 1.5])
+def test_un_fattore_fuori_scala_e_un_errore(fattore):
+    with pytest.raises(ValueError):
+        comprimi_totale(2.0, 1.0, 2.6, fattore)
+
+
+def test_la_media_di_lega_esce_dal_campione(modello, lega):
+    """Stimata dai dati, non scritta a mano: cambia da stagione a stagione."""
+    osservata = sum(m.home_goals + m.away_goals for m in lega.matches) / len(lega.matches)
+    # L'emivita del fixture e' lunghissima, quindi i pesi sono quasi uniformi
+    # e la media pesata coincide con quella semplice.
+    assert modello.league_total_goals == pytest.approx(osservata, abs=0.02)
+
+
+def test_la_compressione_stringe_i_totali_previsti(lega):
+    """Il totale previsto varia meno da partita a partita, ed e' il punto.
+
+    Il modello si muove sui gol e quei movimenti sono rumore: la compressione
+    li toglie. Qui si verifica che li tolga davvero, e che il pronostico su
+    CHI VINCE resti quello di prima.
+    """
+    secco = fit_dixon_coles(
+        lega.matches, half_life_days=2000.0, regularization=0.5, goal_compression=1.0
+    )
+    compresso = fit_dixon_coles(
+        lega.matches, half_life_days=2000.0, regularization=0.5, goal_compression=0.2
+    )
+    coppie = [
+        (a, b) for a in secco.teams[:6] for b in secco.teams[:6] if a != b
+    ]
+
+    def totali(m):
+        return np.array([sum(m.expected_goals(a, b)) for a, b in coppie])
+
+    assert totali(compresso).std() < totali(secco).std() / 3
+
+    # Sull'1X2 il rapporto intatto NON basta a lasciare tutto immobile: a
+    # parita' di rapporto, meno gol attesi vogliono dire piu' pareggi, e su
+    # una partita molto sbilanciata la probabilita' del favorito scende di
+    # qualche punto. Il backtest dice che questo prezzo e' piccolo (Brier
+    # 1X2 +0.0008 contro -0.0031 e -0.0038 sui gol), ma esiste e non va
+    # nascosto: quello che deve restare intatto e' il GIUDIZIO, cioe' chi il
+    # modello ritiene favorito e di quanto rispetto alle altre partite.
+    for a, b in coppie:
+        prima, dopo = secco.predict(a, b), compresso.predict(a, b)
+        assert (prima.home_win > prima.away_win) == (dopo.home_win > dopo.away_win)
+
+        # E lo spostamento resta piccolo. Sulle squadre vere di Serie A, con
+        # il fattore di default, P(1) si muove in media di 0.008 e al massimo
+        # di 0.077 — quest'ultimo su un accoppiamento sbilanciato come non se
+        # ne vedono in campionato.
+        assert abs(dopo.home_win - prima.home_win) < 0.10

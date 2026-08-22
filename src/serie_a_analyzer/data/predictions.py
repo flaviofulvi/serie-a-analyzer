@@ -139,6 +139,34 @@ create table if not exists odds (
 create index if not exists idx_odds_fixture
     on odds(fixture_id, market, minuti_al_via);
 
+-- Chi non gioca. Come le quote e' un'osservazione, non un pronostico, e come
+-- le quote si conservano tutte le letture: la lista di una partita da giocare
+-- e quella della stessa partita a fine serata sono due dati diversi, e solo il
+-- primo era conoscibile prima del fischio d'inizio.
+create table if not exists indisponibili (
+    id            integer primary key,
+    fixture_id    integer not null,
+    player_id     integer not null,
+    player_name   text    not null,
+    team_id       integer not null,
+    team_name     text    not null,
+    -- 'assente' (l'API dice Missing Fixture) oppure 'in_dubbio' (Questionable).
+    -- Un dubbio non e' un'assenza e non deve poter diventarlo per distrazione.
+    stato         text    not null check (stato in ('assente', 'in_dubbio')),
+    motivo        text    not null check (motivo in ('infortunio', 'squalifica', 'altro')),
+    -- Il testo come l'ha scritto l'API: la classificazione qui sopra e' una
+    -- comodita', questa e' la fonte.
+    descrizione   text    not null,
+    kickoff_utc   text    not null,
+    collected_at  text    not null,
+    -- Minuti che mancavano al via, negativi se la lettura e' successiva.
+    minuti_al_via integer not null,
+    unique (fixture_id, player_id, collected_at)
+);
+
+create index if not exists idx_indisponibili_fixture
+    on indisponibili(fixture_id, minuti_al_via);
+
 -- I pronostici sono immutabili, e non per convenzione: il database rifiuta.
 create trigger if not exists predictions_sono_immutabili
 before update on predictions
@@ -187,6 +215,13 @@ def _impronta(model: FittedModel, name: str, version: str) -> str:
         "base": round(model.base, 9),
         "home_advantage": round(model.home_advantage, 9),
         "rho": round(model.rho, 9),
+        # La compressione dei gol e la media verso cui comprime non entrano
+        # nella stima ma cambiano ogni probabilita' che ne esce: due modelli
+        # con le stesse forze e compressioni diverse dicono cose diverse, e
+        # devono restare due versioni distinte. Senza, un pronostico vecchio
+        # sembrerebbe prodotto dal modello di oggi.
+        "goal_compression": round(getattr(model, "goal_compression", 1.0), 9),
+        "league_total_goals": round(getattr(model, "league_total_goals", 0.0), 9),
         "n_matches": model.n_matches,
         "attack": {t: round(model.attack[t], 9) for t in sorted(model.attack)},
         "defense": {t: round(model.defense[t], 9) for t in sorted(model.defense)},
@@ -264,6 +299,8 @@ class PredictionStore:
         configurazione = config or {
             "half_life_days": getattr(model, "half_life_days", None),
             "regularization": getattr(model, "regularization", None),
+            "goal_compression": getattr(model, "goal_compression", None),
+            "league_total_goals": getattr(model, "league_total_goals", None),
         }
 
         with self._connessione() as conn:
@@ -548,6 +585,86 @@ class PredictionStore:
                 )
             ]
 
+    # ---- indisponibili ------------------------------------------------------
+
+    def salva_indisponibili(
+        self,
+        *,
+        fixture_id: int,
+        kickoff_utc: datetime,
+        voci: Iterable[Any],
+        now: datetime | None = None,
+    ) -> int:
+        """Archivia una lettura degli indisponibili. Le letture si accumulano.
+
+        Stessa forma di `salva_quote`, e per lo stesso motivo: cio' che conta
+        non e' solo chi mancava, ma **quando lo si sapeva**.
+        """
+        adesso = now or _adesso()
+        minuti = int((kickoff_utc - adesso).total_seconds() // 60)
+        istante = adesso.isoformat(timespec="seconds")
+
+        with self._connessione() as conn:
+            prima = conn.total_changes
+            conn.executemany(
+                "insert or ignore into indisponibili (fixture_id, player_id, player_name, "
+                "team_id, team_name, stato, motivo, descrizione, kickoff_utc, "
+                "collected_at, minuti_al_via) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (fixture_id, int(v.player_id), v.player_name, int(v.team_id),
+                     v.team_name, v.stato, v.motivo, v.descrizione,
+                     kickoff_utc.isoformat(), istante, minuti)
+                    for v in voci
+                ],
+            )
+            return conn.total_changes - prima
+
+    def indisponibili_alla_vigilia(self, fixture_id: int | None = None) -> list[dict]:
+        """L'ultima lettura **precedente** al fischio d'inizio.
+
+        "Precedente" e non "ultima": una lettura fatta a partita conclusa sa
+        chi non e' sceso in campo davvero, e usarla per pronosticare sarebbe
+        barare — la stessa ragione per cui il registro rifiuta un pronostico
+        registrato dopo il via. Il backtest che volesse la lettura tardiva puo'
+        interrogare la tabella da se', sapendo cosa sta guardando.
+
+        Si prende **la lettura intera**, non il record piu' recente di ogni
+        giocatore. La differenza non e' un dettaglio: una lista di
+        indisponibili e' una fotografia, e un giocatore recuperato sparisce
+        dalla fotografia successiva senza che nessuna riga lo dica. Cercando il
+        piu' recente nome per nome, quel giocatore resterebbe infortunato per
+        sempre.
+        """
+        condizione = "where i.minuti_al_via >= 0"
+        parametri: list[Any] = []
+        if fixture_id is not None:
+            condizione += " and i.fixture_id = ?"
+            parametri.append(fixture_id)
+
+        with self._connessione() as conn:
+            return [
+                dict(r) for r in conn.execute(
+                    "select i.fixture_id, i.player_id, i.player_name, i.team_id, "
+                    "       i.team_name, i.stato, i.motivo, i.descrizione, i.minuti_al_via "
+                    "from indisponibili i "
+                    "join (select fixture_id, min(minuti_al_via) as vicino "
+                    "      from indisponibili where minuti_al_via >= 0 "
+                    "      group by fixture_id) ultima "
+                    "  on ultima.fixture_id = i.fixture_id "
+                    " and ultima.vicino = i.minuti_al_via "
+                    + condizione,
+                    parametri,
+                )
+            ]
+
+    def partite_con_indisponibili(self) -> list[int]:
+        with self._connessione() as conn:
+            return [
+                int(r[0]) for r in conn.execute(
+                    "select distinct fixture_id from indisponibili"
+                )
+            ]
+
     def partite_quotate(self) -> list[int]:
         with self._connessione() as conn:
             return [
@@ -566,6 +683,10 @@ class PredictionStore:
                 "quote": quanti("odds"),
                 "partite_quotate": int(conn.execute(
                     "select count(distinct fixture_id) from odds"
+                ).fetchone()[0]),
+                "indisponibili": quanti("indisponibili"),
+                "partite_con_indisponibili": int(conn.execute(
+                    "select count(distinct fixture_id) from indisponibili"
                 ).fetchone()[0]),
             }
 

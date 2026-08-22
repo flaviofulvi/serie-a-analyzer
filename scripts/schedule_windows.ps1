@@ -8,6 +8,7 @@
 #
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Raccolta" -Confirm:$false
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Recupero" -Confirm:$false
+#   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Formazioni" -Confirm:$false
 #
 # Perche' quattro esecuzioni al giorno e non una sola: la finestra del piano
 # gratuito e' di tre giorni, quindi una singola esecuzione mancata non e'
@@ -20,8 +21,12 @@ $ErrorActionPreference = "Stop"
 
 $NomeTask = "SerieAAnalyzer-Raccolta"
 $NomeRecupero = "SerieAAnalyzer-Recupero"
+$NomeFormazioni = "SerieAAnalyzer-Formazioni"
+$NomeMomento = "SerieAAnalyzer-Momento"
 $Radice = Split-Path -Parent $PSScriptRoot
 $Wrapper = Join-Path $Radice "scripts\run_daily.ps1"
+$WrapperFormazioni = Join-Path $Radice "scripts\run_formazioni.ps1"
+$WrapperMomento = Join-Path $Radice "scripts\run_momento.ps1"
 $FileOrari = Join-Path $PSScriptRoot "orari_raccolta.ps1"
 
 if (-not (Test-Path $Wrapper)) {
@@ -30,6 +35,14 @@ if (-not (Test-Path $Wrapper)) {
 }
 if (-not (Test-Path $FileOrari)) {
     Write-Error "Non trovo $FileOrari"
+    exit 1
+}
+if (-not (Test-Path $WrapperFormazioni)) {
+    Write-Error "Non trovo $WrapperFormazioni"
+    exit 1
+}
+if (-not (Test-Path $WrapperMomento)) {
+    Write-Error "Non trovo $WrapperMomento"
     exit 1
 }
 
@@ -123,6 +136,75 @@ $ImpostazioniRecupero = New-ScheduledTaskSettingsSet `
     -RestartInterval (New-TimeSpan -Minutes 15) `
     -RestartCount 3
 
+# --- formazioni ufficiali ---------------------------------------------------
+#
+# Un ritmo completamente diverso dalla raccolta, per una ragione precisa: le
+# formazioni escono una mezz'ora prima del calcio d'inizio e il registro
+# rifiuta ogni pronostico datato dopo il via. La finestra utile dura minuti,
+# non ore: qui non servono quattro esecuzioni al giorno ma un passaggio ogni
+# quarto d'ora nella fascia in cui si gioca.
+#
+# Costa quasi niente. Senza partite imminenti lo script esce prima di stimare
+# il modello e senza toccare l'API; e finche' i tabellini sul disco non
+# bastano non scrive comunque nulla, per scelta (`--stato` dice a che punto e').
+$AzioneFormazioni = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$WrapperFormazioni`"" `
+    -WorkingDirectory $Radice
+
+# Dalle 11 alle 23: il primo anticipo e' alle 12:30 e le formazioni escono
+# un'ora prima, l'ultimo posticipo alle 20:45.
+$TriggerFormazioni = New-ScheduledTaskTrigger -Daily -At "11:00"
+$TriggerFormazioni.Repetition = (New-ScheduledTaskTrigger `
+    -Once -At "11:00" `
+    -RepetitionInterval (New-TimeSpan -Minutes 15) `
+    -RepetitionDuration (New-TimeSpan -Hours 12)).Repetition
+
+# --- raccolta al momento giusto ---------------------------------------------
+#
+# Quote e indisponibili valgono quanto sono vicini al fischio d'inizio, e un
+# orario fisso ci passa vicino per caso: il 22 agosto 2026 la corsa delle 20:00
+# ha letto insieme le quote di una partita delle 20:45 e quelle di una del
+# giorno dopo, che verranno rilette comunque. Questa attivita' gira spesso e
+# decide da se': le quote e gli assenti delle partite che cominciano entro 40
+# minuti, i dettagli e i risultati di quelle finite da circa due ore e un
+# quarto.
+#
+# Costa quasi niente. Quando non e' il momento — cioe' quasi sempre — lo script
+# esce senza spedire una sola richiesta.
+$AzioneMomento = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$WrapperMomento`"" `
+    -WorkingDirectory $Radice
+
+# Dalle 11 alle 23:30. Il primo anticipo e' alle 12:30, quindi la sua vigilia
+# comincia alle 11:50; l'ultimo posticipo delle 20:45 smette di interessarci
+# verso le 23:00, piu' mezz'ora di margine per i recuperi.
+$TriggerMomento = New-ScheduledTaskTrigger -Daily -At "11:00"
+$TriggerMomento.Repetition = (New-ScheduledTaskTrigger `
+    -Once -At "11:00" `
+    -RepetitionInterval (New-TimeSpan -Minutes 15) `
+    -RepetitionDuration (New-TimeSpan -Minutes 750)).Repetition
+
+# Piu' generoso del limite delle formazioni: una raccolta "dopo" scarica i
+# dettagli di tutte le partite appena finite, e con il freno del client fra
+# una richiesta e l'altra ci mette qualche minuto.
+$ImpostazioniMomento = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -DontStopOnIdleEnd `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
+
+$ImpostazioniFormazioni = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -DontStopOnIdleEnd `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+
 # --- registrazione ----------------------------------------------------------
 
 if (Get-ScheduledTask -TaskName $NomeTask -ErrorAction SilentlyContinue) {
@@ -149,11 +231,38 @@ Register-ScheduledTask `
     -Settings $ImpostazioniRecupero `
     -Description "Recupera la raccolta della Serie A saltata mentre il computer era spento o sospeso. Non accende il computer e non spende richieste se non manca niente." | Out-Null
 
+if (Get-ScheduledTask -TaskName $NomeMomento -ErrorAction SilentlyContinue) {
+    Write-Host "Attivita' del momento gia' presente: la sostituisco."
+    Unregister-ScheduledTask -TaskName $NomeMomento -Confirm:$false
+}
+
+Register-ScheduledTask `
+    -TaskName $NomeMomento `
+    -Action $AzioneMomento `
+    -Trigger $TriggerMomento `
+    -Settings $ImpostazioniMomento `
+    -Description "Quote e indisponibili nei 40 minuti prima del via, dettagli e risultati due ore e un quarto dopo. Non spende nulla quando non e' il momento." | Out-Null
+
+if (Get-ScheduledTask -TaskName $NomeFormazioni -ErrorAction SilentlyContinue) {
+    Write-Host "Attivita' delle formazioni gia' presente: la sostituisco."
+    Unregister-ScheduledTask -TaskName $NomeFormazioni -Confirm:$false
+}
+
+Register-ScheduledTask `
+    -TaskName $NomeFormazioni `
+    -Action $AzioneFormazioni `
+    -Trigger $TriggerFormazioni `
+    -Settings $ImpostazioniFormazioni `
+    -Description "Pronostico rifatto con le formazioni ufficiali, nella mezz'ora prima del calcio d'inizio. Non fa nulla se non ci sono partite imminenti." | Out-Null
+
 Write-Host ""
 Write-Host "Attivita' registrata: $NomeTask"
 Write-Host "Orari: $($OrariRaccolta -join ', ')  (il computer non viene acceso da solo)"
 Write-Host "Attivita' registrata: $NomeRecupero (all'accesso e al risveglio, solo se manca qualcosa)"
+Write-Host "Attivita' registrata: $NomeFormazioni (ogni 15 minuti dalle 11 alle 23)"
+Write-Host "Attivita' registrata: $NomeMomento (ogni 15 minuti dalle 11 alle 23:30, agisce solo a ridosso delle partite)"
 Write-Host ""
 Write-Host "Verifica:      .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py"
+Write-Host "Formazioni:    .\.venv\Scripts\python.exe .\scripts\formazioni_ufficiali.py --stato"
 Write-Host "Prova subito:  Start-ScheduledTask -TaskName $NomeRecupero"
 Write-Host "Log:           $Radice\data\logs\"
