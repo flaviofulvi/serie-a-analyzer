@@ -7,7 +7,10 @@ I dati arrivano da strade che il piano gratuito rende profondamente diverse:
 * **la stagione in corso** si accumula un giorno alla volta nell'archivio
   locale, perche' non e' scaricabile in blocco;
 * **le stagioni ricomprate** (`data/storico/<anno>/`, vedi `storico.py`), che
-  esistono solo se qualcuno ha pagato un piano superiore e le ha riempite.
+  esistono solo se qualcuno ha pagato un piano superiore e le ha riempite;
+* **le stagioni importate da un file** (`data/importato/<anno>/`, vedi
+  `importato.py`): gli stessi risultati, presi da un calendario scaricato
+  invece che comprati. Hanno i gol e le date, non i tabellini.
 
 Il resto dell'applicazione non deve sapere niente di questa differenza: chiede
 partite e squadre, e le ottiene. Qui dentro le strade si ricongiungono.
@@ -46,9 +49,11 @@ class Dataset:
     n_historical: int = 0
     n_current: int = 0
     n_riempite: int = 0
+    n_importate: int = 0
     requests_spent: int = 0
     seasons_loaded: list[int] = field(default_factory=list)
     stagioni_riempite: list[int] = field(default_factory=list)
+    stagioni_importate: list[int] = field(default_factory=list)
 
     def name(self, team_id: int) -> str:
         return self.team_names.get(team_id, str(team_id))
@@ -109,20 +114,27 @@ def load_dataset(
     seasons: tuple[int, ...] | list[int],
     league_id: int = SERIE_A_LEAGUE_ID,
     storici: dict[int, SeasonStore] | None = None,
+    importati: dict[int, SeasonStore] | None = None,
 ) -> Dataset:
-    """Mette insieme storico, stagioni ricomprate e archivio corrente.
+    """Mette insieme storico, stagioni ricomprate, importate e archivio corrente.
 
     Le stagioni gia' concluse si servono dalla cache e non costano nulla; la
     stagione in corso si legge dall'archivio su disco e non costa nulla per
     definizione, perche' e' gia' stata pagata dalla raccolta giornaliera; le
     stagioni ricomprate si leggono dal loro archivio e sono gia' state pagate
-    una volta per tutte.
+    una volta per tutte; quelle importate da un file non sono costate niente.
 
     L'ordine di sovrascrittura non e' arbitrario, va **dal piu' vecchio al piu'
-    fresco**: cache, poi stagioni riempite, poi raccolta giornaliera. Se una
-    partita compare in piu' sorgenti vince l'archivio corrente, che e' l'unico
-    aggiornato giorno per giorno; e i nomi delle squadre restano quelli visti
-    per ultimi, perche' un club puo' essere stato rinominato nel frattempo.
+    fresco**: cache, poi stagioni importate, poi ricomprate, poi raccolta
+    giornaliera. Se una partita compare in piu' sorgenti vince l'archivio
+    corrente, che e' l'unico aggiornato giorno per giorno; e i nomi delle
+    squadre restano quelli visti per ultimi, perche' un club puo' essere stato
+    rinominato nel frattempo.
+
+    Una stagione presente sia importata che ricomprata viene presa **solo dal
+    dato pagato**. Non basterebbe l'ordine: le partite importate hanno id
+    sintetici, quindi non verrebbero sovrascritte da quelle vere ma
+    affiancate, e il campionato risulterebbe giocato due volte.
     """
     prima = client.budget.used
 
@@ -141,9 +153,31 @@ def load_dataset(
                 n_storiche += 1
         nomi.update(training.team_names)
 
+    storici = storici or {}
+    importati = importati or {}
+
+    n_importate = 0
+    caricate_da_file: list[int] = []
+    for stagione in sorted(importati):
+        if stagione in storici:
+            # Il dato pagato ha tabellini e id veri: l'importato non aggiunge
+            # niente e raddoppierebbe le partite.
+            logger.info(
+                "stagione %s: importata da file ma anche ricomprata, "
+                "vale il dato pagato", stagione,
+            )
+            continue
+        letta = parse_fixtures(list(importati[stagione].load_fixtures().values()))
+        for f in letta:
+            per_id[f.api_id] = f
+            nomi.setdefault(f.home_team_id, f.home_team_name)
+            nomi.setdefault(f.away_team_id, f.away_team_name)
+        n_importate += len(letta)
+        caricate_da_file.append(stagione)
+
     n_riempite = 0
-    for stagione in sorted(storici or {}):
-        riempita = parse_fixtures(list((storici or {})[stagione].load_fixtures().values()))
+    for stagione in sorted(storici):
+        riempita = parse_fixtures(list(storici[stagione].load_fixtures().values()))
         for f in riempita:
             per_id[f.api_id] = f
             nomi[f.home_team_id] = f.home_team_name
@@ -159,9 +193,9 @@ def load_dataset(
         nomi[f.away_team_id] = f.away_team_name
 
     logger.info(
-        "dataset: %d partite storiche, %d da stagioni riempite, "
-        "%d dalla raccolta giornaliera, %d squadre",
-        n_storiche, n_riempite, len(correnti), len(nomi),
+        "dataset: %d partite storiche, %d da stagioni importate, %d da stagioni "
+        "riempite, %d dalla raccolta giornaliera, %d squadre",
+        n_storiche, n_importate, n_riempite, len(correnti), len(nomi),
     )
 
     return Dataset(
@@ -170,7 +204,9 @@ def load_dataset(
         n_historical=n_storiche,
         n_current=len(correnti),
         n_riempite=n_riempite,
+        n_importate=n_importate,
         requests_spent=client.budget.used - prima,
         seasons_loaded=list(storiche),
-        stagioni_riempite=sorted(storici or {}),
+        stagioni_riempite=sorted(storici),
+        stagioni_importate=caricate_da_file,
     )

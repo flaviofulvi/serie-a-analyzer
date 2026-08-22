@@ -22,6 +22,7 @@ from pathlib import Path
 from ..config import (
     Settings,
     build_client,
+    build_importato_stores,
     build_prediction_store,
     build_store,
     build_storico_stores,
@@ -36,6 +37,7 @@ from ..data.outcomes import (
 )
 from ..data.players import ArchivioGiocatori, costruisci_archivio
 from ..data.predictions import registra_partite
+from ..data.importato import firma_importato
 from ..data.store import SeasonStore, StoreUnito
 from ..data.storico import firma_storico
 from ..model.dixon_coles import FittedModel, TeamEvidence, fit_dixon_coles
@@ -82,16 +84,21 @@ class Engine:
     def _archive_signature(self) -> tuple:
         """Impronta degli archivi: cambia se e solo se qualcosa ha scritto.
 
-        Due pezzi, che si muovono per ragioni diverse: la raccolta giornaliera
+        Tre pezzi, che si muovono per ragioni diverse: la raccolta giornaliera
         scrive `fixtures.json` quattro volte al giorno, un riempimento storico
-        aggiunge una cartella dentro `data/storico/` una volta ogni tanto.
+        aggiunge una cartella dentro `data/storico/` una volta ogni tanto, e
+        l'importazione di un file ne aggiunge una dentro `data/importato/`.
         Guardare solo il primo lascerebbe il modello fermo alle stagioni di
-        prima anche dopo aver ricomprato un campionato intero — con un
-        riempimento che dura ore e il sito aperto nel frattempo.
+        prima anche dopo aver ricomprato o importato un campionato intero — con
+        il sito aperto e nessun motivo apparente per riavviarlo.
         """
         path = Path(self.store.root) / "fixtures.json"
         corrente = (path.stat().st_mtime, path.stat().st_size) if path.exists() else (0.0, 0)
-        return (corrente, firma_storico(self.settings.storico_dir))
+        return (
+            corrente,
+            firma_storico(self.settings.storico_dir),
+            firma_importato(self.settings.importato_dir),
+        )
 
     def snapshot(self, force: bool = False) -> Snapshot:
         with self._lock:
@@ -106,6 +113,7 @@ class Engine:
         dataset = load_dataset(
             self.client, self.store, self.settings.seasons, self.settings.league_id,
             storici=build_storico_stores(self.settings),
+            importati=build_importato_stores(self.settings),
         )
         adesso = datetime.now(timezone.utc)
 
@@ -260,6 +268,12 @@ class Engine:
 
         Prima la stagione in corso, poi le stagioni ricomprate: e' l'ordine in
         cui si vuole trovare il dato quando per caso sta in entrambi.
+
+        Le stagioni **importate da un file non entrano**, ed e' voluto: hanno i
+        risultati ma non i tabellini, e non li avranno mai. Contarle qui
+        direbbe alle pagine dei giocatori che la copertura e' parziale su un
+        campionato che invece copriamo per intero — la stessa trappola gia'
+        evitata per lo storico 2022-2024, che pure arriva senza tabellini.
         """
         storici: list[SeasonStore] = list(build_storico_stores(self.settings).values())
         return StoreUnito(stores=[self.store, *storici])
@@ -288,6 +302,8 @@ class Engine:
             "partite_stagione_corrente": snap.dataset.n_current,
             "partite_stagioni_riempite": snap.dataset.n_riempite,
             "stagioni_riempite": snap.dataset.stagioni_riempite,
+            "partite_stagioni_importate": snap.dataset.n_importate,
+            "stagioni_importate": snap.dataset.stagioni_importate,
             "squadre": len(snap.dataset.team_names),
             "giorni_raccolti": len(giorni),
             "ultimo_giorno_raccolto": giorni[-1].isoformat() if giorni else None,

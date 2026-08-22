@@ -25,6 +25,8 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\accuratezza.py         # quanto valgono i pronostici verificati
 .\.venv\Scripts\python.exe .\scripts\riempi_storico.py --solo-verifica  # il piano copre le stagioni mancanti?
 .\.venv\Scripts\python.exe .\scripts\riempi_storico.py     # ricompra la scorsa stagione (a pagamento)
+.\.venv\Scripts\python.exe .\scripts\importa_risultati.py file.csv --solo-verifica  # cosa entrerebbe
+.\.venv\Scripts\python.exe .\scripts\importa_risultati.py file.csv  # importa una stagione (gratis)
 .\scripts\schedule_windows.ps1                              # 4 esecuzioni al giorno + recupero
 ```
 
@@ -89,11 +91,31 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   `CRITICAL` protegge le formazioni di *oggi*. Quote e pronostici di quella
   stagione restano irrecuperabili: si guadagna un modello più informato, non
   uno storico di accuratezza più lungo.
-- `dataset.py` — unisce storico 2022-2024 (dalla cache), stagioni ricomprate
-  (da `data/storico/`) e archivio corrente in un unico `Dataset`, che è ciò che
-  il modello e il web consumano. L'ordine di sovrascrittura va dal più vecchio
-  al più fresco: vince sempre la raccolta giornaliera, l'unica sorgente che
-  vede una partita cambiare stato durante il pomeriggio.
+- `importato.py` — una stagione presa da un **file di risultati** invece che
+  dall'API, cioè il modo gratuito di chiudere il buco che `storico.py` chiude
+  a pagamento. Funziona perché il modello di squadra mangia cinque cose per
+  partita (data, le due squadre, i due gol) e un calendario le ha tutte:
+  quello che manca — formazioni, tabellini, voti — non entra nella stima delle
+  forze. Il punto delicato è **l'identità delle squadre**: il file scrive
+  "Milan", l'API "AC Milan", e se i due non si riconoscono il club si sdoppia
+  in due entità con metà storia ciascuna senza che niente lo segnali. Da qui
+  la regola: gli id non si inventano mai, si cercano prima fra le squadre di
+  Serie A note e poi — solo se il nome è univoco — fra tutte quelle nominate
+  sul disco (è così che si trova una neopromossa poi retrocessa, senza
+  spendere richieste); un nome che non si aggancia **ferma l'importazione**.
+  Le partite ricevono id sintetici (`92025001`) e vivono in
+  `data/importato/<anno>/`, separate da quelle comprate. Il file si verifica
+  prima di scriverlo, con i controlli che un calendario fa su se stesso: N
+  squadre, N*(N-1) partite, N-1 per parte, nessun accoppiamento ripetuto.
+- `dataset.py` — unisce storico 2022-2024 (dalla cache), stagioni importate
+  (da `data/importato/`), stagioni ricomprate (da `data/storico/`) e archivio
+  corrente in un unico `Dataset`, che è ciò che il modello e il web consumano.
+  L'ordine di sovrascrittura va dal più vecchio al più fresco: vince sempre la
+  raccolta giornaliera, l'unica sorgente che vede una partita cambiare stato
+  durante il pomeriggio. Una stagione presente sia importata che ricomprata si
+  prende **solo dal dato pagato**, e serve una regola esplicita: gli id
+  sintetici non verrebbero sovrascritti da quelli veri ma affiancati, e il
+  campionato risulterebbe giocato due volte.
 - `predictions.py` — registro dei pronostici in SQLite (`data/pronostici.db`).
   Append-only: `UPDATE` e `DELETE` sono **vietati da trigger**, non solo per
   convenzione. Si salva la matrice dei risultati, da cui ogni mercato si può
@@ -148,16 +170,20 @@ stagione in corso e l'API non restituirà mai più i giorni passati. Non
 cancellarla né suggerire di rigenerarla. `data/storico/` è meno drammatico —
 si può riscaricare finché il piano a pagamento è attivo — ma buttarlo significa
 rispendere mille richieste, quindi merita la stessa prudenza.
+`data/importato/` è l'unica cartella davvero rigenerabile: basta rilanciare
+`scripts/importa_risultati.py` sul file di partenza, a costo zero — a patto che
+quel file ci sia ancora.
 
 ### Web
 
 `web/engine.py` tiene dati e modello caldi in uno `Snapshot`, ricostruito solo
 quando cambia l'impronta degli archivi (mtime+size di `fixtures.json` **più**
-quella di `data/storico/`), non a ogni richiesta HTTP — la stima costa un paio
-di secondi. Il secondo pezzo dell'impronta serve al riempimento storico, che
-dura ore mentre il sito è aperto: senza, il modello resterebbe fermo alle
-stagioni di prima anche dopo aver ricomprato un campionato intero. Un lock
-protegge da stime duplicate su richieste concorrenti.
+quella di `data/storico/` **più** quella di `data/importato/`), non a ogni
+richiesta HTTP — la stima costa un paio di secondi. I pezzi oltre il primo
+servono al riempimento storico e all'importazione: senza, il modello resterebbe
+fermo alle stagioni di prima anche dopo aver ricomprato o importato un
+campionato intero, con il sito aperto e nessun motivo apparente per riavviarlo.
+Un lock protegge da stime duplicate su richieste concorrenti.
 
 Alla ristima — l'unico momento in cui i pronostici possono cambiare — l'engine
 fa due cose in fila: congela i pronostici delle partite in programma e risolve
@@ -169,7 +195,11 @@ L'archivio dei giocatori ha invece una vita sua: si costruisce **su richiesta**
 perché i dettagli arrivano dopo le partite — spesso giorni dopo — senza che
 `fixtures.json` si muova di un byte. Legge da uno `StoreUnito`, cioè da tutti
 gli archivi che possono contenere un tabellino messi in fila: un giocatore ha
-una carriera sola anche se metà dei suoi tabellini è stata pagata a parte.
+una carriera sola anche se metà dei suoi tabellini è stata pagata a parte. Le
+stagioni **importate da un file non entrano** in quella fila: hanno i risultati
+e non avranno mai i tabellini, e contarle direbbe "copertura parziale" su un
+campionato coperto per intero — la stessa trappola già evitata per lo storico
+2022-2024.
 
 `web/views.py` traduce il dominio in ciò che i template disegnano; `web/app.py`
 espone hub, scheda partita, `/giocatori` (marcatori, assist, voti),
@@ -202,7 +232,8 @@ chiama solida, per quante partite abbia dietro.
   (`data/schema.sql`). Rigenerarne uno significa inserire una nuova riga, mai
   aggiornare quella vecchia: uno storico riscrivibile a posteriori vale zero.
 - **Non nascondere i limiti del modello nell'interfaccia.** Nel backtest l'1X2
-  batte le baseline (Brier 0.586 vs 0.667), ma Over 2.5 e Gol/NoGol fanno
+  batte le baseline (Brier 0.586 nel 2024/25 e 0.596 nel 2025/26, contro
+  0.667 di chi tira a caso), ma Over 2.5 e Gol/NoGol fanno
   leggermente *peggio* della media di campionato: le pagine lo dichiarano
   accanto al mercato. Stessa regola quando una squadra non ha storia
   sufficiente: si mostra il motivo, non un pronostico inventato.
@@ -219,25 +250,33 @@ chiama solida, per quante partite abbia dietro.
   cose, pronostico congelato e quota di consenso — misurare il modello su
   tutte le partite e il mercato su un sottoinsieme diverso darebbe un numero
   privo di significato.
-- La stagione 2025/26 è un buco fra lo storico e la raccolta giornaliera, e sul
-  piano gratuito è **irrecuperabile**: non cercare scorciatoie per riempirlo.
-  L'unica strada è un piano a pagamento, e in quel caso il lavoro è già pronto:
-  `scripts/riempi_storico.py`. Costa ~1140 richieste per stagione e si può
-  spezzare su più giorni.
+- La stagione 2025/26 era un buco fra lo storico e la raccolta giornaliera.
+  **È stata chiusa il 22 agosto 2026 importando un file di risultati** (380
+  partite, zero richieste): vedi `data/importato.py`. Dall'API resta
+  irrecuperabile sul piano gratuito, e non ci sono scorciatoie da cercare —
+  quella strada passa da `scripts/riempi_storico.py` e da un piano a pagamento.
+  Cosa manca ancora di quella stagione: i **tabellini**, che un file di
+  risultati non ha e non avrà mai. Quelli si comprano.
 - Servono `.env` con `API_FOOTBALL_KEY` solo per gli script sui dati veri; test
   e demo girano senza.
 
 ## Lavori futuri
 
 `DA_FARE.txt` (file locale, volutamente non tracciato) elenca i lavori
-concordati con l'utente, sei in tutto: pronostici con le formazioni ufficiali;
-schede giocatore (**fatte**, vedi `data/players.py`); infortuni e squalifiche;
-il riempimento della stagione 2025/26 (**pronto**, vedi `data/storico.py`: si
-attiva il giorno in cui l'utente compra un piano a pagamento); i tabellini
-delle stagioni 2022-2024, che oggi abbiamo solo come risultati; l'impatto
-dell'allenatore, che si ricava dalle formazioni senza spendere richieste.
+concordati con l'utente, sette in tutto: pronostici con le formazioni
+ufficiali; schede giocatore (**fatte**, vedi `data/players.py`); infortuni e
+squalifiche; il riempimento della stagione 2025/26 (**metà fatto**: i risultati
+sono entrati gratis da un file, vedi `data/importato.py`; i tabellini restano
+a pagamento, vedi `data/storico.py`); i tabellini delle stagioni 2022-2024, che
+oggi abbiamo solo come risultati; l'impatto dell'allenatore, che si ricava
+dalle formazioni senza spendere richieste; i mercati dei gol, l'unico che nasce
+da una misura invece che da un'idea.
+
 Contiene per ognuno cosa esiste già nel codice e quali sono le insidie — fra
-cui due che sembrano buone idee e non lo sono: i tabellini vecchi non
-migliorano i pronostici, e una "forza dell'allenatore" che viaggia da una
-squadra all'altra non è identificabile con un campionato solo. Se il file non
+cui tre che sembrano buone idee e non lo sono: i tabellini vecchi non
+migliorano i pronostici; una "forza dell'allenatore" che viaggia da una squadra
+all'altra non è identificabile con un campionato solo; e i mercati dei gol
+**non** si curano con una distribuzione a coda più grassa, perché nei nostri
+dati i gol totali sono *sotto*-dispersi (varianza sempre minore della media,
+quattro stagioni su quattro) e il modello è già troppo largo. Se il file non
 c'è, questa è l'unica traccia che rimane di quell'elenco.

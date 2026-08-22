@@ -27,6 +27,7 @@ class Settings:
     budget_file: Path
     store_dir: Path              # archivio della stagione in corso
     storico_dir: Path            # stagioni passate ricomprate con un piano a pagamento
+    importato_dir: Path          # stagioni passate importate da un file di risultati
     journal_file: Path           # registro dei giorni raccolti
     predictions_db: Path         # storico immutabile dei pronostici
     database_url: str | None
@@ -61,6 +62,7 @@ def load_settings() -> Settings:
         budget_file=Path(os.getenv("BUDGET_FILE", data_dir / "budget.json")),
         store_dir=Path(os.getenv("STORE_DIR", data_dir / "serie_a")),
         storico_dir=Path(os.getenv("STORICO_DIR", data_dir / "storico")),
+        importato_dir=Path(os.getenv("IMPORTATO_DIR", data_dir / "importato")),
         journal_file=Path(os.getenv("JOURNAL_FILE", data_dir / "journal.json")),
         predictions_db=Path(os.getenv("PREDICTIONS_DB", data_dir / "pronostici.db")),
         database_url=os.getenv("DATABASE_URL") or None,
@@ -109,6 +111,19 @@ def build_storico_stores(settings: Settings | None = None):
 
     settings = settings or load_settings()
     return stagioni_riempite(settings.storico_dir)
+
+
+def build_importato_stores(settings: Settings | None = None):
+    """Gli archivi delle stagioni importate da un file, ``{anno: SeasonStore}``.
+
+    Vuoto finche' nessuno ha lanciato `scripts/importa_risultati.py`. Come per
+    le stagioni ricomprate si rilegge dal disco a ogni chiamata: importare una
+    stagione non deve richiedere di riavviare il sito.
+    """
+    from .data.importato import stagioni_importate
+
+    settings = settings or load_settings()
+    return stagioni_importate(settings.importato_dir)
 
 
 def build_prediction_store(settings: Settings | None = None):

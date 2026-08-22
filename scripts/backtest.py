@@ -15,33 +15,49 @@ Il modello non vede mai il futuro, nemmeno di un'ora. E' la differenza fra
 "il modello descrive bene il passato" (facile, e inutile) e "il modello
 prevede il futuro" (difficile, ed e' il punto).
 
-Non consuma richieste API: legge dalla cache riempita dall'ingestione.
+Non consuma richieste API: legge le partite da dove le legge il sito, cioe'
+dalla cache **piu'** gli archivi su disco — la raccolta giornaliera, le
+stagioni ricomprate e quelle importate da un file. E' la stessa sorgente del
+modello vero, ed e' importante che lo sia: un backtest che rigioca una
+stagione diversa da quelle che il modello conosce misura un altro programma.
 
-    python scripts/backtest.py
+    python scripts/backtest.py                  # l'ultima stagione completa
+    python scripts/backtest.py --stagione 2024  # una in particolare
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from math import log
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from serie_a_analyzer.config import ConfigError, build_client, load_settings
-from serie_a_analyzer.data.ingest import collect_seasons
+from serie_a_analyzer.config import (
+    ConfigError,
+    build_client,
+    build_importato_stores,
+    build_store,
+    build_storico_stores,
+    load_settings,
+)
+from serie_a_analyzer.data.dataset import Dataset, load_dataset
 from serie_a_analyzer.data.parsers import FixtureRecord
 from serie_a_analyzer.model.dixon_coles import fit_dixon_coles
 from serie_a_analyzer.model.markets import MatchProbabilities
 
-# Stagione da rigiocare. Le precedenti servono da storico iniziale.
-TARGET_SEASON = 2024
-
 # Sotto questa soglia di partite il modello non ha abbastanza storia perche'
 # il confronto sia informativo.
 MIN_TRAINING_MATCHES = 200
+
+# Quante partite deve avere una stagione per essere considerata finita e quindi
+# degna di essere rigiocata per intero. Una Serie A ne ha 380: la soglia sta
+# sotto per tollerare qualche partita mancante, ma abbastanza in alto da non
+# scambiare per completa la stagione appena cominciata.
+PARTITE_STAGIONE_COMPLETA = 300
 
 
 @dataclass
@@ -143,29 +159,50 @@ def calibration(probs: list[float], esiti: list[bool], n_bin: int = 5):
 # ---- backtest --------------------------------------------------------------
 
 
-def run_backtest(seasons, league: int, client) -> tuple[list[Prediction], dict]:
-    """Rigioca ``TARGET_SEASON`` giornata per giornata. Zero richieste API."""
-    training = collect_seasons(client, seasons, league)
-    nomi = training.team_names
+def stagioni_disponibili(dataset: Dataset) -> dict[int, int]:
+    """Quante partite concluse e numerate abbiamo, per stagione."""
+    return dict(sorted(Counter(
+        f.season for f in dataset.finished if f.matchday is not None
+    ).items()))
+
+
+def stagione_predefinita(dataset: Dataset) -> int | None:
+    """L'ultima stagione completa: la piu' recente che si possa rigiocare tutta.
+
+    Non e' semplicemente la piu' recente. Quella in corso ha poche giornate
+    giocate, e un backtest su tre giornate direbbe molto poco e sembrerebbe
+    dire molto.
+    """
+    per_stagione = stagioni_disponibili(dataset)
+    complete = [s for s, n in per_stagione.items() if n >= PARTITE_STAGIONE_COMPLETA]
+    return max(complete) if complete else None
+
+
+def run_backtest(dataset: Dataset, target: int) -> tuple[list[Prediction], dict]:
+    """Rigioca la stagione ``target`` giornata per giornata. Zero richieste API.
+
+    Lo storico su cui il modello si stima non e' solo quello della stagione
+    bersaglio: e' **tutto** cio' che il dataset conosce e che era gia' accaduto
+    al calcio d'inizio di quella giornata. Comprese le stagioni successive?
+    No: il filtro e' sull'ora, non sulla stagione, quindi una partita del 2026
+    non puo' entrare nella stima di una del 2025. E' il taglio che rende il
+    backtest onesto, e vale anche all'indietro.
+    """
+    nomi = dataset.team_names
 
     per_giornata: dict[int, list[FixtureRecord]] = defaultdict(list)
-    tutte: list[FixtureRecord] = []
-    for s in training.seasons:
-        tutte.extend(s.fixtures)
-        if s.season == TARGET_SEASON:
-            for f in s.fixtures:
-                if f.is_finished and f.matchday is not None:
-                    per_giornata[f.matchday].append(f)
+    for f in dataset.finished:
+        if f.season == target and f.matchday is not None:
+            per_giornata[f.matchday].append(f)
 
     if not per_giornata:
+        disponibili = stagioni_disponibili(dataset)
         raise RuntimeError(
-            f"stagione {TARGET_SEASON} assente dai dati. "
-            f"Verifica SEASONS nel file .env."
+            f"stagione {target} assente dai dati. Stagioni che si possono "
+            f"rigiocare: {', '.join(f'{s} ({n} partite)' for s, n in disponibili.items()) or 'nessuna'}"
         )
 
-    concluse = sorted(
-        (f for f in tutte if f.is_finished), key=lambda f: f.kickoff_utc
-    )
+    concluse = sorted(dataset.finished, key=lambda f: f.kickoff_utc)
 
     predizioni: list[Prediction] = []
     saltate = 0
@@ -215,7 +252,7 @@ def run_backtest(seasons, league: int, client) -> tuple[list[Prediction], dict]:
     return predizioni, {
         "saltate": saltate,
         "giornate": giornate_usate,
-        "richieste": training.requests_spent,
+        "richieste": dataset.requests_spent,
     }
 
 
@@ -266,6 +303,18 @@ def titolo(testo: str) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Backtest walk-forward su una stagione conclusa"
+    )
+    parser.add_argument(
+        "--stagione",
+        type=int,
+        default=None,
+        help="anno di partenza della stagione da rigiocare "
+             "(default: l'ultima completa fra quelle in archivio)",
+    )
+    args = parser.parse_args()
+
     try:
         settings = load_settings()
     except ConfigError as exc:
@@ -274,17 +323,41 @@ def main() -> int:
 
     client = build_client(settings)
     prima = client.budget.used
+    store, _ = build_store(settings)
 
-    titolo(f"BACKTEST WALK-FORWARD - stagione {TARGET_SEASON}/{str(TARGET_SEASON + 1)[2:]}")
+    # Le stesse sorgenti che alimentano il sito: cache, raccolta giornaliera,
+    # stagioni ricomprate e stagioni importate da un file.
+    dataset = load_dataset(
+        client, store, settings.seasons, settings.league_id,
+        storici=build_storico_stores(settings),
+        importati=build_importato_stores(settings),
+    )
+
+    target = args.stagione or stagione_predefinita(dataset)
+    if target is None:
+        print("\nNessuna stagione completa in archivio: non c'e' niente da rigiocare.\n")
+        return 1
+
+    titolo(f"BACKTEST WALK-FORWARD - stagione {target}/{str(target + 1)[2:]}")
     print("Ogni giornata e' pronosticata con un modello che non ha mai visto")
     print("nemmeno una partita successiva al suo calcio d'inizio.\n")
 
-    preds, info = run_backtest(settings.seasons, settings.league_id, client)
+    disponibili = stagioni_disponibili(dataset)
+    print("Stagioni in archivio: "
+          + ", ".join(f"{s} ({n})" for s, n in disponibili.items()))
+
+    try:
+        preds, info = run_backtest(dataset, target)
+    except RuntimeError as exc:
+        # Chiedere una stagione che non c'e' e' un errore di chi lancia il
+        # comando, non un guasto: si dice cosa c'e', senza traceback.
+        print(f"\n{exc}\n")
+        return 1
     if not preds:
         print("Nessun pronostico prodotto.")
         return 1
 
-    print(f"Partite pronosticate: {len(preds)}")
+    print(f"\nPartite pronosticate: {len(preds)}")
     print(f"Giornate rigiocate:   {info['giornate']}")
     print(f"Partite escluse:      {info['saltate']} (storico insufficiente)")
     print(f"Richieste API spese:  {client.budget.used - prima}")

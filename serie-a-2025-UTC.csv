@@ -1,0 +1,381 @@
+Match Number,Round Number,Date,Location,Home Team,Away Team,Result
+1,1,23/08/2025 16:30,Luigi Ferraris,Genoa,Lecce,0 - 0
+2,1,23/08/2025 16:30,Mapei Stadium - Città del Tricolore,Sassuolo,Napoli,0 - 2
+3,1,23/08/2025 18:45,San Siro,Milan,Cremonese,1 - 2
+4,1,23/08/2025 18:45,Olimpico,Roma,Bologna,1 - 0
+5,1,24/08/2025 16:30,Unipol Domus,Cagliari,Fiorentina,1 - 1
+6,1,24/08/2025 16:30,Giuseppe Sinigaglia,Como,Lazio,2 - 0
+7,1,24/08/2025 18:45,Atleti Azzurri d'Italia,Atalanta,Pisa,1 - 1
+8,1,24/08/2025 18:45,Juventus Stadium,Juventus,Parma,2 - 0
+9,1,25/08/2025 16:30,Friuli,Udinese,Hellas Verona,1 - 1
+10,1,25/08/2025 18:45,San Siro,Inter,Torino,5 - 0
+11,2,29/08/2025 16:30,Giovanni Zini,Cremonese,Sassuolo,3 - 2
+12,2,29/08/2025 18:45,Ettore Giardiniero - Via del mare,Lecce,Milan,0 - 2
+13,2,30/08/2025 16:30,Renato Dall'Ara,Bologna,Como,1 - 0
+14,2,30/08/2025 16:30,Ennio Tardini,Parma,Atalanta,1 - 1
+15,2,30/08/2025 18:45,Diego Armando Maradona,Napoli,Cagliari,1 - 0
+16,2,30/08/2025 18:45,Garibaldi,Pisa,Roma,0 - 1
+17,2,31/08/2025 16:30,Luigi Ferraris,Genoa,Juventus,0 - 1
+18,2,31/08/2025 16:30,Olimpico Grande Torino,Torino,Fiorentina,0 - 0
+19,2,31/08/2025 18:45,San Siro,Inter,Udinese,1 - 2
+20,2,31/08/2025 18:45,Olimpico,Lazio,Hellas Verona,4 - 0
+21,3,13/09/2025 13:00,Unipol Domus,Cagliari,Parma,2 - 0
+22,3,13/09/2025 16:00,Juventus Stadium,Juventus,Inter,4 - 3
+23,3,13/09/2025 18:45,Artemio Franchi,Fiorentina,Napoli,1 - 3
+24,3,14/09/2025 10:30,Olimpico,Roma,Torino,0 - 1
+25,3,14/09/2025 13:00,Atleti Azzurri d'Italia,Atalanta,Lecce,4 - 1
+26,3,14/09/2025 13:00,Garibaldi,Pisa,Udinese,0 - 1
+27,3,14/09/2025 16:00,Mapei Stadium - Città del Tricolore,Sassuolo,Lazio,1 - 0
+28,3,14/09/2025 18:45,San Siro,Milan,Bologna,1 - 0
+29,3,15/09/2025 16:30,Marcantonio Bentegodi,Hellas Verona,Cremonese,0 - 0
+30,3,15/09/2025 18:45,Giuseppe Sinigaglia,Como,Genoa,1 - 1
+39,4,19/09/2025 18:45,Ettore Giardiniero - Via del mare,Lecce,Cagliari,1 - 2
+34,4,20/09/2025 13:00,Renato Dall'Ara,Bologna,Genoa,2 - 1
+33,4,20/09/2025 16:00,Marcantonio Bentegodi,Hellas Verona,Juventus,1 - 1
+32,4,20/09/2025 18:45,Friuli,Udinese,Milan,0 - 3
+38,4,21/09/2025 10:30,Olimpico,Lazio,Roma,0 - 1
+31,4,21/09/2025 13:00,Olimpico Grande Torino,Torino,Atalanta,0 - 3
+35,4,21/09/2025 13:00,Giovanni Zini,Cremonese,Parma,0 - 0
+36,4,21/09/2025 16:00,Artemio Franchi,Fiorentina,Como,1 - 2
+37,4,21/09/2025 18:45,San Siro,Inter,Sassuolo,2 - 1
+40,4,22/09/2025 18:45,Diego Armando Maradona,Napoli,Pisa,3 - 2
+42,5,27/09/2025 13:00,Giuseppe Sinigaglia,Como,Cremonese,1 - 1
+44,5,27/09/2025 16:00,Juventus Stadium,Juventus,Atalanta,1 - 1
+41,5,27/09/2025 18:45,Unipol Domus,Cagliari,Inter,0 - 2
+50,5,28/09/2025 10:30,Mapei Stadium - Città del Tricolore,Sassuolo,Udinese,3 - 1
+48,5,28/09/2025 13:00,Garibaldi,Pisa,Fiorentina,0 - 0
+49,5,28/09/2025 13:00,Olimpico,Roma,Hellas Verona,2 - 0
+45,5,28/09/2025 16:00,Ettore Giardiniero - Via del mare,Lecce,Bologna,2 - 2
+46,5,28/09/2025 18:45,San Siro,Milan,Napoli,2 - 1
+47,5,29/09/2025 16:30,Ennio Tardini,Parma,Torino,2 - 1
+43,5,29/09/2025 18:45,Luigi Ferraris,Genoa,Lazio,0 - 3
+60,6,03/10/2025 18:45,Marcantonio Bentegodi,Hellas Verona,Sassuolo,0 - 1
+56,6,04/10/2025 13:00,Olimpico,Lazio,Torino,3 - 3
+58,6,04/10/2025 13:00,Ennio Tardini,Parma,Lecce,0 - 1
+54,6,04/10/2025 16:00,San Siro,Inter,Cremonese,4 - 1
+51,6,04/10/2025 18:45,Atleti Azzurri d'Italia,Atalanta,Como,1 - 1
+59,6,05/10/2025 10:30,Friuli,Udinese,Cagliari,1 - 1
+52,6,05/10/2025 13:00,Renato Dall'Ara,Bologna,Pisa,4 - 0
+53,6,05/10/2025 13:00,Artemio Franchi,Fiorentina,Roma,1 - 2
+57,6,05/10/2025 16:00,Diego Armando Maradona,Napoli,Genoa,2 - 1
+55,6,05/10/2025 18:45,Juventus Stadium,Juventus,Milan,0 - 0
+66,7,18/10/2025 13:00,Ettore Giardiniero - Via del mare,Lecce,Sassuolo,0 - 0
+68,7,18/10/2025 13:00,Garibaldi,Pisa,Hellas Verona,0 - 0
+70,7,18/10/2025 16:00,Olimpico Grande Torino,Torino,Napoli,1 - 0
+69,7,18/10/2025 18:45,Olimpico,Roma,Inter,0 - 1
+63,7,19/10/2025 10:30,Giuseppe Sinigaglia,Como,Juventus,2 - 0
+62,7,19/10/2025 13:00,Unipol Domus,Cagliari,Bologna,0 - 2
+65,7,19/10/2025 13:00,Luigi Ferraris,Genoa,Parma,0 - 0
+61,7,19/10/2025 16:00,Atleti Azzurri d'Italia,Atalanta,Lazio,0 - 0
+67,7,19/10/2025 18:45,San Siro,Milan,Fiorentina,2 - 1
+64,7,20/10/2025 18:45,Giovanni Zini,Cremonese,Udinese,1 - 1
+76,8,24/10/2025 18:45,San Siro,Milan,Pisa,2 - 2
+71,8,25/10/2025 13:00,Friuli,Udinese,Lecce,3 - 2
+78,8,25/10/2025 13:00,Ennio Tardini,Parma,Como,0 - 0
+77,8,25/10/2025 16:00,Diego Armando Maradona,Napoli,Inter,3 - 1
+73,8,25/10/2025 18:45,Giovanni Zini,Cremonese,Atalanta,1 - 1
+80,8,26/10/2025 11:30,Olimpico Grande Torino,Torino,Genoa,2 - 1
+72,8,26/10/2025 14:00,Marcantonio Bentegodi,Hellas Verona,Cagliari,2 - 2
+79,8,26/10/2025 14:00,Mapei Stadium - Città del Tricolore,Sassuolo,Roma,0 - 1
+74,8,26/10/2025 17:00,Artemio Franchi,Fiorentina,Bologna,2 - 2
+75,8,26/10/2025 19:45,Olimpico,Lazio,Juventus,1 - 0
+88,9,28/10/2025 17:30,Ettore Giardiniero - Via del mare,Lecce,Napoli,0 - 1
+81,9,28/10/2025 19:45,Atleti Azzurri d'Italia,Atalanta,Milan,1 - 1
+84,9,29/10/2025 17:30,Giuseppe Sinigaglia,Como,Hellas Verona,3 - 1
+87,9,29/10/2025 17:30,Juventus Stadium,Juventus,Udinese,3 - 1
+90,9,29/10/2025 17:30,Olimpico,Roma,Parma,2 - 1
+82,9,29/10/2025 19:45,Renato Dall'Ara,Bologna,Torino,0 - 0
+85,9,29/10/2025 19:45,Luigi Ferraris,Genoa,Cremonese,0 - 2
+86,9,29/10/2025 19:45,San Siro,Inter,Fiorentina,3 - 0
+83,9,30/10/2025 17:30,Unipol Domus,Cagliari,Sassuolo,1 - 2
+89,9,30/10/2025 19:45,Garibaldi,Pisa,Lazio,0 - 0
+99,10,01/11/2025 14:00,Friuli,Udinese,Atalanta,1 - 0
+95,10,01/11/2025 17:00,Diego Armando Maradona,Napoli,Como,0 - 0
+91,10,01/11/2025 19:45,Giovanni Zini,Cremonese,Juventus,1 - 2
+100,10,02/11/2025 11:30,Marcantonio Bentegodi,Hellas Verona,Inter,1 - 2
+92,10,02/11/2025 14:00,Artemio Franchi,Fiorentina,Lecce,0 - 1
+98,10,02/11/2025 14:00,Olimpico Grande Torino,Torino,Pisa,2 - 2
+96,10,02/11/2025 17:00,Ennio Tardini,Parma,Bologna,1 - 3
+94,10,02/11/2025 19:45,San Siro,Milan,Roma,1 - 0
+97,10,03/11/2025 17:30,Mapei Stadium - Città del Tricolore,Sassuolo,Genoa,1 - 2
+93,10,03/11/2025 19:45,Olimpico,Lazio,Cagliari,2 - 0
+109,11,07/11/2025 19:45,Garibaldi,Pisa,Cremonese,1 - 0
+103,11,08/11/2025 14:00,Giuseppe Sinigaglia,Como,Cagliari,0 - 0
+107,11,08/11/2025 14:00,Ettore Giardiniero - Via del mare,Lecce,Hellas Verona,0 - 0
+106,11,08/11/2025 17:00,Juventus Stadium,Juventus,Torino,0 - 0
+108,11,08/11/2025 19:45,Ennio Tardini,Parma,Milan,2 - 2
+101,11,09/11/2025 11:30,Atleti Azzurri d'Italia,Atalanta,Sassuolo,0 - 3
+102,11,09/11/2025 14:00,Renato Dall'Ara,Bologna,Napoli,2 - 0
+104,11,09/11/2025 14:00,Luigi Ferraris,Genoa,Fiorentina,2 - 2
+110,11,09/11/2025 17:00,Olimpico,Roma,Udinese,2 - 0
+105,11,09/11/2025 19:45,San Siro,Inter,Lazio,2 - 0
+112,12,22/11/2025 14:00,Unipol Domus,Cagliari,Genoa,3 - 3
+120,12,22/11/2025 14:00,Friuli,Udinese,Bologna,0 - 3
+114,12,22/11/2025 17:00,Artemio Franchi,Fiorentina,Juventus,1 - 1
+117,12,22/11/2025 19:45,Diego Armando Maradona,Napoli,Atalanta,3 - 1
+111,12,23/11/2025 11:30,Marcantonio Bentegodi,Hellas Verona,Parma,1 - 2
+113,12,23/11/2025 14:00,Giovanni Zini,Cremonese,Roma,1 - 3
+116,12,23/11/2025 17:00,Olimpico,Lazio,Lecce,2 - 0
+115,12,23/11/2025 19:45,San Siro,Inter,Milan,0 - 1
+119,12,24/11/2025 17:30,Olimpico Grande Torino,Torino,Como,1 - 5
+118,12,24/11/2025 19:45,Mapei Stadium - Città del Tricolore,Sassuolo,Pisa,2 - 2
+123,13,28/11/2025 19:45,Giuseppe Sinigaglia,Como,Sassuolo,2 - 0
+124,13,29/11/2025 14:00,Luigi Ferraris,Genoa,Hellas Verona,2 - 1
+128,13,29/11/2025 14:00,Ennio Tardini,Parma,Udinese,0 - 2
+125,13,29/11/2025 17:00,Juventus Stadium,Juventus,Cagliari,2 - 1
+127,13,29/11/2025 19:45,San Siro,Milan,Lazio,1 - 0
+126,13,30/11/2025 11:30,Ettore Giardiniero - Via del mare,Lecce,Torino,2 - 1
+129,13,30/11/2025 14:00,Garibaldi,Pisa,Inter,0 - 2
+121,13,30/11/2025 17:00,Atleti Azzurri d'Italia,Atalanta,Fiorentina,2 - 0
+130,13,30/11/2025 19:45,Olimpico,Roma,Napoli,0 - 1
+122,13,01/12/2025 19:45,Renato Dall'Ara,Bologna,Cremonese,1 - 3
+137,14,06/12/2025 14:00,Mapei Stadium - Città del Tricolore,Sassuolo,Fiorentina,3 - 1
+133,14,06/12/2025 17:00,San Siro,Inter,Como,4 - 0
+140,14,06/12/2025 19:45,Marcantonio Bentegodi,Hellas Verona,Atalanta,3 - 1
+132,14,07/12/2025 11:30,Giovanni Zini,Cremonese,Lecce,2 - 0
+131,14,07/12/2025 14:00,Unipol Domus,Cagliari,Roma,1 - 0
+134,14,07/12/2025 17:00,Olimpico,Lazio,Bologna,1 - 1
+135,14,07/12/2025 19:45,Diego Armando Maradona,Napoli,Juventus,2 - 1
+136,14,08/12/2025 14:00,Garibaldi,Pisa,Parma,0 - 1
+139,14,08/12/2025 17:00,Friuli,Udinese,Genoa,1 - 2
+138,14,08/12/2025 19:45,Olimpico Grande Torino,Torino,Milan,2 - 3
+145,15,12/12/2025 19:45,Ettore Giardiniero - Via del mare,Lecce,Pisa,1 - 0
+149,15,13/12/2025 14:00,Olimpico Grande Torino,Torino,Cremonese,1 - 0
+147,15,13/12/2025 17:00,Ennio Tardini,Parma,Lazio,0 - 1
+141,15,13/12/2025 19:45,Atleti Azzurri d'Italia,Atalanta,Cagliari,2 - 1
+146,15,14/12/2025 11:30,San Siro,Milan,Sassuolo,2 - 2
+143,15,14/12/2025 14:00,Artemio Franchi,Fiorentina,Hellas Verona,1 - 2
+150,15,14/12/2025 14:00,Friuli,Udinese,Napoli,1 - 0
+144,15,14/12/2025 17:00,Luigi Ferraris,Genoa,Inter,1 - 2
+142,15,14/12/2025 19:45,Renato Dall'Ara,Bologna,Juventus,0 - 1
+148,15,15/12/2025 19:45,Olimpico,Roma,Como,1 - 0
+157,16,20/12/2025 17:00,Olimpico,Lazio,Cremonese,0 - 0
+156,16,20/12/2025 19:45,Juventus Stadium,Juventus,Roma,2 - 1
+151,16,21/12/2025 11:30,Unipol Domus,Cagliari,Pisa,2 - 2
+159,16,21/12/2025 14:00,Mapei Stadium - Città del Tricolore,Sassuolo,Torino,0 - 1
+153,16,21/12/2025 17:00,Artemio Franchi,Fiorentina,Udinese,5 - 1
+154,16,21/12/2025 19:45,Luigi Ferraris,Genoa,Atalanta,0 - 1
+158,16,14/01/2026 17:30,Diego Armando Maradona,Napoli,Parma,0 - 0
+155,16,14/01/2026 19:45,San Siro,Inter,Lecce,1 - 0
+160,16,15/01/2026 17:30,Marcantonio Bentegodi,Hellas Verona,Bologna,2 - 3
+152,16,15/01/2026 19:45,Giuseppe Sinigaglia,Como,Milan,1 - 3
+165,17,27/12/2025 11:30,Ennio Tardini,Parma,Fiorentina,1 - 0
+163,17,27/12/2025 14:00,Ettore Giardiniero - Via del mare,Lecce,Como,0 - 3
+168,17,27/12/2025 14:00,Olimpico Grande Torino,Torino,Cagliari,1 - 2
+169,17,27/12/2025 17:00,Friuli,Udinese,Lazio,1 - 1
+166,17,27/12/2025 19:45,Garibaldi,Pisa,Juventus,0 - 2
+164,17,28/12/2025 11:30,San Siro,Milan,Hellas Verona,3 - 0
+162,17,28/12/2025 14:00,Giovanni Zini,Cremonese,Napoli,0 - 2
+161,17,28/12/2025 17:00,Renato Dall'Ara,Bologna,Sassuolo,1 - 1
+170,17,28/12/2025 19:45,Atleti Azzurri d'Italia,Atalanta,Inter,0 - 1
+167,17,29/12/2025 19:45,Olimpico,Roma,Genoa,3 - 1
+172,18,02/01/2026 19:45,Unipol Domus,Cagliari,Milan,0 - 1
+173,18,03/01/2026 11:30,Giuseppe Sinigaglia,Como,Udinese,1 - 0
+175,18,03/01/2026 14:00,Luigi Ferraris,Genoa,Pisa,1 - 1
+179,18,03/01/2026 14:00,Mapei Stadium - Città del Tricolore,Sassuolo,Parma,1 - 1
+177,18,03/01/2026 17:00,Juventus Stadium,Juventus,Lecce,1 - 1
+171,18,03/01/2026 19:45,Atleti Azzurri d'Italia,Atalanta,Roma,1 - 0
+178,18,04/01/2026 11:30,Olimpico,Lazio,Napoli,0 - 2
+174,18,04/01/2026 14:00,Artemio Franchi,Fiorentina,Cremonese,1 - 0
+180,18,04/01/2026 17:00,Marcantonio Bentegodi,Hellas Verona,Torino,0 - 3
+176,18,04/01/2026 19:45,San Siro,Inter,Bologna,3 - 1
+188,19,06/01/2026 14:00,Garibaldi,Pisa,Como,0 - 3
+184,19,06/01/2026 17:00,Ettore Giardiniero - Via del mare,Lecce,Roma,0 - 2
+189,19,06/01/2026 19:45,Mapei Stadium - Città del Tricolore,Sassuolo,Juventus,0 - 3
+181,19,07/01/2026 17:30,Renato Dall'Ara,Bologna,Atalanta,0 - 2
+186,19,07/01/2026 17:30,Diego Armando Maradona,Napoli,Hellas Verona,2 - 2
+183,19,07/01/2026 19:45,Olimpico,Lazio,Fiorentina,2 - 2
+187,19,07/01/2026 19:45,Ennio Tardini,Parma,Inter,0 - 2
+190,19,07/01/2026 19:45,Olimpico Grande Torino,Torino,Udinese,1 - 2
+182,19,08/01/2026 17:30,Giovanni Zini,Cremonese,Cagliari,2 - 2
+185,19,08/01/2026 19:45,San Siro,Milan,Genoa,1 - 1
+192,20,10/01/2026 14:00,Giuseppe Sinigaglia,Como,Bologna,1 - 1
+199,20,10/01/2026 14:00,Friuli,Udinese,Pisa,2 - 2
+198,20,10/01/2026 17:00,Olimpico,Roma,Sassuolo,2 - 0
+191,20,10/01/2026 19:45,Atleti Azzurri d'Italia,Atalanta,Torino,2 - 0
+197,20,11/01/2026 11:30,Ettore Giardiniero - Via del mare,Lecce,Parma,1 - 2
+193,20,11/01/2026 14:00,Artemio Franchi,Fiorentina,Milan,1 - 1
+200,20,11/01/2026 17:00,Marcantonio Bentegodi,Hellas Verona,Lazio,0 - 1
+195,20,11/01/2026 19:45,San Siro,Inter,Napoli,2 - 2
+194,20,12/01/2026 17:30,Luigi Ferraris,Genoa,Cagliari,3 - 0
+196,20,12/01/2026 19:45,Juventus Stadium,Juventus,Cremonese,5 - 0
+206,21,16/01/2026 19:45,Garibaldi,Pisa,Atalanta,1 - 1
+208,21,17/01/2026 14:00,Friuli,Udinese,Inter,0 - 1
+204,21,17/01/2026 17:00,Diego Armando Maradona,Napoli,Sassuolo,1 - 0
+210,21,17/01/2026 19:45,Unipol Domus,Cagliari,Juventus,1 - 0
+205,21,18/01/2026 11:30,Ennio Tardini,Parma,Genoa,0 - 0
+209,21,18/01/2026 14:00,Renato Dall'Ara,Bologna,Fiorentina,1 - 2
+207,21,18/01/2026 17:00,Olimpico Grande Torino,Torino,Roma,0 - 2
+203,21,18/01/2026 19:45,San Siro,Milan,Lecce,1 - 0
+201,21,19/01/2026 17:30,Giovanni Zini,Cremonese,Hellas Verona,0 - 0
+202,21,19/01/2026 19:45,Olimpico,Lazio,Como,0 - 3
+215,22,23/01/2026 19:45,San Siro,Inter,Pisa,6 - 2
+212,22,24/01/2026 14:00,Giuseppe Sinigaglia,Como,Torino,6 - 0
+213,22,24/01/2026 17:00,Artemio Franchi,Fiorentina,Cagliari,1 - 2
+217,22,24/01/2026 19:45,Ettore Giardiniero - Via del mare,Lecce,Lazio,0 - 0
+219,22,25/01/2026 11:30,Mapei Stadium - Città del Tricolore,Sassuolo,Cremonese,1 - 0
+211,22,25/01/2026 14:00,Atleti Azzurri d'Italia,Atalanta,Parma,4 - 0
+214,22,25/01/2026 14:00,Luigi Ferraris,Genoa,Bologna,3 - 2
+216,22,25/01/2026 17:00,Juventus Stadium,Juventus,Napoli,3 - 0
+218,22,25/01/2026 19:45,Olimpico,Roma,Milan,1 - 1
+220,22,26/01/2026 19:45,Marcantonio Bentegodi,Hellas Verona,Udinese,1 - 3
+225,23,30/01/2026 19:45,Olimpico,Lazio,Genoa,3 - 2
+228,23,31/01/2026 14:00,Garibaldi,Pisa,Sassuolo,1 - 3
+226,23,31/01/2026 17:00,Diego Armando Maradona,Napoli,Fiorentina,2 - 1
+222,23,31/01/2026 19:45,Unipol Domus,Cagliari,Hellas Verona,4 - 0
+229,23,01/02/2026 11:30,Olimpico Grande Torino,Torino,Lecce,1 - 0
+223,23,01/02/2026 14:00,Giuseppe Sinigaglia,Como,Atalanta,0 - 0
+224,23,01/02/2026 17:00,Giovanni Zini,Cremonese,Inter,0 - 2
+227,23,01/02/2026 19:45,Ennio Tardini,Parma,Juventus,1 - 4
+230,23,02/02/2026 19:45,Friuli,Udinese,Roma,1 - 0
+221,23,03/02/2026 19:45,Renato Dall'Ara,Bologna,Milan,0 - 3
+231,24,06/02/2026 19:45,Marcantonio Bentegodi,Hellas Verona,Pisa,0 - 0
+237,24,07/02/2026 17:00,Luigi Ferraris,Genoa,Napoli,2 - 3
+236,24,07/02/2026 19:45,Artemio Franchi,Fiorentina,Torino,2 - 2
+235,24,08/02/2026 11:30,Renato Dall'Ara,Bologna,Parma,0 - 1
+239,24,08/02/2026 14:00,Ettore Giardiniero - Via del mare,Lecce,Udinese,2 - 1
+232,24,08/02/2026 17:00,Mapei Stadium - Città del Tricolore,Sassuolo,Inter,0 - 5
+238,24,08/02/2026 19:45,Juventus Stadium,Juventus,Lazio,2 - 2
+234,24,09/02/2026 17:30,Atleti Azzurri d'Italia,Atalanta,Cremonese,2 - 1
+233,24,09/02/2026 19:45,Olimpico,Roma,Cagliari,2 - 0
+240,24,18/02/2026 19:45,San Siro,Milan,Como,1 - 1
+248,25,13/02/2026 19:45,Garibaldi,Pisa,Milan,1 - 2
+242,25,14/02/2026 14:00,Giuseppe Sinigaglia,Como,Fiorentina,1 - 2
+245,25,14/02/2026 17:00,Olimpico,Lazio,Atalanta,0 - 2
+244,25,14/02/2026 19:45,San Siro,Inter,Juventus,3 - 2
+250,25,15/02/2026 11:30,Friuli,Udinese,Sassuolo,1 - 2
+243,25,15/02/2026 14:00,Giovanni Zini,Cremonese,Genoa,0 - 0
+247,25,15/02/2026 14:00,Ennio Tardini,Parma,Hellas Verona,2 - 1
+249,25,15/02/2026 17:00,Olimpico Grande Torino,Torino,Bologna,1 - 2
+246,25,15/02/2026 19:45,Diego Armando Maradona,Napoli,Roma,2 - 2
+241,25,16/02/2026 19:45,Unipol Domus,Cagliari,Lecce,0 - 2
+260,26,20/02/2026 19:45,Mapei Stadium - Città del Tricolore,Sassuolo,Hellas Verona,3 - 0
+256,26,21/02/2026 14:00,Juventus Stadium,Juventus,Como,0 - 2
+257,26,21/02/2026 17:00,Ettore Giardiniero - Via del mare,Lecce,Inter,0 - 2
+253,26,21/02/2026 19:45,Unipol Domus,Cagliari,Lazio,0 - 0
+255,26,22/02/2026 11:30,Luigi Ferraris,Genoa,Torino,3 - 0
+251,26,22/02/2026 14:00,Atleti Azzurri d'Italia,Atalanta,Napoli,2 - 1
+258,26,22/02/2026 17:00,San Siro,Milan,Parma,0 - 1
+259,26,22/02/2026 19:45,Olimpico,Roma,Cremonese,3 - 0
+254,26,23/02/2026 17:30,Artemio Franchi,Fiorentina,Pisa,1 - 0
+252,26,23/02/2026 19:45,Renato Dall'Ara,Bologna,Udinese,1 - 0
+263,27,27/02/2026 19:45,Ennio Tardini,Parma,Cagliari,1 - 1
+270,27,28/02/2026 14:00,Giuseppe Sinigaglia,Como,Lecce,3 - 1
+266,27,28/02/2026 17:00,Marcantonio Bentegodi,Hellas Verona,Napoli,1 - 2
+262,27,28/02/2026 19:45,San Siro,Inter,Genoa,2 - 0
+261,27,01/03/2026 11:30,Giovanni Zini,Cremonese,Milan,0 - 2
+269,27,01/03/2026 14:00,Mapei Stadium - Città del Tricolore,Sassuolo,Atalanta,2 - 1
+268,27,01/03/2026 17:00,Olimpico Grande Torino,Torino,Lazio,2 - 0
+265,27,01/03/2026 19:45,Olimpico,Roma,Juventus,3 - 3
+264,27,02/03/2026 17:30,Garibaldi,Pisa,Bologna,0 - 1
+267,27,02/03/2026 19:45,Friuli,Udinese,Fiorentina,3 - 0
+271,28,06/03/2026 19:45,Diego Armando Maradona,Napoli,Torino,2 - 1
+273,28,07/03/2026 14:00,Unipol Domus,Cagliari,Como,1 - 2
+272,28,07/03/2026 17:00,Atleti Azzurri d'Italia,Atalanta,Udinese,2 - 2
+276,28,07/03/2026 19:45,Juventus Stadium,Juventus,Pisa,4 - 0
+278,28,08/03/2026 11:30,Ettore Giardiniero - Via del mare,Lecce,Cremonese,2 - 1
+274,28,08/03/2026 14:00,Artemio Franchi,Fiorentina,Parma,0 - 0
+280,28,08/03/2026 14:00,Renato Dall'Ara,Bologna,Hellas Verona,1 - 2
+275,28,08/03/2026 17:00,Luigi Ferraris,Genoa,Roma,2 - 1
+279,28,08/03/2026 19:45,San Siro,Milan,Inter,1 - 0
+277,28,09/03/2026 19:45,Olimpico,Lazio,Sassuolo,2 - 1
+288,29,13/03/2026 19:45,Olimpico Grande Torino,Torino,Parma,4 - 1
+283,29,14/03/2026 14:00,San Siro,Inter,Atalanta,1 - 1
+285,29,14/03/2026 17:00,Diego Armando Maradona,Napoli,Lecce,2 - 1
+289,29,14/03/2026 19:45,Friuli,Udinese,Juventus,0 - 1
+290,29,15/03/2026 11:30,Marcantonio Bentegodi,Hellas Verona,Genoa,0 - 2
+286,29,15/03/2026 14:00,Garibaldi,Pisa,Cagliari,3 - 1
+287,29,15/03/2026 14:00,Mapei Stadium - Città del Tricolore,Sassuolo,Bologna,0 - 1
+281,29,15/03/2026 17:00,Giuseppe Sinigaglia,Como,Roma,2 - 1
+284,29,15/03/2026 19:45,Olimpico,Lazio,Milan,1 - 0
+282,29,16/03/2026 19:45,Giovanni Zini,Cremonese,Fiorentina,1 - 4
+293,30,20/03/2026 17:30,Unipol Domus,Cagliari,Napoli,0 - 1
+296,30,20/03/2026 19:45,Luigi Ferraris,Genoa,Udinese,0 - 2
+299,30,21/03/2026 14:00,Ennio Tardini,Parma,Cremonese,0 - 2
+298,30,21/03/2026 17:00,San Siro,Milan,Torino,3 - 2
+297,30,21/03/2026 19:45,Juventus Stadium,Juventus,Sassuolo,1 - 1
+294,30,22/03/2026 11:30,Giuseppe Sinigaglia,Como,Pisa,5 - 0
+291,30,22/03/2026 14:00,Atleti Azzurri d'Italia,Atalanta,Hellas Verona,1 - 0
+292,30,22/03/2026 14:00,Renato Dall'Ara,Bologna,Lazio,0 - 2
+300,30,22/03/2026 17:00,Olimpico,Roma,Lecce,1 - 0
+295,30,22/03/2026 19:45,Artemio Franchi,Fiorentina,Inter,1 - 1
+308,31,04/04/2026 13:00,Mapei Stadium - Città del Tricolore,Sassuolo,Cagliari,2 - 1
+310,31,04/04/2026 16:00,Marcantonio Bentegodi,Hellas Verona,Fiorentina,0 - 1
+304,31,04/04/2026 18:45,Olimpico,Lazio,Parma,1 - 1
+301,31,05/04/2026 13:00,Giovanni Zini,Cremonese,Bologna,1 - 2
+307,31,05/04/2026 16:00,Garibaldi,Pisa,Torino,0 - 1
+302,31,05/04/2026 18:45,San Siro,Inter,Roma,5 - 2
+309,31,06/04/2026 10:30,Friuli,Udinese,Como,0 - 0
+305,31,06/04/2026 13:00,Ettore Giardiniero - Via del mare,Lecce,Atalanta,0 - 3
+303,31,06/04/2026 16:00,Juventus Stadium,Juventus,Genoa,2 - 0
+306,31,06/04/2026 18:45,Diego Armando Maradona,Napoli,Milan,1 - 0
+319,32,10/04/2026 18:45,Olimpico,Roma,Pisa,3 - 0
+313,32,11/04/2026 13:00,Unipol Domus,Cagliari,Cremonese,1 - 0
+320,32,11/04/2026 13:00,Olimpico Grande Torino,Torino,Hellas Verona,2 - 1
+317,32,11/04/2026 16:00,San Siro,Milan,Udinese,0 - 3
+311,32,11/04/2026 18:45,Atleti Azzurri d'Italia,Atalanta,Juventus,0 - 1
+316,32,12/04/2026 10:30,Luigi Ferraris,Genoa,Sassuolo,2 - 1
+318,32,12/04/2026 13:00,Ennio Tardini,Parma,Napoli,1 - 1
+312,32,12/04/2026 16:00,Renato Dall'Ara,Bologna,Lecce,2 - 0
+314,32,12/04/2026 18:45,Giuseppe Sinigaglia,Como,Inter,3 - 4
+315,32,13/04/2026 18:45,Artemio Franchi,Fiorentina,Lazio,1 - 0
+327,33,17/04/2026 16:30,Mapei Stadium - Città del Tricolore,Sassuolo,Como,2 - 1
+321,33,17/04/2026 18:45,San Siro,Inter,Cagliari,3 - 0
+328,33,18/04/2026 13:00,Friuli,Udinese,Parma,0 - 1
+324,33,18/04/2026 16:00,Diego Armando Maradona,Napoli,Lazio,0 - 2
+326,33,18/04/2026 18:45,Olimpico,Roma,Atalanta,1 - 1
+330,33,19/04/2026 10:30,Giovanni Zini,Cremonese,Torino,0 - 0
+329,33,19/04/2026 13:00,Marcantonio Bentegodi,Hellas Verona,Milan,0 - 1
+325,33,19/04/2026 16:00,Garibaldi,Pisa,Genoa,1 - 2
+322,33,19/04/2026 18:45,Juventus Stadium,Juventus,Bologna,2 - 0
+323,33,20/04/2026 18:45,Ettore Giardiniero - Via del mare,Lecce,Fiorentina,1 - 1
+337,34,24/04/2026 18:45,Diego Armando Maradona,Napoli,Cremonese,4 - 0
+338,34,25/04/2026 13:00,Ennio Tardini,Parma,Pisa,1 - 0
+331,34,25/04/2026 16:00,Renato Dall'Ara,Bologna,Roma,0 - 2
+340,34,25/04/2026 18:45,Marcantonio Bentegodi,Hellas Verona,Lecce,0 - 0
+333,34,26/04/2026 10:30,Artemio Franchi,Fiorentina,Sassuolo,0 - 0
+334,34,26/04/2026 13:00,Luigi Ferraris,Genoa,Como,0 - 2
+339,34,26/04/2026 16:00,Olimpico Grande Torino,Torino,Inter,2 - 2
+336,34,26/04/2026 18:45,San Siro,Milan,Juventus,0 - 0
+332,34,27/04/2026 16:30,Unipol Domus,Cagliari,Atalanta,3 - 2
+335,34,27/04/2026 18:45,Olimpico,Lazio,Udinese,3 - 3
+347,35,01/05/2026 18:45,Garibaldi,Pisa,Lecce,1 - 2
+350,35,02/05/2026 13:00,Friuli,Udinese,Torino,2 - 0
+343,35,02/05/2026 16:00,Giuseppe Sinigaglia,Como,Napoli,0 - 0
+341,35,02/05/2026 18:45,Atleti Azzurri d'Italia,Atalanta,Genoa,0 - 0
+342,35,03/05/2026 10:30,Renato Dall'Ara,Bologna,Cagliari,0 - 0
+349,35,03/05/2026 13:00,Mapei Stadium - Città del Tricolore,Sassuolo,Milan,2 - 0
+346,35,03/05/2026 16:00,Juventus Stadium,Juventus,Hellas Verona,1 - 1
+345,35,03/05/2026 18:45,San Siro,Inter,Parma,2 - 0
+344,35,04/05/2026 16:30,Giovanni Zini,Cremonese,Lazio,1 - 2
+348,35,04/05/2026 18:45,Olimpico,Roma,Fiorentina,4 - 0
+360,36,08/05/2026 18:45,Olimpico Grande Torino,Torino,Sassuolo,2 - 1
+352,36,09/05/2026 13:00,Unipol Domus,Cagliari,Udinese,0 - 2
+355,36,09/05/2026 16:00,Olimpico,Lazio,Inter,0 - 3
+356,36,09/05/2026 18:45,Ettore Giardiniero - Via del mare,Lecce,Juventus,0 - 1
+351,36,10/05/2026 10:30,Marcantonio Bentegodi,Hellas Verona,Como,0 - 1
+353,36,10/05/2026 13:00,Giovanni Zini,Cremonese,Pisa,3 - 0
+354,36,10/05/2026 13:00,Artemio Franchi,Fiorentina,Genoa,0 - 0
+359,36,10/05/2026 16:00,Ennio Tardini,Parma,Roma,2 - 3
+357,36,10/05/2026 18:45,San Siro,Milan,Atalanta,2 - 3
+358,36,11/05/2026 18:45,Diego Armando Maradona,Napoli,Bologna,2 - 3
+363,37,17/05/2026 10:00,Giuseppe Sinigaglia,Como,Parma,1 - 0
+364,37,17/05/2026 10:00,Luigi Ferraris,Genoa,Milan,1 - 2
+366,37,17/05/2026 10:00,Juventus Stadium,Juventus,Fiorentina,0 - 2
+367,37,17/05/2026 10:00,Garibaldi,Pisa,Napoli,0 - 3
+368,37,17/05/2026 10:00,Olimpico,Roma,Lazio,2 - 0
+365,37,17/05/2026 13:00,San Siro,Inter,Hellas Verona,1 - 1
+361,37,17/05/2026 16:00,Atleti Azzurri d'Italia,Atalanta,Bologna,0 - 1
+362,37,17/05/2026 18:45,Unipol Domus,Cagliari,Torino,2 - 1
+369,37,17/05/2026 18:45,Mapei Stadium - Città del Tricolore,Sassuolo,Lecce,2 - 3
+370,37,17/05/2026 18:45,Friuli,Udinese,Cremonese,0 - 1
+373,38,22/05/2026 18:45,Artemio Franchi,Fiorentina,Atalanta,1 - 1
+371,38,23/05/2026 16:00,Renato Dall'Ara,Bologna,Inter,3 - 3
+374,38,23/05/2026 18:45,Olimpico,Lazio,Pisa,2 - 1
+378,38,24/05/2026 13:00,Ennio Tardini,Parma,Sassuolo,1 - 0
+377,38,24/05/2026 16:00,Diego Armando Maradona,Napoli,Udinese,1 - 0
+372,38,24/05/2026 18:45,Giovanni Zini,Cremonese,Como,1 - 4
+375,38,24/05/2026 18:45,Ettore Giardiniero - Via del mare,Lecce,Genoa,1 - 0
+376,38,24/05/2026 18:45,San Siro,Milan,Cagliari,1 - 2
+379,38,24/05/2026 18:45,Olimpico Grande Torino,Torino,Juventus,2 - 2
+380,38,24/05/2026 18:45,Marcantonio Bentegodi,Hellas Verona,Roma,0 - 2

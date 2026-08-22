@@ -150,16 +150,52 @@ senza spendere una richiesta.
 - Il calendario oltre domani: la scheda squadra non puo' mostrare "tutti i
   prossimi incontri" (Fase 3, punto 5).
 - I pronostici escono ~24 ore prima della partita, non con giorni di anticipo.
-- La stagione 2025/26 non e' recuperabile **con il piano gratuito**: resta un
-  buco fra lo storico 2022-2024 e la raccolta che parte adesso. Con un piano a
-  pagamento si riempie, e il lavoro e' gia' pronto: vedi
-  [Ricomprare una stagione passata](#ricomprare-una-stagione-passata).
+- I **tabellini** di una stagione che non abbiamo raccolto giorno per giorno:
+  formazioni, voti e marcatori si comprano, non si trovano in un file di
+  risultati. Vedi [Ricomprare una stagione passata](#ricomprare-una-stagione-passata).
+
+## Importare una stagione da un file
+
+Il buco fra lo storico 2022-2024 e la raccolta giornaliera si puo' chiudere
+**senza spendere niente**, se di quella stagione esiste un file di risultati
+(i calendari in CSV che si scaricano in giro vanno benissimo).
+
+```bash
+python scripts/importa_risultati.py serie-a-2025-UTC.csv --solo-verifica
+python scripts/importa_risultati.py serie-a-2025-UTC.csv
+```
+
+Il primo comando non scrive niente: legge il file, aggancia ogni squadra al suo
+id e mostra cosa entrerebbe. Il secondo importa davvero, in
+`data/importato/<anno>/`, e da li' la stagione entra nel modello da sola.
+
+**Perche' basta un file di risultati.** Il modello di squadra impara da cinque
+cose per partita — data, le due squadre, i due gol — e un calendario le ha
+tutte. Quello che manca (formazioni, tabellini, voti) non entra nella stima
+delle forze: serve alle pagine dei giocatori, e quello si compra.
+
+Due cose che il comando fa e che sembrano dettagli:
+
+- **aggancia i nomi agli id senza indovinare.** Il file scrive "Milan", l'API
+  dice "AC Milan": riconosciuti come la stessa squadra, altrimenti sarebbero
+  due meta' di storia e due forze deboli. Una squadra che non riesce a
+  riconoscere **ferma l'importazione** invece di entrare con un id inventato;
+  in quel caso si passa a mano, `--squadra "Pisa=801"`;
+- **controlla che il file sia un campionato.** N squadre, N*(N-1) partite,
+  ognuna N-1 in casa e N-1 fuori, nessun accoppiamento ripetuto. Un file monco
+  si dichiara e non entra, a meno di chiederlo con `--anche-se-incompleto`.
+
+Le partite importate hanno id riconoscibili (`92025001`) e vivono in una
+cartella separata da quelle comprate. Se un giorno la stessa stagione viene
+ricomprata davvero, **vince il dato pagato** e l'importato si fa da parte da
+solo: non serve cancellare niente.
 
 ## Ricomprare una stagione passata
 
-Il buco fra lo storico e la raccolta giornaliera si chiude solo pagando: e' il
-filtro per stagione del piano gratuito, non una limitazione del codice. Il
-giorno in cui il piano cambia, il lavoro e' due comandi.
+Un file di risultati da' i gol, non i tabellini. Per avere formazioni, voti e
+marcatori di una stagione passata bisogna comprarla: e' il filtro per stagione
+del piano gratuito, non una limitazione del codice. Il giorno in cui il piano
+cambia, il lavoro e' due comandi.
 
 ```bash
 python scripts/riempi_storico.py --solo-verifica   # il piano copre la stagione?
@@ -242,32 +278,53 @@ da' gia' circa il 45%. Le metriche sono **Brier score**, **curva di calibrazione
 (quando dico 30%, succede il 30% delle volte?) e confronto con le quote di
 chiusura come baseline. Lo schema prevede questo fin dall'inizio.
 
-### Risultati del backtest (stagione 2024/25)
+### Risultati del backtest (stagioni 2024/25 e 2025/26)
 
-`scripts/backtest.py` rigioca la stagione giornata per giornata: per ogni
+`scripts/backtest.py` rigioca una stagione giornata per giornata: per ogni
 giornata stima il modello **solo** sulle partite concluse prima del primo calcio
 d'inizio, poi pronostica. Il modello non vede mai il futuro, nemmeno di un'ora.
-377 partite pronosticate, 38 giornate, zero richieste API (legge dalla cache).
+Zero richieste API: legge dalle stesse sorgenti del sito.
 
-| 1X2 | Brier | guadagno del modello |
+```bash
+python scripts/backtest.py                  # l'ultima stagione completa
+python scripts/backtest.py --stagione 2024  # una in particolare
+```
+
+| 1X2 | 2024/25 | 2025/26 |
 |---|---|---|
-| **Modello Dixon-Coles** | **0.5862** | — |
-| sempre 1/3 - 1/3 - 1/3 | 0.6667 | 12.1% |
-| sempre le frequenze di lega | 0.6602 | 11.2% |
+| **Modello Dixon-Coles** | **0.5862** | **0.5955** |
+| sempre 1/3 - 1/3 - 1/3 | 0.6667 | 0.6667 |
+| sempre le frequenze di lega | 0.6602 | 0.6575 |
+| guadagno sul caso puro | 12.1% | 10.7% |
 
-Log loss 0.9798. Esito piu' probabile azzeccato nel 52.0% dei casi.
+Log loss 0.9798 e 0.9978. Esito piu' probabile azzeccato nel 52.0% e 52.8% dei
+casi. Le due stagioni sono state rigiocate in modo indipendente: il taglio e'
+sull'ora di inizio, quindi nessuna partita del 2025/26 entra nella stima di una
+del 2024/25 (il numero del 2024/25 infatti non si e' mosso di un millesimo dopo
+aver aggiunto in archivio la stagione successiva).
 
-**Sull'1X2 il modello aggiunge informazione reale.** Sui gol totali no: Over 2.5
-sta a 0.2530 contro una baseline di 0.2496, Gol/NoGol a 0.2556 contro 0.2498 —
-cioe' leggermente **peggio** che dire sempre la media di campionato. La
-distribuzione dei gol totali e' quasi tutta rumore in Serie A; sapere chi e' piu'
-forte sposta il *chi vince*, non il *quanti gol*. E' un limite del modello, non
-un bug, e va detto invece che nascosto dietro il buon numero dell'1X2.
+**Sull'1X2 il modello aggiunge informazione reale, e lo fa due volte su due.**
+Sui gol totali no, e nemmeno questo e' un caso isolato:
 
-La calibrazione dell'1X2 e' buona nella fascia centrale (scarti dell'1-3%) e
-peggiora agli estremi, dove i campioni sono piccoli. Manca ancora il confronto
-con le quote di chiusura, che e' la baseline seria: senza quello sappiamo di
-battere l'ignoranza, non il mercato.
+| | 2024/25 | baseline | 2025/26 | baseline |
+|---|---|---|---|---|
+| Over 2.5 | 0.2530 | 0.2496 | 0.2552 | 0.2483 |
+| Gol/NoGol | 0.2556 | 0.2498 | 0.2511 | 0.2476 |
+
+In entrambe le stagioni il modello fa leggermente **peggio** che dire sempre la
+media di campionato. La distribuzione dei gol totali e' quasi tutta rumore in
+Serie A; sapere chi e' piu' forte sposta il *chi vince*, non il *quanti gol*.
+E' un limite del modello, non un bug, e va detto invece che nascosto dietro il
+buon numero dell'1X2.
+
+La calibrazione lo mostra bene. Sull'1X2 e' buona nella fascia centrale (scarti
+dell'1-3%) e peggiora agli estremi, dove i campioni sono piccoli. Sull'Over 2.5
+invece sbanda: nel 2025/26, quando il modello dava 35.5% l'Over si e' avverato
+il 48.4% delle volte, e quando dava 63.9% si e' avverato il 45.5%. Il modello
+non e' incerto sui gol, e' **sistematicamente storto**.
+
+Manca ancora il confronto con le quote di chiusura, che e' la baseline seria:
+senza quello sappiamo di battere l'ignoranza, non il mercato.
 
 ### La stessa misura, ma sul campo
 
