@@ -400,7 +400,7 @@
     </p>
     {% if tabellino_fermo %}
     <p class="spiega avviso">
-      <b>Di questa partita il tabellino non e' ancora definitivo.</b> L'API sta
+      <strong>Di questa partita il tabellino non e' ancora definitivo.</strong> L'API sta
       ancora servendo la lettura del feed live &mdash; minuti fermi a meta'
       partita, nessun gol &mdash; invece del tabellino finale, quindi minuti,
       gol e voti qui sotto restano vuoti. Non e' un dato mancante: il
@@ -452,7 +452,10 @@
                       <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
                     </td>
                     <td class="destra mono fioco">
-                      {%- if v.sceso_in_campo %}{{ v.minuti }}'{% else %}non entrato{% endif -%}
+                      {#- Tre casi, non due: "non lo so" non e' "non e' entrato". -#}
+                      {%- if v.sceso_in_campo is none %}&mdash;
+                      {%- elif v.sceso_in_campo %}{{ v.minuti }}'
+                      {%- else %}non entrato{% endif -%}
                     </td>
                     <td class="destra mono {{ 'forte' if v.gol or v.assist }}">
                       {%- if v.gol or v.assist %}{{ v.gol }}+{{ v.assist }}{% endif -%}

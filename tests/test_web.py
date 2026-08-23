@@ -594,6 +594,61 @@ def test_un_tabellino_buono_non_fa_comparire_l_avviso(con_dettagli, client):
     assert "ancora definitivo" not in r.text
 
 
+def _tabellino_fermo():
+    """Un tabellino provvisorio: nessuno arriva in fondo, e i gol non ci sono."""
+    return [
+        {"team": {"id": 1, "name": "Inter"}, "players": [
+            {"player": {"id": 10, "name": "Bomber"},
+             "statistics": [{"games": {"minutes": 64, "number": 9, "position": "F",
+                                       "rating": "6.5", "substitute": False},
+                             "shots": {"total": None, "on": None},
+                             "goals": {"total": None, "assists": None},
+                             "cards": {"yellow": None, "red": None}}]},
+        ]},
+    ]
+
+
+def test_col_tabellino_fermo_la_panchina_non_dichiara_chi_non_e_entrato(motore, client):
+    """"Non lo so" non si scrive "non entrato": e' una bugia verificabile.
+
+    In Genoa-Napoli del 22 agosto 2026 il tabellino era fermo al 64' e la
+    panchina diceva "non entrato" accanto a De Bruyne e Vergara, cioe' ai due
+    che erano entrati al 67' e avevano segnato entrambi i gol elencati dalla
+    stessa pagina poche righe sopra.
+    """
+    motore.store.save_detail(PARTITA_CON_DETTAGLI, "lineups", _formazioni_finte())
+    motore.store.save_detail(PARTITA_CON_DETTAGLI, "players", _tabellino_fermo())
+
+    r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
+
+    assert r.status_code == 200
+    assert "Mai Entrato" in r.text        # il nome resta: quello lo sappiamo
+    assert "non entrato" not in r.text    # se sia entrato, no
+
+
+def test_senza_tabellino_la_panchina_non_dichiara_chi_non_e_entrato(motore, client):
+    """Stessa ignoranza, altra causa: il tabellino non e' mai stato raccolto."""
+    motore.store.save_detail(PARTITA_CON_DETTAGLI, "lineups", _formazioni_finte())
+
+    r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
+
+    assert r.status_code == 200
+    assert "Mai Entrato" in r.text
+    assert "non entrato" not in r.text
+
+
+def test_col_tabellino_buono_la_panchina_dichiara_chi_non_e_entrato(con_dettagli, client):
+    """Quando il tabellino c'e', un panchinaro che non compare non e' entrato.
+
+    L'endpoint elenca anche i subentrati mai usati, coi minuti a ``null``:
+    la loro assenza dalle prestazioni e' un fatto, non un buco.
+    """
+    r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
+
+    assert r.status_code == 200
+    assert "non entrato" in r.text
+
+
 def test_la_scheda_partita_dichiara_le_formazioni_mancanti(client):
     r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
 

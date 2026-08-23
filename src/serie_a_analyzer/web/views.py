@@ -515,8 +515,25 @@ def blocchi_formazione(formazioni, prestazioni) -> list[dict]:
     le statistiche dicono come e' andata. Se le seconde mancano — succede, e
     non e' un guasto — restano i nomi, che e' comunque piu' di quanto la scheda
     partita mostrasse prima.
+
+    `sceso_in_campo` ha tre valori e non due, ed e' la parte che conta.
+    Senza tabellino l'assenza di una prestazione non significa "non e'
+    entrato": significa che non lo sappiamo. Distinguerli non e' pignoleria —
+    in Genoa-Napoli del 22 agosto 2026, con il tabellino fermo alla lettura
+    del feed live, la panchina dichiarava "non entrato" accanto a De Bruyne e
+    Vergara, cioe' ai due che erano entrati al 67' e avevano segnato
+    entrambi i gol mostrati dalla stessa pagina poche righe sopra.
+
+    La condizione e' "nessuna prestazione in tutta la partita" e non "il
+    tabellino e' provvisorio", perche' le cause sono due — mai raccolto, o
+    raccolto e scartato — e portano alla stessa ignoranza. Se il tabellino
+    c'e' ed e' buono, un panchinaro che non compare non e' entrato davvero:
+    l'endpoint elenca anche i subentrati mai usati, con i minuti a ``null``.
     """
     per_giocatore = {p.player_id: p for p in prestazioni}
+    # Una partita conclusa col tabellino buono ha almeno i ventidue titolari:
+    # se qui non c'e' nessuno, di questa partita non sappiamo niente.
+    tabellino_noto = bool(per_giocatore)
 
     def voce(riga) -> dict:
         prestazione = per_giocatore.get(riga.player_id)
@@ -531,7 +548,7 @@ def blocchi_formazione(formazioni, prestazioni) -> list[dict]:
             "gialli": prestazione.gialli if prestazione else 0,
             "rossi": prestazione.rossi if prestazione else 0,
             "voto": prestazione.voto if prestazione else None,
-            "sceso_in_campo": prestazione is not None,
+            "sceso_in_campo": (prestazione is not None) if tabellino_noto else None,
         }
 
     return [
