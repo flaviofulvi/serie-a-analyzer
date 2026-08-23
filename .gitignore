@@ -13,3 +13,8 @@ data/journal.json
 data/notifiche.json
 data/storico/
 data/importato/
+
+# Appunti locali: la lista dei lavori e il comando per avviare il sito.
+# Non tracciati di proposito, sono la scrivania di chi sviluppa.
+DA_FARE.txt
+run
