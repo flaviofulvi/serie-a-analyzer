@@ -294,14 +294,27 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   messaggio è legato a un orario, si guarda cosa c'è sul disco e cosa non è
   ancora stato detto, ed è così che il resoconto delle 23:45 arriva la mattina
   dopo se il computer era spento — e **niente si manda due volte**
-  (`RegistroInvii`, un JSON in `data/notifiche.json`). Si mandano due messaggi
-  al giorno che si vogliono leggere (i pronostici del mattino, com'è andata la
-  sera) e sei allarmi che si devono leggere — l'ultimo, `tabellini_fermi`,
-  arriva **tardi apposta**: un tabellino provvisorio nelle ore dopo la partita
+  (`RegistroInvii`, un JSON in `data/notifiche.json`). Si mandano tre messaggi
+  che si vogliono leggere (i pronostici del mattino, com'è andata la sera, e i
+  **tabellini di una giornata arrivati tutti**) e sei allarmi che si devono
+  leggere. Sui tabellini i messaggi sono **due e opposti**, e una giornata ne
+  prende uno solo. `tabellini_fermi` arriva **tardi apposta**: un tabellino
+  provvisorio nelle ore dopo la partita
   e' normale e si risolve da solo, e dirlo ogni sera insegnerebbe a ignorare il
   messaggio. Parte quando i tentativi sono finiti (`tabellini_arresi` in
   `data/store.py`), cioe' nell'unico momento in cui il sistema ha smesso di
-  poter rimediare da solo; le ~90 esecuzioni quotidiane
+  poter rimediare da solo. `tabellini_pronti` è il caso opposto e vale la pena
+  dirlo perché è il momento in cui quelle partite **cominciano a servire**: il
+  risultato c'era già, minuti/gol/assist/voti no, e sono quelli che alimentano
+  `players.py` e `pesi.py`. Un dettaglio che sembra un dettaglio e non lo è:
+  quel messaggio **non** usa la regola di `giorno_da_riepilogare` («il più
+  recente, e se è già stato detto fermati»). I risultati arrivano in ordine, i
+  tabellini no — il 22 agosto 2026 due partite del sabato erano ferme mentre
+  la domenica era a posto — e fermarsi al più recente lascerebbe il giorno
+  rimasto indietro senza annuncio **per sempre**, cioè proprio quello che si
+  stava aspettando. Si guardano quindi tutti i giorni di una finestra di
+  sette, che è ciò che impedisce alla prima esecuzione di annunciare l'intera
+  stagione; le ~90 esecuzioni quotidiane
   che non fanno niente restano mute, perché dirle insegnerebbe a ignorare le
   altre. Il modello non entra nel modulo: `invia_quel_che_serve` riceve i
   pronostici come **funzione**, così si decide se c'è qualcosa da dire prima

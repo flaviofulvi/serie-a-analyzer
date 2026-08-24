@@ -125,6 +125,31 @@ def tabellini_arresi(store, fixture_ids: Iterable[int]) -> list[int]:
     ]
 
 
+def tabellini_pronti(store, fixture_ids: Iterable[int]) -> list[int]:
+    """Le partite il cui tabellino c'e' **ed e' quello finale**.
+
+    E' l'altra faccia di `tabellini_arresi`, e serve a dire la buona notizia
+    invece del guasto: quando i tabellini di una giornata sono arrivati tutti,
+    quelle partite entrano nelle schede giocatore e nel peso di chi scende in
+    campo — cioe' e' successo qualcosa, non e' solo finita un'attesa.
+
+    "Pronto" vuol dire due cose insieme, e togliendone una si mentirebbe: la
+    busta c'e' (non e' vuota) e non e' la fotografia del feed live scattata a
+    partita in corso. Un tabellino provvisorio non e' un tabellino parziale, e'
+    un tabellino sbagliato, e conta come non ancora arrivato — che e' la
+    verita', perche' arrivera'.
+
+    Sta qui e non in `notifiche.py` per la stessa ragione di `tabellini_arresi`:
+    la domanda e' sull'archivio, non sul canale. Chi manda i messaggi riceve la
+    risposta gia' pronta e non sa nulla di buste.
+    """
+    return [
+        fid for fid in fixture_ids
+        if (payload := store.load_detail(fid, "players"))
+        and not tabellino_provvisorio(payload)
+    ]
+
+
 def _oggi() -> date:
     """Oggi in UTC, cioe' il fuso in cui l'API espone le date delle partite."""
     return datetime.now(timezone.utc).date()

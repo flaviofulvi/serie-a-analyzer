@@ -16,6 +16,7 @@ from serie_a_analyzer.data.store import (
     DayJournal,
     SeasonStore,
     tabellini_arresi,
+    tabellini_pronti,
     tabellino_provvisorio,
 )
 
@@ -209,6 +210,37 @@ def test_un_tabellino_buono_non_e_mai_un_caso_perso(store):
     store.save_detail(2, "players", [])
 
     assert tabellini_arresi(store, [1, 2]) == []
+
+
+def test_un_tabellino_finito_e_pronto(store):
+    store.save_detail(1, "players", _tabellino(90))
+
+    assert tabellini_pronti(store, [1]) == [1]
+
+
+def test_un_tabellino_provvisorio_non_e_pronto(store):
+    """Non e' un tabellino parziale, e' un tabellino sbagliato: conta come non
+    ancora arrivato, che e' la verita' — arrivera'."""
+    store.save_detail(1, "players", _tabellino(64))
+
+    assert tabellini_pronti(store, [1]) == []
+
+
+def test_un_tabellino_che_manca_non_e_pronto(store):
+    store.save_detail(1, "players", [])
+
+    assert tabellini_pronti(store, [1, 2]) == []
+
+
+def test_pronti_e_arresi_non_si_sovrappongono_mai(store):
+    """Una partita non puo' essere insieme "arrivata" e "persa": i due
+    messaggi che ne nascono dicono il contrario l'uno dell'altro."""
+    store.save_detail(1, "players", _tabellino(90))
+    for _ in range(MAX_TABELLINO_ATTEMPTS):
+        store.save_detail(2, "players", _tabellino(64))
+
+    assert tabellini_pronti(store, [1, 2]) == [1]
+    assert tabellini_arresi(store, [1, 2]) == [2]
 
 
 def test_la_regola_del_tabellino_vale_solo_per_i_tabellini(store):

@@ -28,6 +28,7 @@ from serie_a_analyzer.notifiche import (
     invia_quel_che_serve,
     messaggio_pronostici,
     messaggio_resoconto,
+    messaggio_tabellini_pronti,
     partite_senza_quote,
 )
 
@@ -374,3 +375,163 @@ def test_il_messaggio_dice_le_partite_e_cosa_significa():
     # Deve dire che NON e' un guasto della raccolta, o si va a cercare un
     # errore dove non c'e'.
     assert "guasto" in testo
+
+
+# ---- tabellini arrivati tutti ------------------------------------------------
+#
+# L'altra faccia dell'allarme qui sopra, e il momento in cui vale la pena
+# dirlo: non quando finisce un'attesa ma quando quelle partite COMINCIANO A
+# SERVIRE — il risultato c'era gia', minuti gol assist e voti no, e sono
+# quelli che alimentano le schede giocatore e il peso delle formazioni.
+
+
+@respx.mock
+def test_i_tabellini_arrivati_si_dicono_una_volta_sola(telegram, registro):
+    rotta = _rotta()
+    finita = _partita(-30, fid=11, gol=(2, 1))
+
+    for _ in range(3):
+        invia_quel_che_serve(
+            telegram, registro, [finita],
+            pronostici=lambda _p: [],
+            tabellini_pronti=[11],
+            adesso=ORA,
+        )
+
+    assert rotta.call_count == 1
+
+
+@respx.mock
+def test_una_giornata_incompleta_non_si_annuncia(telegram, registro):
+    """Basta un tabellino che manca e la giornata non e' pronta: dirlo lo
+    stesso significherebbe promettere dati che non ci sono."""
+    rotta = _rotta()
+    una = _partita(-30, fid=11, gol=(2, 1))
+    altra = _partita(-28, fid=12, gol=(0, 0))
+
+    mandati = invia_quel_che_serve(
+        telegram, registro, [una, altra],
+        pronostici=lambda _p: [],
+        tabellini_pronti=[11],
+        adesso=ORA,
+    )
+
+    assert not any(c.startswith("tabellini-pronti") for c in mandati)
+    assert rotta.call_count == 0
+
+
+@respx.mock
+def test_quando_arriva_anche_lultimo_la_giornata_si_annuncia(telegram, registro):
+    rotta = _rotta()
+    una = _partita(-30, fid=11, gol=(2, 1))
+    altra = _partita(-28, fid=12, gol=(0, 0))
+
+    invia_quel_che_serve(
+        telegram, registro, [una, altra],
+        pronostici=lambda _p: [], tabellini_pronti=[11], adesso=ORA,
+    )
+    mandati = invia_quel_che_serve(
+        telegram, registro, [una, altra],
+        pronostici=lambda _p: [], tabellini_pronti=[11, 12], adesso=ORA,
+    )
+
+    assert any(c.startswith("tabellini-pronti") for c in mandati)
+    assert rotta.call_count == 1
+
+
+@respx.mock
+def test_una_partita_ancora_da_giocare_non_blocca_il_giorno_prima(telegram, registro):
+    """Il giorno di ieri e' concluso e completo; oggi si gioca ancora. Il
+    messaggio riguarda ieri, e non deve aspettare stasera."""
+    rotta = _rotta()
+    ieri = _partita(-30, fid=11, gol=(2, 1))
+    oggi = _partita(+5, fid=12)
+
+    mandati = invia_quel_che_serve(
+        telegram, registro, [ieri, oggi],
+        pronostici=lambda _p: [], tabellini_pronti=[11], adesso=ORA,
+    )
+
+    # Parte anche il messaggio dei pronostici di oggi: qui interessa solo che
+    # quello dei tabellini non abbia aspettato la fine della giornata.
+    assert any(c.startswith("tabellini-pronti") for c in mandati)
+    assert rotta.call_count == 2
+
+
+@respx.mock
+def test_un_giorno_rimasto_indietro_viene_annunciato_quando_arriva(
+    telegram, registro
+):
+    """E' la ragione per cui questa notifica non si ferma al giorno piu'
+    recente, ed e' successo davvero: il 23 agosto 2026 le partite della
+    domenica avevano gia' i tabellini mentre due del sabato erano ferme alla
+    fotografia del feed live. Fermandosi al piu' recente, il sabato — cioe'
+    proprio quello che si stava aspettando — non verrebbe annunciato mai."""
+    rotta = _rotta()
+    sabato = _partita(-40, fid=21, gol=(1, 1))
+    domenica = _partita(-20, fid=22, gol=(2, 0))
+
+    primi = invia_quel_che_serve(
+        telegram, registro, [sabato, domenica],
+        pronostici=lambda _p: [], tabellini_pronti=[22], adesso=ORA,
+    )
+    dopo = invia_quel_che_serve(
+        telegram, registro, [sabato, domenica],
+        pronostici=lambda _p: [], tabellini_pronti=[21, 22], adesso=ORA,
+    )
+
+    assert primi == [f"tabellini-pronti:{domenica.kickoff_utc.date()}"]
+    assert dopo == [f"tabellini-pronti:{sabato.kickoff_utc.date()}"]
+    assert rotta.call_count == 2
+
+
+@respx.mock
+def test_le_giornate_archeologiche_restano_fuori(telegram, registro):
+    """Il prezzo di non fermarsi al giorno piu' recente sarebbe un messaggio
+    per ogni giornata gia' archiviata, la prima volta che si accende questa
+    notifica. Lo paga la finestra: oltre una settimana non e' piu' una
+    novita'."""
+    rotta = _rotta()
+    vecchie = [
+        _partita(-24 * giorni, fid=100 + giorni, gol=(1, 0))
+        for giorni in range(8, 30)
+    ]
+    recente = _partita(-30, fid=11, gol=(2, 1))
+
+    mandati = invia_quel_che_serve(
+        telegram, registro, vecchie + [recente],
+        pronostici=lambda _p: [],
+        tabellini_pronti=[f.api_id for f in vecchie] + [11],
+        adesso=ORA,
+    )
+
+    assert [c for c in mandati if c.startswith("tabellini-pronti")] == [
+        f"tabellini-pronti:{recente.kickoff_utc.date()}"
+    ]
+    assert rotta.call_count == 1
+
+
+@respx.mock
+def test_senza_lelenco_dei_pronti_non_si_dice_niente(telegram, registro):
+    """Chi non passa l'argomento non deve ricevere il messaggio: e' la stessa
+    regola di `esiti_congelati`, che spegne il resoconto se non c'e'."""
+    rotta = _rotta()
+
+    mandati = invia_quel_che_serve(
+        telegram, registro, [_partita(-30, fid=11, gol=(2, 1))],
+        pronostici=lambda _p: [], adesso=ORA,
+    )
+
+    assert not any(c.startswith("tabellini-pronti") for c in mandati)
+    assert rotta.call_count == 0
+
+
+def test_il_messaggio_dice_quante_partite_e_a_cosa_servono():
+    da = datetime(2026, 8, 23, 18, 30, tzinfo=timezone.utc).date()
+    testo = messaggio_tabellini_pronti(da, [_partita(-30, fid=11, gol=(2, 1))])
+
+    assert "23/08/2026" in testo
+    assert "Inter" in testo and "Monza" in testo
+    # Deve dire a cosa servono, altrimenti e' un messaggio che non chiede
+    # niente e non spiega niente.
+    assert "schede giocatore" in testo

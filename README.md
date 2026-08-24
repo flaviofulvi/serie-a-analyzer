@@ -44,7 +44,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
 
-pytest                          # 399 test
+pytest                          # 532 test
 python scripts/demo_engine.py   # dimostrazione su dati sintetici
 ```
 
@@ -170,18 +170,27 @@ senza spendere una richiesta.
 ### Le notifiche su Telegram
 
 Facoltative: senza `TELEGRAM_BOT_TOKEN` in `.env` il sistema funziona identico
-e in silenzio. Quando ci sono, arrivano **due messaggi al giorno** e **cinque
-allarmi**, e nient'altro:
+e in silenzio. Quando ci sono, arrivano **tre messaggi che si vogliono
+leggere** e **sei allarmi**, e nient'altro:
 
 | messaggio | quando |
 |---|---|
 | i pronostici della giornata | la mattina, se si gioca e non e' ancora cominciato niente |
 | com'e' andata | quando l'ultima partita del giorno e' finita |
+| **tabellini completi** | di una giornata sono arrivati tutti, e sono quelli veri |
 | quote perse per sempre | una partita e' cominciata senza che ne avessimo una quota |
 | raccolta fallita | un giorno della finestra non e' entrato in archivio |
 | la raccolta e' ferma | nessuna esecuzione riuscita da 16 ore |
 | budget quasi esaurito | restano meno di 15 richieste |
+| tabellini rimasti a meta' | l'API non li ha consolidati e i tentativi sono finiti |
 | **le formazioni si sono accese** | i tabellini bastano: da oggi due pronostici per partita |
+
+Sui tabellini i messaggi sono **due e opposti**, e una giornata ne prende uno
+solo: "completi" quando sono arrivati tutti, "rimasti a meta'" quando il
+sistema ha smesso di poter rimediare. Il primo conta perche' e' il momento in
+cui quelle partite **cominciano a servire** — il risultato c'era gia', minuti
+gol assist e voti no, e sono quelli che alimentano le schede giocatore e il
+peso di chi scende in campo.
 
 Nessuno di questi e' legato a un orario. Si decide da **cosa c'e' sul disco e
 cosa non e' ancora stato detto**, ed e' per questo che il resoconto della sera
@@ -546,7 +555,7 @@ src/serie_a_analyzer/
     views.py         dal dominio a cio' che i template disegnano
     templates/       hub e scheda partita
     static/          foglio di stile
-tests/               399 test
+tests/               532 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata

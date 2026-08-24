@@ -18,11 +18,16 @@ Quattro regole danno forma a questo modulo, e sono tutte difensive.
   `web/views.py`: un avviso che c'e' sempre non lo legge piu' nessuno, e un
   bot che ripete lo stesso messaggio e' un log con le notifiche accese.
 
-Da qui la scelta di cosa mandare: due messaggi al giorno che si vogliono
-leggere — i pronostici della giornata e com'e' andata — e cinque allarmi che
-si devono leggere, ognuno dei quali segnala qualcosa di rotto. Le novanta
-esecuzioni al giorno che non fanno niente restano mute: dirle sarebbe
-insegnare a ignorare le altre.
+Da qui la scelta di cosa mandare: i messaggi che si vogliono leggere — i
+pronostici della giornata, com'e' andata, e i tabellini di una giornata
+arrivati tutti — e gli allarmi che si devono leggere, ognuno dei quali segnala
+qualcosa di rotto. Le novanta esecuzioni al giorno che non fanno niente
+restano mute: dirle sarebbe insegnare a ignorare le altre.
+
+Sui tabellini i messaggi sono due e dicono il contrario l'uno dell'altro:
+`tabellini_pronti` quando sono arrivati tutti e quelli veri, `tabellini_fermi`
+quando il sistema ha smesso di poter rimediare. Una giornata prende uno dei
+due, mai entrambi.
 """
 
 from __future__ import annotations
@@ -61,6 +66,14 @@ ORE_SENZA_RACCOLTA = 16
 # partite non sono comunque piu' recuperabili, e ricordarle ogni giorno
 # trasformerebbe un allarme in un rimprovero quotidiano.
 _GIORNI_ALLARME_QUOTE = timedelta(days=3)
+
+# Quanto indietro guardare per annunciare i tabellini arrivati. Piu' lunga
+# della finestra delle quote perche' un tabellino puo' consolidarsi giorni
+# dopo la partita, e piu' corta di "sempre" per due ragioni: oltre una
+# settimana non e' piu' una novita', e senza un limite la prima esecuzione
+# dopo aver acceso questa notifica manderebbe un messaggio per ogni giornata
+# gia' archiviata.
+_GIORNI_TABELLINI_PRONTI = timedelta(days=7)
 
 
 # ---- il canale --------------------------------------------------------------
@@ -221,6 +234,52 @@ def giorno_da_riepilogare(
             return None
         return giorno
     return None
+
+
+def giorni_coi_tabellini_pronti(
+    partite: Iterable[Any],
+    pronti: Iterable[int],
+    registro: RegistroInvii,
+    adesso: datetime | None = None,
+) -> list[date]:
+    """I giorni conclusi i cui tabellini sono arrivati **tutti**, e non detti.
+
+    Dal piu' vecchio al piu' recente, cosi' i messaggi arrivano in ordine.
+
+    Qui NON si usa la regola di `giorno_da_riepilogare` — "il piu' recente, e
+    se e' gia' stato detto fermati" — e la differenza e' tutta nel dato. Un
+    risultato arriva quando la partita finisce, quindi i giorni si completano
+    in ordine e guardare solo l'ultimo basta. Un tabellino no: il 22 agosto
+    2026 due partite del sabato avevano ancora la fotografia del feed live
+    mentre quelle della domenica erano gia' a posto. Fermandosi al piu'
+    recente, la domenica verrebbe annunciata e il sabato — che e' proprio
+    quello che si stava aspettando — non lo sarebbe **mai piu'**.
+
+    Il prezzo di guardarli tutti sarebbe un messaggio per ogni giornata della
+    stagione la prima volta che si accende questa notifica. Da qui la
+    finestra: oltre una settimana un tabellino non e' piu' una novita', e chi
+    aspettava ha gia' smesso di aspettare.
+
+    Un giorno con un tabellino ancora provvisorio non e' pronto e non compare.
+    Un giorno i cui tabellini si sono arresi per sempre (`tabellini_arresi`)
+    non comparira' mai, ed e' giusto: quel caso ha gia' il suo allarme, che
+    dice l'esatto contrario di questo messaggio.
+    """
+    ora = adesso or datetime.now(timezone.utc)
+    sono_pronti = set(pronti)
+    limite = ora.date() - _GIORNI_TABELLINI_PRONTI
+
+    per_giorno: dict[date, list[Any]] = {}
+    for f in partite:
+        if f.kickoff_utc <= ora and getattr(f, "is_finished", False):
+            if _giorno(f) >= limite:
+                per_giorno.setdefault(_giorno(f), []).append(f)
+
+    return [
+        giorno for giorno in sorted(per_giorno)
+        if all(f.api_id in sono_pronti for f in per_giorno[giorno])
+        and not registro.gia_inviato(f"tabellini-pronti:{giorno}")
+    ]
 
 
 def partite_senza_quote(partite: Iterable[Any], quotate: Iterable[int]) -> list[Any]:
@@ -498,6 +557,37 @@ def allarme_formazioni_accese(pronte: int, totale: int) -> str:
     ])
 
 
+def messaggio_tabellini_pronti(giorno: date, partite: list[Any]) -> str:
+    """I tabellini di una giornata sono arrivati tutti, e quelli veri.
+
+    Non e' un allarme: e' il secondo messaggio del sistema che porta una buona
+    notizia, insieme a quello delle formazioni accese. Ha senso mandarlo
+    perche' e' il momento in cui quelle partite **cominciano a servire** —
+    prima il risultato c'era gia', ma minuti, gol, assist e voti no, e sono
+    quelli che alimentano le schede giocatore e il peso di chi scende in campo.
+
+    Dice anche quante volte l'attesa e' stata piu' lunga del solito, perche' e'
+    proprio la domanda che ci si fa dopo aver ricevuto un allarme sui tabellini
+    fermi: quelli di ieri, alla fine, sono arrivati?
+    """
+    righe = [
+        f"<b>Tabellini completi — {giorno.strftime('%d/%m/%Y')}</b>",
+        "",
+        f"Tutte e {len(partite)} le partite hanno il tabellino definitivo:",
+        "minuti, gol, assist, cartellini e voti.",
+        "",
+    ]
+    for f in sorted(partite, key=lambda f: f.kickoff_utc):
+        righe.append(f"  {f.home_team_name} - {f.away_team_name}")
+    righe += [
+        "",
+        "<i>Da adesso quelle partite entrano nelle schede giocatore e nel peso",
+        "di chi scende in campo, e contano fra quelle che accendono i",
+        "pronostici con le formazioni ufficiali.</i>",
+    ]
+    return "\n".join(righe)
+
+
 def allarme_tabellini_fermi(partite: list[Any]) -> str:
     """Un tabellino sbagliato che nessuno chiedera' piu'.
 
@@ -547,6 +637,7 @@ def invia_quel_che_serve(
     giorni_falliti: list[str] | None = None,
     errore_raccolta: str | None = None,
     tabellini_fermi: list[Any] | None = None,
+    tabellini_pronti: Iterable[int] | None = None,
     adesso: datetime | None = None,
 ) -> list[str]:
     """Manda tutto cio' che oggi non e' ancora stato detto, e dice cosa ha mandato.
@@ -575,6 +666,9 @@ def invia_quel_che_serve(
         tabellini_fermi: le partite il cui tabellino e' sbagliato e non verra'
             piu' richiesto (`tabellini_arresi` in data/store.py). Gia' pronte:
             qui non si guarda nessun archivio.
+        tabellini_pronti: gli id delle partite il cui tabellino c'e' ed e'
+            quello finale (`tabellini_pronti` in data/store.py). Stessa regola:
+            la domanda sull'archivio l'ha gia' fatta il chiamante.
         adesso: istante di riferimento, per i test.
 
     Returns:
@@ -634,6 +728,17 @@ def invia_quel_che_serve(
             (f for f in partite if _giorno(f) == giorno), key=lambda f: f.kickoff_utc
         )
         prova(f"pronostici:{giorno}", messaggio_pronostici(giorno, pronostici(del_giorno)))
+
+    if tabellini_pronti is not None:
+        for giorno in giorni_coi_tabellini_pronti(
+            partite, tabellini_pronti, registro, ora
+        ):
+            prova(
+                f"tabellini-pronti:{giorno}",
+                messaggio_tabellini_pronti(
+                    giorno, [f for f in partite if _giorno(f) == giorno]
+                ),
+            )
 
     if esiti_congelati is not None:
         giorno = giorno_da_riepilogare(partite, registro, ora)

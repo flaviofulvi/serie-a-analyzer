@@ -47,7 +47,7 @@ from serie_a_analyzer.data.indisponibili import (
 )
 from serie_a_analyzer.data.odds import ORE_DI_RACCOLTA, raccogli_quote
 from serie_a_analyzer.data.parsers import parse_fixtures
-from serie_a_analyzer.data.store import tabellini_arresi
+from serie_a_analyzer.data.store import tabellini_arresi, tabellini_pronti
 
 logging.basicConfig(level=logging.INFO, format="  %(message)s")
 
@@ -166,9 +166,11 @@ def _notifica(settings, client, store, reports=()) -> list[str]:
     partite = parse_fixtures(list(store.load_fixtures().values()))
     falliti = [r.day.isoformat() for r in reports if r.error]
 
-    # I tabellini su cui il sistema ha smesso di provare. Si calcolano qui,
-    # dove c'e' l'archivio: `notifiche.py` riceve partite, non buste.
+    # I tabellini su cui il sistema ha smesso di provare, e quelli arrivati
+    # per davvero. Si calcolano qui, dove c'e' l'archivio: `notifiche.py`
+    # riceve partite, non buste.
     fermi = set(tabellini_arresi(store, (f.api_id for f in partite)))
+    pronti = tabellini_pronti(store, (f.api_id for f in partite))
 
     return invia_quel_che_serve(
         telegram,
@@ -182,6 +184,7 @@ def _notifica(settings, client, store, reports=()) -> list[str]:
         giorni_falliti=falliti,
         errore_raccolta=next((r.error for r in reports if r.error), None),
         tabellini_fermi=[f for f in partite if f.api_id in fermi],
+        tabellini_pronti=pronti,
     )
 
 
