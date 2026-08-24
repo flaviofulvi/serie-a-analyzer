@@ -113,7 +113,8 @@ def hub(request: Request):
     snap = motore.snapshot()
 
     prossime = _righe(motore, snap.dataset.next_matchday())
-    recenti = _righe(motore, snap.dataset.recent_results(limit=8))
+    # Dieci: una giornata di Serie A intera, non un troncone di giornata.
+    recenti = _righe(motore, snap.dataset.recent_results(limit=10))
 
     forze = []
     if snap.model:
