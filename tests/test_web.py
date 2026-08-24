@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from serie_a_analyzer.config import Settings
+from serie_a_analyzer.data.predictions import registra_partite
 from serie_a_analyzer.web import app as app_module
 from serie_a_analyzer.web.engine import Engine
 
@@ -104,8 +105,45 @@ def motore(tmp_path):
     return eng
 
 
+def _congela_il_passato(eng: Engine) -> None:
+    """Simula un sistema che era acceso anche allora.
+
+    Senza questo le pagine sarebbero un mondo impossibile: partite giocate di
+    cui nessuno aveva mai detto niente prima. E dal momento che le pagine
+    mostrano il pronostico **congelato** e non un ricalcolo, un mondo cosi'
+    non farebbe apparire nessun numero sulle partite passate — nascondendo
+    proprio cio' che questi test vogliono guardare.
+
+    Ogni riga viene scritta con ``now`` un'ora prima del suo calcio d'inizio,
+    che e' l'unico modo di passare dal controllo del registro: una partita
+    gia' cominciata non si registra, ed e' la regola che rende sensato tutto
+    il resto.
+    """
+    snap = eng.snapshot()
+    if snap.model is None:
+        return
+    for partita in snap.dataset.finished:
+        registra_partite(
+            eng.pronostici, snap.model, [partita], snap.dataset.name,
+            now=partita.kickoff_utc - timedelta(hours=1),
+        )
+
+
 @pytest.fixture
 def client(motore, monkeypatch):
+    monkeypatch.setattr(app_module, "_engine", motore)
+    return TestClient(app_module.app)
+
+
+@pytest.fixture
+def client_col_passato(motore, monkeypatch):
+    """Come ``client``, ma in un mondo dove il sistema girava gia' allora.
+
+    Sta a parte e non nel fixture di tutti perche' i pronostici delle partite
+    concluse sono esattamente cio' che altri test verificano non venga scritto
+    da solo: metterli nel mondo comune ne distruggerebbe la premessa.
+    """
+    _congela_il_passato(motore)
     monkeypatch.setattr(app_module, "_engine", motore)
     return TestClient(app_module.app)
 
@@ -897,12 +935,131 @@ def test_il_punteggio_giusto_col_segno_sbagliato_resta_il_gradino_alto():
     assert riga.precisione == "esatto"
 
 
-def test_l_hub_disegna_i_tre_gradini(client):
+def test_l_hub_disegna_i_tre_gradini(client_col_passato):
     """La pastiglia c'e' e porta la classe del gradino, che e' cio' che tinge."""
-    r = client.get("/")
+    r = client_col_passato.get("/")
     assert 'class="verdetto esatto"' in r.text \
         or 'class="verdetto esito"' in r.text \
         or 'class="verdetto niente"' in r.text
     # Il verdetto non prende piu' l'alfabeto degli esiti: indaco, grigio e
     # arancio restano ai fatti (punteggio e casella accaduta), qui si giudica.
     assert "verdetto ok tinta-" not in r.text
+
+
+# ---- il pronostico di una partita gia' giocata --------------------------------
+#
+# E' il bug che queste righe esistono per non far tornare. La scheda partita e
+# l'hub ricalcolavano il pronostico col modello caldo anche sulle partite
+# concluse; ma il modello viene ristimato su ogni risultato nuovo, quello della
+# partita guardata compreso, e i numeri che ne uscivano erano un ricordo
+# travestito da previsione. Su Venezia-Lecce del 23/08/2026 la pagina diceva
+# 40-31-29 prima e 34-28-38 dopo, con la vittoria del Lecce cresciuta di nove
+# punti a partita finita.
+
+
+def test_una_partita_giocata_mostra_il_pronostico_congelato(motore):
+    """I numeri in pagina sono quelli del registro, non un ricalcolo di oggi."""
+    _congela_il_passato(motore)
+    snap = motore.snapshot()
+    partita = snap.dataset.recent_results(limit=1)[0]
+
+    riga, congelato = app_module._riga(
+        motore, partita, snap.dataset.name, datetime.now(timezone.utc)
+    )
+
+    assert riga.iniziata and riga.congelato
+    assert congelato is not None
+
+    registrato = motore.pronostici.ultimo_per_partita(partita.api_id)
+    mercati = {
+        m["selection"]: m["probability"]
+        for m in motore.pronostici.mercati(registrato["id"])
+        if m["market"] == "1x2"
+    }
+    assert riga.prob.home_win == pytest.approx(mercati["home"])
+    assert riga.prob.draw == pytest.approx(mercati["draw"])
+    assert riga.prob.away_win == pytest.approx(mercati["away"])
+
+
+def test_una_partita_giocata_non_interroga_il_modello_caldo(motore, monkeypatch):
+    """Il modello di oggi non viene proprio consultato, non solo ignorato.
+
+    Confrontare il ricalcolo col congelato non basterebbe: finche' il modello
+    non cambia i due numeri coincidono, e un test cosi' passerebbe anche col
+    bug dentro. Qui la strada del ricalcolo viene minata — se la pagina ci
+    passa, salta.
+    """
+    _congela_il_passato(motore)
+    snap = motore.snapshot()
+    partita = snap.dataset.recent_results(limit=1)[0]
+
+    def vietato(*args, **kwargs):
+        raise AssertionError("una partita gia' giocata non si ripronostica")
+
+    monkeypatch.setattr(Engine, "predict", vietato)
+    monkeypatch.setattr(Engine, "expected_goals", vietato)
+
+    riga, congelato = app_module._riga(
+        motore, partita, snap.dataset.name, datetime.now(timezone.utc)
+    )
+    assert riga.ha_pronostico and congelato is not None
+
+
+def test_una_partita_giocata_senza_registro_non_inventa_un_pronostico(motore):
+    """Meglio dire che non c'era, che mostrarne uno che ha visto il risultato."""
+    snap = motore.snapshot()          # nessun `_congela_il_passato` qui
+    partita = snap.dataset.recent_results(limit=1)[0]
+
+    riga, congelato = app_module._riga(
+        motore, partita, snap.dataset.name, datetime.now(timezone.utc)
+    )
+
+    assert congelato is None
+    assert riga.prob is None
+    assert riga.pronostico_perduto is True
+    assert riga.ha_pronostico is False
+
+
+def test_la_scheda_di_una_partita_giocata_dice_che_il_pronostico_e_congelato(
+    client_col_passato, motore
+):
+    partita = motore.snapshot().dataset.recent_results(limit=1)[0]
+    r = client_col_passato.get(f"/partita/{partita.api_id}")
+
+    assert r.status_code == 200
+    assert "congelate prima del fischio d'inizio" in r.text
+    assert "Non vengono ricalcolate" in r.text
+
+
+def test_la_scheda_distingue_le_due_assenze_di_pronostico(client, motore):
+    """"Non lo so" e "nessuno lo chiese in tempo" non sono la stessa frase."""
+    partita = motore.snapshot().dataset.recent_results(limit=1)[0]
+    r = client.get(f"/partita/{partita.api_id}")
+
+    assert "Nessun pronostico fu registrato" in r.text
+    assert "non conosce almeno una delle due squadre" not in r.text
+
+
+def test_la_griglia_dei_risultati_viene_dalla_matrice_congelata(client_col_passato, motore):
+    """Percentuali congelate e griglia ricalcolata sarebbero due pronostici."""
+    snap = motore.snapshot()
+    partita = snap.dataset.recent_results(limit=1)[0]
+    riga, congelato = app_module._riga(
+        motore, partita, snap.dataset.name, datetime.now(timezone.utc)
+    )
+
+    assert congelato is not None
+    # La casella piu' probabile della griglia e' quella del pronostico mostrato.
+    (casa, ospite), _ = riga.prob.top_scorelines[0]
+    assert congelato.matrice.argmax() == casa * congelato.matrice.shape[1] + ospite
+    assert client_col_passato.get(f"/partita/{partita.api_id}").status_code == 200
+
+
+def test_l_affidabilita_non_compare_su_una_partita_gia_giocata(client_col_passato, motore):
+    """Misura il modello di adesso: accanto a un pronostico di allora inganna."""
+    snap = motore.snapshot()
+    futura = snap.dataset.upcoming()[0]
+    passata = snap.dataset.recent_results(limit=1)[0]
+
+    assert "Su cosa si basa" in client_col_passato.get(f"/partita/{futura.api_id}").text
+    assert "Su cosa si basa" not in client_col_passato.get(f"/partita/{passata.api_id}").text

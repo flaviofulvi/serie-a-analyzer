@@ -87,9 +87,28 @@ class RigaPartita:
     gol_attesi_casa: float | None = None
     gol_attesi_ospite: float | None = None
 
+    # Da dove viene il pronostico qui sopra. Su una partita gia' cominciata
+    # deve venire dal registro, mai da un ricalcolo: il modello caldo e' stato
+    # ristimato includendo quel risultato. Chi costruisce la riga e' `_righe`
+    # in web/app.py; qui si conserva solo per poterlo dire in pagina.
+    iniziata: bool = False
+    congelato: bool = False
+    quando_congelato: str | None = None
+
     @property
     def ha_pronostico(self) -> bool:
         return self.prob is not None
+
+    @property
+    def pronostico_perduto(self) -> bool:
+        """Partita gia' cominciata e nessun pronostico congelato prima del via.
+
+        Va tenuto distinto dal "il modello non conosce le squadre": sono due
+        assenze diverse e dirle uguali sarebbe sbagliato. Questa significa che
+        nessuno era li' a guardare in tempo — di solito perche' la partita e'
+        anteriore al registro — e non c'e' modo di rimediarla adesso.
+        """
+        return self.iniziata and self.prob is None
 
     @property
     def risultato(self) -> str:
@@ -171,6 +190,9 @@ def riga_partita(
     nome,
     prob: MatchProbabilities | None = None,
     gol_attesi: tuple[float, float] | None = None,
+    iniziata: bool = False,
+    congelato: bool = False,
+    quando_congelato: str | None = None,
 ) -> RigaPartita:
     return RigaPartita(
         id=fixture.api_id,
@@ -186,6 +208,9 @@ def riga_partita(
         prob=prob,
         gol_attesi_casa=gol_attesi[0] if gol_attesi else None,
         gol_attesi_ospite=gol_attesi[1] if gol_attesi else None,
+        iniziata=iniziata,
+        congelato=congelato,
+        quando_congelato=quando_congelato,
     )
 
 

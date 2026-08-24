@@ -31,12 +31,30 @@
     </div>
     <div class="corpo">
       <div class="riquadro-vuoto">
-        <h2>Nessun pronostico disponibile</h2>
-        <p>
-          Il modello non conosce almeno una delle due squadre: senza partite
-          giocate non c'e' una forza da stimare. Inventarne una sarebbe peggio
-          che ammettere di non saperlo.
-        </p>
+        {# Due assenze diverse, e dirle uguali sarebbe sbagliato: una si
+           risolvera' da sola quando le squadre avranno giocato, l'altra no. #}
+        {% if p.pronostico_perduto %}
+          <h2>Nessun pronostico fu registrato</h2>
+          <p>
+            Questa partita e' gia' cominciata e nel registro non c'e' niente
+            che sia stato scritto <b>prima</b> del fischio d'inizio.
+          </p>
+          <p>
+            Un pronostico non si puo' fare adesso: il modello e' stato
+            ristimato includendo il risultato di questa stessa partita, quindi
+            saprebbe gia' com'e' finita. Il numero che ne uscirebbe non
+            sarebbe un pronostico ma un ricordo, e mostrarlo direbbe che il
+            modello ci aveva visto giusto quando nessuno gli aveva chiesto
+            niente.
+          </p>
+        {% else %}
+          <h2>Nessun pronostico disponibile</h2>
+          <p>
+            Il modello non conosce almeno una delle due squadre: senza partite
+            giocate non c'e' una forza da stimare. Inventarne una sarebbe peggio
+            che ammettere di non saperlo.
+          </p>
+        {% endif %}
       </div>
     </div>
   </section>
@@ -46,11 +64,16 @@
   <div class="lato">
     <p class="occhiello">Chi vince</p>
     <h2>Esito finale</h2>
-    {% if p.conclusa %}
+    {% if p.congelato %}
       <p class="spiega">
-        Partita <b>gia' giocata</b>. Le probabilita' qui accanto sono quelle
-        del modello <b>di oggi</b>, che ha visto anche questo risultato: non
-        sono un pronostico, sono un modo di leggere la partita.
+        Partita <b>gia' cominciata</b>. Le probabilita' qui accanto sono
+        quelle <b>congelate prima del fischio d'inizio</b>{% if p.quando_congelato %},
+        registrate {{ p.quando_congelato }}{% endif %}: sono il pronostico
+        vero, quello su cui si viene giudicati.
+      </p>
+      <p class="spiega">
+        Non vengono ricalcolate. Il modello di oggi ha visto anche questo
+        risultato e darebbe numeri piu' azzeccati che nessuno aveva prima.
       </p>
     {% else %}
       <p class="spiega">

@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
+
 from ..config import (
     Settings,
     build_client,
@@ -36,12 +38,12 @@ from ..data.outcomes import (
     risolvi_pronostici,
 )
 from ..data.players import ArchivioGiocatori, costruisci_archivio
-from ..data.predictions import registra_partite
+from ..data.predictions import MODE_SECCO, registra_partite
 from ..data.importato import firma_importato
 from ..data.store import SeasonStore, StoreUnito
 from ..data.storico import firma_storico
 from ..model.dixon_coles import FittedModel, TeamEvidence, fit_dixon_coles
-from ..model.markets import MatchProbabilities
+from ..model.markets import MatchProbabilities, derive_markets
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,40 @@ class Snapshot:
     @property
     def ready(self) -> bool:
         return self.model is not None
+
+
+@dataclass(frozen=True)
+class Congelato:
+    """Un pronostico letto dal registro, com'era prima del fischio d'inizio.
+
+    Esiste perche' su una partita gia' cominciata il modello caldo non e' piu'
+    un testimone attendibile: e' stato ristimato **includendo quel risultato**,
+    quindi ricalcolare darebbe numeri che nessuno aveva prima e li mostrerebbe
+    come se fossero stati detti in tempo. E' la stessa regola che il registro
+    applica in scrittura (`data/predictions.py` rifiuta una partita gia'
+    iniziata), applicata finalmente anche in lettura.
+
+    La matrice viaggia insieme alle probabilita' perche' la griglia dei
+    risultati esatti deve venire dalla stessa fonte: percentuali congelate
+    accanto a una griglia ricalcolata sarebbero due pronostici diversi sulla
+    stessa pagina. I gol attesi vengono dalla riga e non dalla matrice: sono i
+    lambda esatti che il modello dichiaro' allora, non la loro media troncata.
+    """
+
+    prob: MatchProbabilities
+    matrice: np.ndarray
+    gol_attesi: tuple[float, float]
+    quando: datetime | None
+
+
+def _istante(testo: str | None) -> datetime | None:
+    """La data di un pronostico, o ``None`` se il registro non la sa dire."""
+    if not testo:
+        return None
+    try:
+        return datetime.fromisoformat(testo)
+    except ValueError:
+        return None
 
 
 class Engine:
@@ -207,6 +243,43 @@ class Engine:
             )
         except KeyError:
             return None
+
+    def congelato(self, fixture_id: int, mode: str = MODE_SECCO) -> Congelato | None:
+        """Il pronostico registrato su questa partita, o ``None`` se non c'e'.
+
+        Il compagno di ``predict`` per le partite gia' cominciate: quello
+        risponde "cosa penso adesso", questo "cosa avevo detto prima". Sulle
+        partite gia' giocate solo il secondo e' onesto.
+
+        Non passa dallo snapshot, ed e' voluto: una riga di registro e'
+        immutabile per costruzione e non ha niente da spartire col modello
+        caldo, che nel frattempo e' stato ristimato. ``ultimo_per_partita``
+        basta a prendere quella giusta senza filtrare sull'orario, perche' dopo
+        il fischio d'inizio il registro non accetta scritture: l'ultima riga
+        **e'** per costruzione l'ultima precedente al via.
+
+        Come il resto delle letture di registro, non solleva mai: una pagina
+        senza pronostico e' un disservizio, una pagina che non si apre e' un
+        guasto.
+        """
+        try:
+            riga = self.pronostici.ultimo_per_partita(fixture_id, mode)
+            if riga is None:
+                return None
+            matrice = self.pronostici.matrice(riga["id"])
+        except Exception as exc:  # il registro non deve mai far cadere il web
+            logger.warning(
+                "pronostico congelato non leggibile (partita %s): %s", fixture_id, exc
+            )
+            return None
+        if matrice is None:
+            return None
+        return Congelato(
+            prob=derive_markets(matrice),
+            matrice=matrice,
+            gol_attesi=(float(riga["lambda_home"]), float(riga["lambda_away"])),
+            quando=_istante(riga["created_at"]),
+        )
 
     def affidabilita(
         self, home_id: int, away_id: int

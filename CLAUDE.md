@@ -346,6 +346,29 @@ e non avranno mai i tabellini, e contarle direbbe "copertura parziale" su un
 campionato coperto per intero — la stessa trappola già evitata per lo storico
 2022-2024.
 
+Da quale fonte esca un pronostico dipende da **quando** lo si guarda, e la
+regola sta in `_riga` (`web/app.py`): prima del fischio d'inizio dal modello
+caldo, dopo dal registro e mai da un ricalcolo (`Engine.congelato`). È la
+stessa regola che `data/predictions.py` applica già in scrittura, applicata
+finalmente anche in lettura — mancava, e il 24 agosto 2026 l'utente se ne
+accorse da solo: Venezia-Lecce diceva 40-31-29 il sabato e 34-28-38 a partita
+finita, con la vittoria del Lecce cresciuta di nove punti *dopo* che il Lecce
+aveva vinto. Non è un dettaglio di presentazione: il modello viene ristimato su
+ogni risultato nuovo, quello della partita guardata compreso, quindi un
+ricalcolo è un ricordo travestito da previsione, ed è la differenza fra un
+modello che ci ha preso e uno che sembra averci preso. Le misure (`accuratezza`,
+Brier) non erano toccate — leggono dal database — ma era proprio la pagina a
+raccontare la storia sbagliata.
+Tre corollari, tutti già in codice: la **griglia dei risultati esatti** viene
+dalla matrice congelata e non da una nuova (percentuali di allora accanto a una
+griglia di oggi sarebbero due pronostici sulla stessa pagina); l'**affidabilità**
+sparisce sulle partite già cominciate, perché misura il modello di *adesso* e
+accanto a un pronostico di allora descriverebbe una stima diversa e più
+informata; e una partita giocata **senza** riga nel registro non mostra nessun
+pronostico e dice perché — "non lo so" e "nessuno lo chiese in tempo" sono due
+assenze diverse, e la seconda non si rimedia più. Vale per tutte le stagioni
+precedenti al registro, che infatti in pagina non hanno percentuali.
+
 `web/views.py` traduce il dominio in ciò che i template disegnano; `web/app.py`
 espone hub, scheda partita, `/giocatori` (marcatori, assist, voti),
 `/giocatore/<id>`, `/squadra/<id>`, `/stato` (JSON: cosa sa il sistema, budget

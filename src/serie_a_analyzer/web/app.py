@@ -9,6 +9,7 @@ verranno appese qui man mano.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..data.players import formazioni_partita, gol_partita, prestazioni_partita
 from ..data.store import tabellino_provvisorio
-from .engine import Engine
+from .engine import Congelato, Engine
 from .views import (
     blocchi_formazione,
     blocchi_indisponibili,
@@ -53,18 +54,56 @@ def engine() -> Engine:
     return _engine
 
 
+def _riga(motore: Engine, fixture, nome, adesso: datetime) -> tuple:
+    """Una partita come riga, col pronostico preso dalla fonte giusta.
+
+    Quale sia la fonte giusta dipende da **quando** si guarda, ed e' la stessa
+    regola che il registro applica in scrittura (`data/predictions.py` rifiuta
+    una partita gia' iniziata):
+
+    * prima del fischio d'inizio il modello caldo e' l'unica risposta
+      possibile, ed e' anche quella giusta;
+    * dopo, l'unica onesta e' quella congelata. Ricalcolare mostrerebbe un
+      pronostico che ha gia' visto il risultato — il modello viene ristimato
+      su ogni nuova partita, quella compresa — spacciandolo per uno fatto in
+      tempo. Non e' un dettaglio di presentazione: e' la differenza fra un
+      modello che ci ha preso e uno che sembra averci preso.
+
+    Restituisce anche il ``Congelato``, che la scheda partita usa per la
+    griglia dei risultati esatti: deve venire dalla stessa fonte delle
+    percentuali, altrimenti la pagina mostrerebbe due pronostici diversi.
+    """
+    iniziata = fixture.kickoff_utc <= adesso
+    congelato: Congelato | None = None
+
+    if iniziata:
+        congelato = motore.congelato(fixture.api_id)
+        prob = congelato.prob if congelato else None
+        gol_attesi = congelato.gol_attesi if congelato else None
+    else:
+        prob = motore.predict(fixture.home_team_id, fixture.away_team_id)
+        gol_attesi = motore.expected_goals(fixture.home_team_id, fixture.away_team_id)
+
+    riga = riga_partita(
+        fixture, nome,
+        prob=prob,
+        gol_attesi=gol_attesi,
+        iniziata=iniziata,
+        congelato=congelato is not None,
+        quando_congelato=(
+            formatta_data(congelato.quando)
+            if congelato and congelato.quando else None
+        ),
+    )
+    return riga, congelato
+
+
 def _righe(motore: Engine, fixtures) -> list:
     """Trasforma le partite in righe, aggiungendo il pronostico dove possibile."""
     snap = motore.snapshot()
     nome = snap.dataset.name
-    return [
-        riga_partita(
-            f, nome,
-            prob=motore.predict(f.home_team_id, f.away_team_id),
-            gol_attesi=motore.expected_goals(f.home_team_id, f.away_team_id),
-        )
-        for f in fixtures
-    ]
+    adesso = datetime.now(timezone.utc)
+    return [_riga(motore, f, nome, adesso)[0] for f in fixtures]
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -114,15 +153,23 @@ def partita(request: Request, fixture_id: int):
     if fixture is None:
         raise HTTPException(status_code=404, detail="Partita non trovata")
 
-    riga = _righe(motore, [fixture])[0]
+    riga, congelato = _riga(
+        motore, fixture, snap.dataset.name, datetime.now(timezone.utc)
+    )
 
+    # La griglia dei risultati esatti segue la stessa regola del trittico qui
+    # sopra, e per la stessa ragione: su una partita gia' cominciata viene
+    # dalla matrice congelata, non da una ricalcolata adesso. E' proprio la
+    # matrice che il registro salva per questo — da li' ogni mercato si
+    # riderivare mesi dopo.
     griglia = None
-    if snap.model and riga.ha_pronostico:
-        matrice = snap.model.scoreline(
+    if congelato is not None:
+        griglia = griglia_risultati(congelato.matrice)
+    elif snap.model and riga.ha_pronostico:
+        griglia = griglia_risultati(snap.model.scoreline(
             snap.dataset.name(fixture.home_team_id),
             snap.dataset.name(fixture.away_team_id),
-        )
-        griglia = griglia_risultati(matrice)
+        ))
 
     scontri = snap.dataset.head_to_head(fixture.home_team_id, fixture.away_team_id)
     scontri = [s for s in scontri if s.api_id != fixture.api_id][:8]
@@ -150,8 +197,19 @@ def partita(request: Request, fixture_id: int):
         # Quanto il modello sa delle due squadre. Va accanto al pronostico e
         # non in fondo: e' la differenza fra "prudente perche' e' una partita
         # equilibrata" e "prudente perche' non so niente di loro".
-        "affidabilita": righe_affidabilita(
-            motore.affidabilita(fixture.home_team_id, fixture.away_team_id), riga
+        #
+        # Solo sulle partite da giocare, pero'. E' una misura del modello di
+        # **adesso**, e accanto a un pronostico congelato mesi fa descriverebbe
+        # una stima diversa da quella mostrata — per giunta piu' informata,
+        # visto che nel frattempo ha visto anche quella partita. La domanda a
+        # cui risponde e' "di queste due squadre il modello sa qualcosa?", che
+        # ci si fa guardando una partita di domani: su una gia' giocata non e'
+        # solo inutile, e' fuorviante.
+        "affidabilita": (
+            righe_affidabilita(
+                motore.affidabilita(fixture.home_team_id, fixture.away_team_id), riga
+            )
+            if not riga.iniziata else None
         ),
         # Le pagelle vuote hanno due cause diverse, e dirle uguali sarebbe
         # sbagliato: o il tabellino non e' ancora stato raccolto, oppure c'e'
