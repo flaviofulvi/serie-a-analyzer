@@ -33,6 +33,25 @@
   </div>
 {% endmacro %}
 
+{# Il nome di un giocatore, collegato alla sua scheda **solo se quella scheda
+   esiste**. La scheda partita nomina anche chi l'archivio non ha mai visto
+   giocare — gli infortunati per definizione, e i titolari di una partita il
+   cui tabellino e' ancora la fotografia del feed live — e per loro un
+   collegamento porterebbe a un 404. Il nome resta, che e' l'informazione;
+   sparisce solo la promessa di poterci cliccare sopra.
+
+   `schede` va passato dalla pagina: le macro importate senza `with context`
+   non vedono le variabili di chi le usa, ed e' giusto cosi' — una macro che
+   legge di nascosto il contesto del chiamante funziona finche' qualcuno non
+   la importa altrove. #}
+{% macro nome_giocatore(id, nome, schede) %}
+  {%- if id and id in schede -%}
+    <a href="/giocatore/{{ id }}">{{ nome }}</a>
+  {%- else -%}
+    {{ nome }}
+  {%- endif -%}
+{% endmacro %}
+
 {# La barra del muro: il punteggio del modello contro il suo metro di
    paragone, nella stessa pista del trittico. La tacca sta sempre al 70%,
    quindi la barra dice *di quanto* il modello se ne discosta, e righe di

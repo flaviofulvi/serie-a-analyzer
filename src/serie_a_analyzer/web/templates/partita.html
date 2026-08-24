@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "forme.html" import trittico, punteggio, sostanza %}
+{% from "forme.html" import trittico, punteggio, sostanza, nome_giocatore %}
 
 {% block titolo %}{{ p.casa }} - {{ p.ospite }} · Serie A Analyzer{% endblock %}
 
@@ -209,7 +209,7 @@
               <tbody>
                 {% for v in b.assenti %}
                   <tr>
-                    <td><a href="/giocatore/{{ v.id }}">{{ v.nome }}</a></td>
+                    <td>{{ nome_giocatore(v.id, v.nome, schede) }}</td>
                     <td class="destra fioco">{{ v.spiegazione }}</td>
                   </tr>
                 {% endfor %}
@@ -225,7 +225,7 @@
               <tbody>
                 {% for v in b.in_dubbio %}
                   <tr>
-                    <td><a href="/giocatore/{{ v.id }}">{{ v.nome }}</a></td>
+                    <td>{{ nome_giocatore(v.id, v.nome, schede) }}</td>
                     <td class="destra fioco">{{ v.spiegazione }}</td>
                   </tr>
                 {% endfor %}
@@ -391,14 +391,11 @@
           <tr>
             <td class="mono fioco">{{ g.minuto or "?" }}'</td>
             <td>
-              {% if g.marcatore_id %}
-                <a href="/giocatore/{{ g.marcatore_id }}">{{ g.marcatore }}</a>
-              {% else %}{{ g.marcatore }}{% endif %}
+              {{ nome_giocatore(g.marcatore_id, g.marcatore, schede) }}
               {% if g.nota %}<span class="pillola">{{ g.nota }}</span>{% endif %}
               {% if g.assist %}
                 <span class="fioco">assist
-                  {% if g.assist_id %}<a href="/giocatore/{{ g.assist_id }}">{{ g.assist }}</a>
-                  {% else %}{{ g.assist }}{% endif %}</span>
+                  {{ nome_giocatore(g.assist_id, g.assist, schede) }}</span>
               {% endif %}
             </td>
             <td class="destra fioco">{{ g.squadra }}</td>
@@ -451,7 +448,7 @@
                 <tr>
                   <td>
                     <span class="mono fioco">{{ v.numero or "" }}</span>
-                    <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
+                    {{ nome_giocatore(v.id, v.nome, schede) }}
                     {% if v.rossi %}<span class="pillola">espulso</span>{% endif %}
                   </td>
                   <td class="destra mono fioco">{{ v.minuti if v.minuti is not none else "—" }}</td>
@@ -472,7 +469,7 @@
                   <tr>
                     <td>
                       <span class="mono fioco">{{ v.numero or "" }}</span>
-                      <a href="/giocatore/{{ v.id }}">{{ v.nome }}</a>
+                      {{ nome_giocatore(v.id, v.nome, schede) }}
                     </td>
                     <td class="destra mono fioco">
                       {#- Tre casi, non due: "non lo so" non e' "non e' entrato". -#}

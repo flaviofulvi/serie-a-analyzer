@@ -195,6 +195,12 @@ def partita(request: Request, fixture_id: int):
     return templates.TemplateResponse(request, "partita.html", {
         "p": riga,
         "griglia": griglia,
+        # Di chi esiste davvero una scheda. Questa pagina nomina anche chi
+        # l'archivio non ha mai visto giocare — gli infortunati per
+        # definizione — e collegarli tutti significava offrire un 404. Costa
+        # la costruzione dell'archivio giocatori, che e' in cache nel motore e
+        # si rifa' solo quando arrivano dettagli nuovi.
+        "schede": motore.giocatori().conosciuti,
         # Quanto il modello sa delle due squadre. Va accanto al pronostico e
         # non in fondo: e' la differenza fra "prudente perche' e' una partita
         # equilibrata" e "prudente perche' non so niente di loro".

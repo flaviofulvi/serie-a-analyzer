@@ -462,6 +462,20 @@ class ArchivioGiocatori:
             return 0.0
         return self.partite_con_statistiche / self.partite_concluse
 
+    @property
+    def conosciuti(self) -> set[int]:
+        """Gli id per cui una scheda esiste davvero.
+
+        Serve a non offrire un collegamento verso una pagina che risponderebbe
+        404. Capita piu' spesso di quanto sembri: la scheda partita nomina
+        anche chi l'archivio non ha mai visto giocare — gli **infortunati**,
+        per definizione, e i titolari di una partita il cui tabellino e'
+        ancora la fotografia del feed live. Un nome senza collegamento dice la
+        stessa cosa di prima; un collegamento rotto dice che il sito e'
+        sbagliato.
+        """
+        return set(self._per_giocatore)
+
     def scheda(self, player_id: int) -> SchedaGiocatore | None:
         righe = self._per_giocatore.get(player_id)
         if not righe:

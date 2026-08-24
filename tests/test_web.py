@@ -818,6 +818,32 @@ def test_la_scheda_mostra_assenti_e_in_dubbio_separati(client, motore):
     assert "non tiene conto" in r.text
 
 
+def test_un_assente_senza_scheda_e_un_nome_non_un_collegamento(client, motore):
+    """Un infortunato che l'archivio non ha mai visto giocare non ha pagina.
+
+    Collegarlo lo stesso significa offrire un 404, ed e' il caso normale e non
+    l'eccezione: gli infortunati sono per definizione gente che non e' scesa
+    in campo. Il nome resta — quella e' l'informazione — e sparisce solo la
+    promessa di poterci cliccare sopra.
+    """
+    from datetime import timedelta
+
+    from serie_a_analyzer.data.indisponibili import ASSENTE, Indisponibile
+
+    fixture = motore.snapshot().dataset.by_id[9001]
+    motore.pronostici.salva_indisponibili(
+        fixture_id=9001, kickoff_utc=fixture.kickoff_utc,
+        voci=[Indisponibile(9001, 4242, "Sempronio Mai Visto", fixture.home_team_id,
+                            "Casa", ASSENTE, "infortunio", "Injury")],
+        now=fixture.kickoff_utc - timedelta(hours=3),
+    )
+
+    r = client.get("/partita/9001")
+    assert "Sempronio Mai Visto" in r.text
+    assert 'href="/giocatore/4242"' not in r.text
+    assert client.get("/giocatore/4242").status_code == 404
+
+
 def test_una_lettura_dopo_il_fischio_non_finisce_nella_scheda(client, motore):
     """Sapere chi non e' sceso in campo e' un'altra cosa dal saperlo prima."""
     from datetime import timedelta
