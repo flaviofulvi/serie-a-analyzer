@@ -178,6 +178,15 @@ def test_non_si_riepiloga_un_giorno_ancora_in_corso(registro):
     assert giorno_da_riepilogare(partite, registro, ORA) is None
 
 
+def test_non_si_riepiloga_un_giorno_col_posticipo_ancora_da_giocare(registro):
+    """Successo davvero il 24 agosto 2026: alle 20:32 il resoconto della
+    domenica parti' con la sola Bologna-Lazio, mentre Roma-Fiorentina doveva
+    ancora cominciare. Il guaio non e' l'anticipo ma il seguito: segnata la
+    chiave, il posticipo non sarebbe stato raccontato mai piu'."""
+    partite = [_partita(-3, fid=1, gol=(2, 0)), _partita(+1, fid=2)]
+    assert giorno_da_riepilogare(partite, registro, ORA) is None
+
+
 def test_non_si_torna_indietro_a_riepilogare_l_archeologia(registro):
     """Raccontato il piu' recente, i precedenti restano dove sono."""
     partite = [_partita(-15, fid=1, gol=(2, 0)), _partita(-40, fid=2, gol=(0, 0))]
@@ -483,6 +492,50 @@ def test_un_giorno_rimasto_indietro_viene_annunciato_quando_arriva(
     assert primi == [f"tabellini-pronti:{domenica.kickoff_utc.date()}"]
     assert dopo == [f"tabellini-pronti:{sabato.kickoff_utc.date()}"]
     assert rotta.call_count == 2
+
+
+@respx.mock
+def test_una_partita_ancora_in_campo_non_rende_pronta_la_giornata(
+    telegram, registro
+):
+    """Il messaggio elenca tutte le partite della data: se a decidere bastano
+    quelle finite, la prima riga dell'elenco e' gia' una bugia.
+
+    E' il 24 agosto 2026 alle 20:48. Bologna-Lazio ha il suo tabellino,
+    Roma-Fiorentina e' al primo minuto — e su Telegram arrivo' "Tutte e 2 le
+    partite hanno il tabellino definitivo", con la Roma in elenco. Il tabellino
+    di una partita in corso non e' provvisorio: non esiste.
+    """
+    rotta = _rotta()
+    finita = _partita(-2, fid=11, gol=(2, 1))
+    in_campo = _partita(-0.05, fid=12)
+
+    mandati = invia_quel_che_serve(
+        telegram, registro, [finita, in_campo],
+        pronostici=lambda _p: [], tabellini_pronti=[11], adesso=ORA,
+    )
+
+    assert not any(c.startswith("tabellini-pronti") for c in mandati)
+    assert rotta.call_count == 0
+
+
+@respx.mock
+def test_la_giornata_si_annuncia_quando_anche_il_posticipo_ha_finito(
+    telegram, registro
+):
+    """La stessa giornata a fine serata: il posticipo e' finito, il suo
+    tabellino c'e', e adesso l'elenco dice il vero."""
+    rotta = _rotta()
+    finita = _partita(-4, fid=11, gol=(2, 1))
+    posticipo = _partita(-2, fid=12, gol=(1, 1))
+
+    mandati = invia_quel_che_serve(
+        telegram, registro, [finita, posticipo],
+        pronostici=lambda _p: [], tabellini_pronti=[11, 12], adesso=ORA,
+    )
+
+    assert mandati == [f"tabellini-pronti:{finita.kickoff_utc.date()}"]
+    assert rotta.call_count == 1
 
 
 @respx.mock

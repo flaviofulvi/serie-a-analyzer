@@ -218,11 +218,21 @@ def giorno_da_riepilogare(
     nessun resoconto mandato. E' cosi' che il riepilogo delle 23:45 arriva la
     mattina dopo se il computer era spento, senza che quel caso sia previsto
     da nessuna parte.
+
+    "Tutte le partite" vuol dire **tutte quelle in calendario quel giorno**, e
+    non solo quelle gia' cominciate. La differenza sembra teorica e non lo e':
+    il 24 agosto 2026 alle 20:32 il resoconto della domenica parti' con la sola
+    Bologna-Lazio, perche' Roma-Fiorentina — via alle 20:45 — non entrava
+    nemmeno nel conto, e un giorno fatto di sole partite finite risulta finito.
+    Il danno non e' il messaggio in anticipo ma quello che non arriva piu': la
+    chiave `resoconto:2026-08-24` era segnata, e il posticipo non sarebbe stato
+    raccontato mai. Una partita che deve ancora cominciare e' esattamente come
+    una in corso — il giorno non e' finito.
     """
     ora = adesso or datetime.now(timezone.utc)
     per_giorno: dict[date, list[Any]] = {}
     for f in partite:
-        if f.kickoff_utc <= ora:
+        if _giorno(f) <= ora.date():
             per_giorno.setdefault(_giorno(f), []).append(f)
 
     for giorno in sorted(per_giorno, reverse=True):
@@ -264,6 +274,15 @@ def giorni_coi_tabellini_pronti(
     Un giorno i cui tabellini si sono arresi per sempre (`tabellini_arresi`)
     non comparira' mai, ed e' giusto: quel caso ha gia' il suo allarme, che
     dice l'esatto contrario di questo messaggio.
+
+    Il giorno si guarda **intero**: tutte le partite in calendario, non solo
+    quelle gia' finite. Guardare le altre significava non guardarle affatto —
+    il 24 agosto 2026 alle 20:48, con Roma-Fiorentina al primo minuto, il
+    giorno risultava fatto della sola Bologna-Lazio e quindi completo. Il
+    messaggio pero' elenca tutte le partite della data, e annunciava come
+    definitivo un tabellino che non esisteva: chi decide e chi scrive devono
+    guardare lo stesso insieme, altrimenti la bugia e' garantita. Una partita
+    non ancora conclusa vale come tabellino che manca, che e' la verita'.
     """
     ora = adesso or datetime.now(timezone.utc)
     sono_pronti = set(pronti)
@@ -271,13 +290,15 @@ def giorni_coi_tabellini_pronti(
 
     per_giorno: dict[date, list[Any]] = {}
     for f in partite:
-        if f.kickoff_utc <= ora and getattr(f, "is_finished", False):
-            if _giorno(f) >= limite:
-                per_giorno.setdefault(_giorno(f), []).append(f)
+        if limite <= _giorno(f) <= ora.date():
+            per_giorno.setdefault(_giorno(f), []).append(f)
 
     return [
         giorno for giorno in sorted(per_giorno)
-        if all(f.api_id in sono_pronti for f in per_giorno[giorno])
+        if all(
+            getattr(f, "is_finished", False) and f.api_id in sono_pronti
+            for f in per_giorno[giorno]
+        )
         and not registro.gia_inviato(f"tabellini-pronti:{giorno}")
     ]
 

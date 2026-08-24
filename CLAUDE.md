@@ -319,6 +319,19 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   altre. Il modello non entra nel modulo: `invia_quel_che_serve` riceve i
   pronostici come **funzione**, così si decide se c'è qualcosa da dire prima
   di pagare i due secondi della stima.
+  Una regola che vale per entrambi i messaggi di fine giornata, nata il 24
+  agosto 2026: **un giorno si giudica su tutte le partite in calendario**, non
+  su quelle già cominciate. Quella sera `giorno_da_riepilogare` e
+  `giorni_coi_tabellini_pronti` filtravano per `kickoff_utc <= ora`, quindi
+  Roma-Fiorentina delle 20:45 non entrava nel conto e la domenica risultava
+  finita alle 20:32 con la sola Bologna-Lazio. Il messaggio però elenca tutte
+  le partite della data: alle 20:48, con la Roma al primo minuto, su Telegram
+  è arrivato «tutte e 2 le partite hanno il tabellino definitivo» con la Roma
+  in elenco — chi decide e chi scrive guardavano due insiemi diversi, e il
+  disallineamento produce una bugia. Il danno peggiore però è il seguito: la
+  chiave finiva nel registro e il messaggio vero — quello col posticipo — non
+  sarebbe arrivato **mai più**. Una partita che deve ancora cominciare vale
+  esattamente come una in corso: il giorno non è finito.
 - `parsers.py` — JSON di API-Football → oggetti di dominio. I test coprono i
   parser con payload reali riprodotti in `tests/conftest.py`, così nessun test
   spende richieste.
