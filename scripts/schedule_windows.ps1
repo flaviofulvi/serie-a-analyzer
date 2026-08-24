@@ -9,6 +9,7 @@
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Raccolta" -Confirm:$false
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Recupero" -Confirm:$false
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Formazioni" -Confirm:$false
+#   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Momento" -Confirm:$false
 #
 # Perche' quattro esecuzioni al giorno e non una sola: la finestra del piano
 # gratuito e' di tre giorni, quindi una singola esecuzione mancata non e'
@@ -48,9 +49,34 @@ if (-not (Test-Path $WrapperMomento)) {
 
 . $FileOrari
 
+# --- chi esegue, e perche' non si vede --------------------------------------
+#
+# S4U ("esegui sia che l'utente abbia effettuato l'accesso o no") non e' un
+# dettaglio di sicurezza: e' l'unica impostazione che rende queste attivita'
+# davvero invisibili. Con il tipo di accesso predefinito, "Interattivo", ogni
+# esecuzione apre una finestra di PowerShell dentro la sessione dell'utente:
+# dura un secondo, ma prende il fuoco, e un gioco a schermo intero viene
+# ridotto a icona. Ogni quarto d'ora, tutto il pomeriggio.
+# Con S4U il processo gira in una sessione non interattiva: nessuna finestra,
+# nessun lampo, niente fuoco rubato. -WindowStyle Hidden da solo non basta —
+# la console viene creata e poi nascosta, e il lampo c'e' lo stesso.
+#
+# Non serve salvare nessuna password (S4U si basa sul solo nome utente) ne'
+# -RunLevel Highest: la raccolta scrive soltanto dentro la cartella del
+# progetto. L'unica cosa che S4U non porta con se' sono le credenziali di rete
+# verso altre macchine, e qui non servono: si esce su internet in HTTPS con la
+# chiave che sta nel file .env.
+#
+# Se registri da un account amministratore diverso dal tuo, correggi -UserId:
+# le attivita' devono girare come l'utente proprietario della cartella.
+$Principale = New-ScheduledTaskPrincipal `
+    -UserId "$env:USERDOMAIN\$env:USERNAME" `
+    -LogonType S4U `
+    -RunLevel Limited
+
 $Azione = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Wrapper`"" `
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Wrapper`"" `
     -WorkingDirectory $Radice
 
 # 08:00, 14:00, 20:00, 23:45 (definiti in orari_raccolta.ps1). L'ultima serve a
@@ -99,7 +125,7 @@ $Impostazioni = New-ScheduledTaskSettingsSet `
 # scritta nel log.
 $AzioneRecupero = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Wrapper`" -SoloSeMancata" `
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Wrapper`" -SoloSeMancata" `
     -WorkingDirectory $Radice
 
 # All'accesso: copre l'accensione da spento.
@@ -149,7 +175,7 @@ $ImpostazioniRecupero = New-ScheduledTaskSettingsSet `
 # bastano non scrive comunque nulla, per scelta (`--stato` dice a che punto e').
 $AzioneFormazioni = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$WrapperFormazioni`"" `
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WrapperFormazioni`"" `
     -WorkingDirectory $Radice
 
 # Dalle 11 alle 23: il primo anticipo e' alle 12:30 e le formazioni escono
@@ -174,7 +200,7 @@ $TriggerFormazioni.Repetition = (New-ScheduledTaskTrigger `
 # esce senza spedire una sola richiesta.
 $AzioneMomento = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$WrapperMomento`"" `
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WrapperMomento`"" `
     -WorkingDirectory $Radice
 
 # Dalle 11 alle 23:30. Il primo anticipo e' alle 12:30, quindi la sua vigilia
@@ -217,6 +243,7 @@ Register-ScheduledTask `
     -Action $Azione `
     -Trigger $Trigger `
     -Settings $Impostazioni `
+    -Principal $Principale `
     -Description "Raccolta giornaliera della Serie A da API-Football (finestra di 3 giorni del piano gratuito)." | Out-Null
 
 if (Get-ScheduledTask -TaskName $NomeRecupero -ErrorAction SilentlyContinue) {
@@ -229,6 +256,7 @@ Register-ScheduledTask `
     -Action $AzioneRecupero `
     -Trigger @($TriggerAccesso, $TriggerRisveglio) `
     -Settings $ImpostazioniRecupero `
+    -Principal $Principale `
     -Description "Recupera la raccolta della Serie A saltata mentre il computer era spento o sospeso. Non accende il computer e non spende richieste se non manca niente." | Out-Null
 
 if (Get-ScheduledTask -TaskName $NomeMomento -ErrorAction SilentlyContinue) {
@@ -241,6 +269,7 @@ Register-ScheduledTask `
     -Action $AzioneMomento `
     -Trigger $TriggerMomento `
     -Settings $ImpostazioniMomento `
+    -Principal $Principale `
     -Description "Quote e indisponibili nei 40 minuti prima del via, dettagli e risultati due ore e un quarto dopo. Non spende nulla quando non e' il momento." | Out-Null
 
 if (Get-ScheduledTask -TaskName $NomeFormazioni -ErrorAction SilentlyContinue) {
@@ -253,6 +282,7 @@ Register-ScheduledTask `
     -Action $AzioneFormazioni `
     -Trigger $TriggerFormazioni `
     -Settings $ImpostazioniFormazioni `
+    -Principal $Principale `
     -Description "Pronostico rifatto con le formazioni ufficiali, nella mezz'ora prima del calcio d'inizio. Non fa nulla se non ci sono partite imminenti." | Out-Null
 
 Write-Host ""
@@ -266,3 +296,5 @@ Write-Host "Verifica:      .\.venv\Scripts\python.exe .\scripts\verifica_raccolt
 Write-Host "Formazioni:    .\.venv\Scripts\python.exe .\scripts\formazioni_ufficiali.py --stato"
 Write-Host "Prova subito:  Start-ScheduledTask -TaskName $NomeRecupero"
 Write-Host "Log:           $Radice\data\logs\"
+Write-Host ""
+Write-Host "Tutte girano senza aprire nessuna finestra (accesso S4U)."
