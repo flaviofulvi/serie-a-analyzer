@@ -24,7 +24,7 @@ import respx
 from serie_a_analyzer.data.budget import RequestBudget
 from serie_a_analyzer.data.cache import ResponseCache
 from serie_a_analyzer.data.client import API_SPORTS_BASE_URL, ApiFootballClient
-from serie_a_analyzer.data.daily import MAX_ERRORI_CONSECUTIVI
+from serie_a_analyzer.data.daily import DETAIL_KINDS, MAX_ERRORI_CONSECUTIVI
 from serie_a_analyzer.data.dataset import load_dataset
 from serie_a_analyzer.data.players import costruisci_archivio
 from serie_a_analyzer.data.store import SeasonStore, StoreUnito
@@ -33,6 +33,7 @@ from serie_a_analyzer.data.storico import (
     firma_storico,
     leggi_piano,
     riempi_stagione,
+    scegli_tipi_dettaglio,
     stagioni_riempite,
     stima_richieste,
     store_stagione,
@@ -51,6 +52,18 @@ def _fixture(fid, status="FT", quando="2025-09-14T16:30:00+00:00", casa=INTER, o
                   "away": {"id": ospite, "name": "Torino"}},
         "goals": {"home": 2, "away": 0},
     }
+
+
+def _statistiche(fid, xg="1.42"):
+    """Le statistiche di squadra, con l'xG dentro come le manda l'API."""
+    return [{
+        "team": {"id": INTER, "name": "Inter"},
+        "statistics": [
+            {"type": "Total Shots", "value": 15},
+            {"type": "Blocked Shots", "value": 5},
+            {"type": "expected_goals", "value": xg},
+        ],
+    }]
 
 
 def _wrap(response):
@@ -197,6 +210,7 @@ def campionato(mondo):
         mondo["dettagli"][(fid, "players")] = _players(fid)
         mondo["dettagli"][(fid, "lineups")] = [{"team": {"id": INTER, "name": "Inter"}}]
         mondo["dettagli"][(fid, "events")] = [{"type": "Goal"}]
+        mondo["dettagli"][(fid, "statistics")] = _statistiche(fid)
     return partite
 
 
@@ -292,6 +306,105 @@ def test_un_api_rotta_non_brucia_tutte_le_richieste(client, storico, mondo, camp
 def test_il_prezzo_di_una_stagione_e_dichiarato_prima():
     """Una per il calendario, tre per ogni partita conclusa."""
     assert stima_richieste(380) == 1 + 380 * 3
+
+
+# ---- comprare un dettaglio solo ---------------------------------------------
+#
+# I tre endpoint costano ~380 richieste a stagione ciascuno e non servono alle
+# stesse cose: `players` e' l'unico che possa cambiare un pronostico. Comprare
+# solo quello e' un terzo della spesa, ed e' la mossa del giorno del piano.
+
+
+def test_si_puo_comprare_un_dettaglio_solo(client, storico, mondo, campionato):
+    store = store_stagione(storico, STAGIONE)
+
+    rapporto = riempi_stagione(
+        client, store, STAGIONE, pausa=0, tipi_dettaglio=("players",)
+    )
+
+    assert rapporto.dettagli == {"players": 3}
+    assert store.has_detail(1, "players")
+    assert not store.has_detail(1, "lineups")
+    assert not store.has_detail(1, "events")
+    # 1 calendario + 3 tabellini, non 1 + 9.
+    assert rapporto.richieste == 4
+    assert mondo["chiamate"].count("/v3/fixtures/lineups") == 0
+
+
+def test_il_prezzo_di_un_dettaglio_solo_e_un_terzo():
+    assert stima_richieste(380, ("players",)) == 1 + 380
+
+
+def test_in_sospeso_conta_quel_che_si_e_scelto(client, storico, mondo, campionato):
+    """Dopo un `--solo players` restano 760 richieste che nessuno vuole fare.
+
+    Contarle direbbe "stagione a meta'" a chi ha comprato esattamente quello
+    che voleva.
+    """
+    store = store_stagione(storico, STAGIONE)
+    riempi_stagione(client, store, STAGIONE, pausa=0, tipi_dettaglio=("players",))
+
+    assert dettagli_in_sospeso(store, ("players",)) == 0
+    assert dettagli_in_sospeso(store) == 6  # 3 partite x lineups + events
+
+
+def test_una_stagione_coi_soli_tabellini_non_si_dichiara_intera(
+    client, storico, mondo, campionato
+):
+    """`completa` e `parziale_per_scelta` insieme, o si legge una bugia."""
+    store = store_stagione(storico, STAGIONE)
+
+    rapporto = riempi_stagione(
+        client, store, STAGIONE, pausa=0, tipi_dettaglio=("players",)
+    )
+
+    assert rapporto.completa           # per cio' che era stato chiesto
+    assert rapporto.parziale_per_scelta  # ma due endpoint su tre non ci sono
+
+
+def test_chiedere_tutto_resta_il_comportamento_di_prima(
+    client, storico, mondo, campionato
+):
+    """Il flag nuovo non deve cambiare niente a chi non lo usa."""
+    rapporto = riempi_stagione(
+        client, store_stagione(storico, STAGIONE), STAGIONE, pausa=0
+    )
+
+    assert rapporto.tipi == ("lineups", "players", "events")
+    assert not rapporto.parziale_per_scelta
+    assert rapporto.richieste == 10  # 1 + 3 partite x 3
+
+
+def test_un_dettaglio_scritto_male_ferma_tutto():
+    """`--solo player` (senza la s) scaricherebbe tutto: 3423 richieste."""
+    assert scegli_tipi_dettaglio(None) == ("lineups", "players", "events")
+    assert scegli_tipi_dettaglio("players") == ("players",)
+    assert scegli_tipi_dettaglio("players,events") == ("players", "events")
+
+    with pytest.raises(ValueError, match="player"):
+        scegli_tipi_dettaglio("player")
+
+
+def test_le_statistiche_si_possono_chiedere_ma_non_sono_predefinite(
+    client, storico, mondo, campionato
+):
+    """L'xG sta in `/fixtures/statistics`, che la raccolta di ogni giorno non prende.
+
+    Le due cose devono restare separate: DETAIL_KINDS e' cio' di cui il sistema
+    vive, DETTAGLI_NOTI e' cio' che si sa chiedere. Se un giorno le statistiche
+    entrassero fra i predefiniti sarebbe una decisione, non una svista.
+    """
+    assert "statistics" not in DETAIL_KINDS
+    assert scegli_tipi_dettaglio("statistics") == ("statistics",)
+
+    store = store_stagione(storico, STAGIONE)
+    rapporto = riempi_stagione(
+        client, store, STAGIONE, pausa=0, tipi_dettaglio=("statistics",)
+    )
+
+    assert store.has_detail(1, "statistics")
+    assert not store.has_detail(1, "players")
+    assert rapporto.richieste == 4  # 1 calendario + 3 partite concluse
 
 
 # ---- gli archivi riempiti ---------------------------------------------------

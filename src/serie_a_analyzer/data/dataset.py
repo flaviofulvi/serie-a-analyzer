@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 from ..model.dixon_coles import Match
 from .client import SERIE_A_LEAGUE_ID, ApiFootballClient
@@ -66,9 +67,16 @@ class Dataset:
     def finished(self) -> list[FixtureRecord]:
         return [f for f in self.fixtures if f.is_finished]
 
-    def matches(self) -> list[Match]:
-        """Le partite concluse, nel formato che il modello si aspetta."""
-        return to_model_matches(self.finished, self.team_names)
+    def matches(self, panchine: Any | None = None) -> list[Match]:
+        """Le partite concluse, nel formato che il modello si aspetta.
+
+        ``panchine`` si passa quando le formazioni sul disco sono gia' state
+        lette (`data/panchine.py`): ogni partita si porta dietro chi allenava
+        le due squadre, e il modello puo' pesare meno quelle giocate da una
+        squadra che nel frattempo ha cambiato panchina. Senza, si stima come
+        si e' sempre stimato.
+        """
+        return to_model_matches(self.finished, self.team_names, panchine)
 
     def upcoming(self, now: datetime | None = None) -> list[FixtureRecord]:
         """Le partite ancora da giocare, dalla piu' vicina."""

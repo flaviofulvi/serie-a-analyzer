@@ -45,6 +45,7 @@ from serie_a_analyzer.data.pesi import (  # noqa: E402
     partite_recenti,
     pesi_squadra,
 )
+from serie_a_analyzer.data.ingest import current_season  # noqa: E402
 from serie_a_analyzer.data.parsers import parse_fixtures  # noqa: E402
 from serie_a_analyzer.data.players import costruisci_archivio  # noqa: E402
 from serie_a_analyzer.data.store import StoreUnito  # noqa: E402
@@ -71,10 +72,18 @@ def _archivio_recente(motore: Engine, dataset, adesso: datetime):
     avranno mai i tabellini, e contarle direbbe "copertura parziale" su un
     campionato coperto per intero. E' la stessa regola gia' applicata alle
     schede giocatore.
+
+    Si guarda solo la **stagione in corso**: il mercato estivo e' il momento in
+    cui una rosa cambia di piu', e i 120 giorni da soli, ad agosto, arrivano
+    ad aprile. Vedi `partite_recenti`.
     """
     storici = list(build_storico_stores(motore.settings).values())
     unito = StoreUnito(stores=[motore.store, *storici])
-    recenti = partite_recenti(dataset.fixtures, adesso, giorni=GIORNI_FINESTRA)
+    recenti = partite_recenti(
+        dataset.fixtures, adesso,
+        giorni=GIORNI_FINESTRA,
+        stagione=current_season(),
+    )
     return costruisci_archivio(unito, recenti), len(recenti)
 
 
@@ -170,7 +179,8 @@ def _squadre_pronte(dataset, archivio) -> tuple[list[str], list[tuple[str, int]]
 
 def _stampa_stato(dataset, archivio, n_recenti: int, adesso: datetime) -> None:
     separatore("Com'e' messa la macchina")
-    print(f"Finestra guardata:      ultimi {GIORNI_FINESTRA} giorni")
+    print(f"Finestra guardata:      ultimi {GIORNI_FINESTRA} giorni, "
+          f"stagione {current_season()} soltanto")
     print(f"Partite concluse:       {n_recenti}")
     # Non tutte le partite concluse possono avere un tabellino: quelle
     # importate da un file di risultati non l'avranno mai, e contarle farebbe

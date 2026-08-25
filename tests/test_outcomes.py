@@ -21,11 +21,17 @@ from serie_a_analyzer.data.outcomes import (
     brier,
     brier_1x2_multiclasse,
     calibrazione,
+    confronto_fra_modi,
     esito_verificato,
     risolvi_partita,
     risolvi_pronostici,
 )
-from serie_a_analyzer.data.predictions import PredictionStore, righe_mercati
+from serie_a_analyzer.data.predictions import (
+    MODE_SECCO,
+    MODE_UFFICIALE,
+    PredictionStore,
+    righe_mercati,
+)
 from serie_a_analyzer.model.dixon_coles import FittedModel
 from serie_a_analyzer.model.markets import derive_markets
 
@@ -68,7 +74,7 @@ def store(tmp_path):
     return PredictionStore(path=tmp_path / "pronostici.db")
 
 
-def _pronostica(store, fixture_id=1, modello=None):
+def _pronostica(store, fixture_id=1, modello=None, mode=MODE_SECCO):
     modello = modello or _modello()
     matrice = modello.scoreline("Inter", "Torino")
     lam, mu = modello.expected_goals("Inter", "Torino")
@@ -83,6 +89,7 @@ def _pronostica(store, fixture_id=1, modello=None):
         lambda_home=lam,
         lambda_away=mu,
         rho=modello.rho,
+        mode=mode,
         now=ADESSO,
     )
 
@@ -348,3 +355,127 @@ def test_l_accuratezza_per_selezione_separa_le_linee(store):
     assert per_selezione[("over_under", "over_4.5")]["tasso_reale"] == 0.0
     assert per_selezione[("1x2", "home")]["tasso_reale"] == 1.0
     assert per_selezione[("1x2", "away")]["tasso_reale"] == 0.0
+
+
+# ---- i due tipi di pronostico non si mescolano ------------------------------
+#
+# Una partita puo' averne due: quello secco e quello rifatto quando escono le
+# formazioni ufficiali. Sono due risposte alla stessa domanda, non due
+# osservazioni della stessa cosa, e nessuna media puo' sommarle. Il giorno in
+# cui `data/ufficiali.py` comincia a scrivere, questi test sono l'unica cosa
+# che impedisce a ogni numero mostrato di raddoppiare in silenzio.
+
+
+def _due_modi(store, fixture_id, casa=2, ospite=1):
+    """La stessa partita pronosticata in tutti e due i modi, poi risolta.
+
+    I due pronostici partono da modelli diversi — basta un `base` diverso —
+    perche' altrimenti avrebbero la stessa versione del modello e il registro
+    rifiuterebbe il secondo come duplicato.
+    """
+    _pronostica(store, fixture_id=fixture_id, mode=MODE_SECCO)
+    _pronostica(
+        store, fixture_id=fixture_id, modello=_modello(base=0.35), mode=MODE_UFFICIALE
+    )
+    risolvi_partita(store, fixture_id, casa, ospite, now=DOPO)
+
+
+def test_gli_esiti_risolti_dicono_da_quale_modo_vengono(store):
+    _due_modi(store, fixture_id=1)
+
+    modi = {r["mode"] for r in store.esiti_risolti()}
+    assert modi == {MODE_SECCO, MODE_UFFICIALE}
+
+    solo_secco = store.esiti_risolti(mode=MODE_SECCO)
+    assert solo_secco, "il filtro non deve svuotare quello che c'e'"
+    assert {r["mode"] for r in solo_secco} == {MODE_SECCO}
+
+
+def test_l_accuratezza_non_conta_due_volte_la_stessa_partita(store):
+    """Il difetto che questo test esiste per impedire.
+
+    Prima del filtro su `mode`, una partita con tutti e due i pronostici
+    entrava due volte in ogni media: il numero di esiti raddoppiava e i due
+    Brier — che sono proprio quelli da confrontare — finivano mediati fra loro.
+    """
+    for fixture_id in (1, 2, 3):
+        _due_modi(store, fixture_id=fixture_id)
+
+    solo_secco = {v["mercato"]: v for v in accuratezza_per_mercato(store)}
+    entrambi = {
+        v["mercato"]: v
+        for v in accuratezza_per_mercato(store, mode=MODE_UFFICIALE)
+    }
+
+    # Tre partite, tre selezioni di 1X2 ciascuna: nove esiti, non diciotto.
+    assert solo_secco["1x2"]["n"] == 9
+    assert entrambi["1x2"]["n"] == 9
+    # E i due Brier restano due numeri distinti, non uno solo mediato.
+    assert solo_secco["1x2"]["brier"] != pytest.approx(entrambi["1x2"]["brier"])
+
+
+def test_il_brier_per_partita_conta_partite_e_non_pronostici(store):
+    """`n_partite` deve dire partite anche quando i pronostici sono il doppio."""
+    for fixture_id in (1, 2):
+        _due_modi(store, fixture_id=fixture_id)
+
+    assert brier_1x2_multiclasse(store)["n_partite"] == 2
+    assert brier_1x2_multiclasse(store, mode=MODE_UFFICIALE)["n_partite"] == 2
+
+
+def test_la_calibrazione_guarda_un_modo_alla_volta(store):
+    for fixture_id in (1, 2):
+        _due_modi(store, fixture_id=fixture_id)
+
+    fasce = calibrazione(store, market="1x2", selection="home")
+    assert sum(f["n"] for f in fasce) == 2, "una fascia per partita, non per pronostico"
+
+
+def test_il_confronto_fra_modi_usa_solo_le_partite_in_comune(store):
+    """Il secco esiste sempre, l'ufficiale solo dove i pesi c'erano.
+
+    Misurarli su popolazioni diverse direbbe quale gruppo di partite era piu'
+    facile da indovinare, non quale pronostico era migliore.
+    """
+    _due_modi(store, fixture_id=1)
+    _due_modi(store, fixture_id=2)
+    # Questa ha solo il pronostico secco: deve restare fuori dal confronto.
+    _pronostica(store, fixture_id=3, mode=MODE_SECCO)
+    risolvi_partita(store, 3, 0, 3, now=DOPO)
+
+    confronto = confronto_fra_modi(store)
+
+    assert confronto["partite"] == 2
+    uno_x_due = next(v for v in confronto["mercati"] if v["mercato"] == "1x2")
+    assert uno_x_due["n"] == 6, "tre selezioni per due partite in comune"
+    # Il secco da solo ne avrebbe tre in piu': la terza partita e' esclusa.
+    assert accuratezza_per_mercato(store)[0]["n"] > uno_x_due["n"]
+
+
+def test_il_confronto_fra_modi_tace_finche_non_c_e_niente_da_confrontare(store):
+    """E' la situazione di oggi: nessun pronostico con le formazioni."""
+    _pronostica(store, fixture_id=1)
+    risolvi_partita(store, 1, 2, 1, now=DOPO)
+
+    confronto = confronto_fra_modi(store)
+
+    assert confronto["totale"] is None
+    assert confronto["mercati"] == []
+    assert confronto["partite"] == 0
+
+
+def test_il_segno_dello_scarto_dice_chi_ha_fatto_meglio(store):
+    """Negativo = le formazioni hanno migliorato. Un segno girato qui mentirebbe."""
+    # Il modello 'ufficiale' e' piu' sbilanciato verso la casa, e la casa vince:
+    # quindi deve risultare migliore, cioe' scarto negativo.
+    _pronostica(store, fixture_id=1, mode=MODE_SECCO)
+    _pronostica(
+        store, fixture_id=1, modello=_modello(base=0.6), mode=MODE_UFFICIALE
+    )
+    risolvi_partita(store, 1, 3, 0, now=DOPO)
+
+    totale = confronto_fra_modi(store)["totale"]
+
+    atteso = totale["brier_secondo"] - totale["brier_primo"]
+    assert totale["scarto"] == pytest.approx(atteso)
+    assert totale["il_secondo_e_migliore"] is (totale["scarto"] < 0)

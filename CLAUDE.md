@@ -17,9 +17,11 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe -m pytest                       # tutta la suite
 .\.venv\Scripts\python.exe -m pytest tests/test_daily.py -k finestra -x
 .\.venv\Scripts\python.exe .\scripts\serve.py               # web su 127.0.0.1:8000
+.\scripts\run_web.ps1                                       # il sito acceso in permanenza (telefono via Tailscale)
 .\.venv\Scripts\python.exe .\scripts\demo_engine.py         # demo, nessuna credenziale
 .\.venv\Scripts\python.exe .\scripts\backtest.py            # walk-forward, legge dalla cache
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-compressione  # quanto comprimere i gol
+.\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-allenatore    # quanto pesa il cambio di panchina
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py       # raccolta giornaliera (spende budget)
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py --solo-al-momento-giusto # raccoglie solo se serve adesso
 .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py   # la raccolta e' sana? (non spende)
@@ -208,6 +210,25 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   noti. La **baseline si calcola per singola selezione e poi si media**: su
   Over/Under le linee 0.5 e 4.5 hanno frequenze opposte e mescolarle darebbe
   al modello un muro molto più basso di quello vero.
+  Ogni misura guarda **un solo tipo di pronostico alla volta**
+  (`MODO_PREDEFINITO`, cioè il secco). Non è un'opzione ma un vincolo: una
+  partita può averne due — il secco e quello rifatto con le formazioni
+  ufficiali — e sono due risposte alla stessa domanda, non due osservazioni
+  della stessa cosa. Sommarle conta ogni partita due volte, fa dire "partite"
+  a un conteggio di pronostici (`brier_1x2_multiclasse`), mette due pronostici
+  contro una sola quota di chiusura, e soprattutto media fra loro proprio i
+  due Brier che il lavoro delle formazioni esiste per confrontare. Il default
+  è il secco perché è l'unico che esiste per **ogni** partita: l'ufficiale
+  compare solo dove i pesi c'erano e spostavano qualcosa, quindi su un
+  sottoinsieme che si allarga da solo — usarlo come numero di riferimento
+  vorrebbe dire cambiare popolazione ogni settimana. Il confronto vero sta in
+  `confronto_fra_modi`, che li mette accanto **solo sugli esiti che hanno
+  entrambi**, con la stessa regola già usata contro le quote: misurarli su
+  popolazioni diverse direbbe quale gruppo di partite era più facile da
+  indovinare, non quale pronostico era migliore. Oggi tutto questo non si vede
+  — di righe ufficiali non ce n'è ancora nessuna — ed è il punto: la regola è
+  stata scritta *prima*, perché il giorno dell'accensione i numeri
+  raddoppierebbero senza che niente lo segnali.
 - `odds.py` — le quote dei bookmaker, cioè il metro di paragone vero del
   modello. Tre vincoli danno forma al modulo: le quote **non si recuperano**
   (API-Football non le archivia: o si prendono prima della partita o sono perse,
@@ -236,10 +257,25 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   nessuna riga lo dica, quindi si legge la lettura intera e mai "l'ultima
   notizia su ogni giocatore", che lo lascerebbe infortunato per sempre.
   `assente` e `in_dubbio` non si mescolano: solo il primo è un fatto.
-- `pesi.py` — quanto pesa un giocatore, misurato da cio' che ha **prodotto**
-  (gol e assist per minuto), non da come va la squadra quando c'è o non c'è:
-  quella strada è rumore travestito da misura, perché un titolare salta cinque
-  partite l'anno e sta fuori proprio nei periodi storti. Il tasso di ognuno
+- `pesi.py` — quanto pesa un giocatore, misurato da cio' che ha **fatto
+  davanti** (gol, assist e **tiri** per minuto, vedi `produzione`), non da come
+  va la squadra quando c'è o non c'è: quella strada è rumore travestito da
+  misura, perché un titolare salta cinque partite l'anno e sta fuori proprio
+  nei periodi storti. I tiri ci sono per una ragione misurata, non per
+  completezza: un titolare produce 0,08 gol a partita, e su quaranta episodi in
+  una stagione non si distinguono quattro giocatori. Il tiro è lo stesso gesto
+  un passo prima, capita otto volte più spesso, e indovina meglio la produzione
+  futura — r da 0.645 a 0.728 su quattro stagioni, con lo shrinkage già
+  applicato e il vantaggio positivo in tutte e quattro
+  (`scripts/prova_pesi.py`, 24 agosto 2026). `PESO_PRODUZIONE = 2` è scelto
+  con la regola del progetto (il peso migliore sulle *altre* stagioni, poi
+  misurato su quella tenuta fuori) e l'ottimo è **piatto fra 1 e 3**. Il
+  **bersaglio** però non cambia mai: restano gol e assist ciò che si vuole
+  prevedere, i tiri sono il modo meno rumoroso di arrivarci. Due cose provate e
+  scartate: i **passaggi chiave** non aggiungono niente sopra i tiri (0.701
+  contro 0.711) e da soli sono molto peggio (0.504); i **tiri da soli** perdono
+  contro la somma (0.711 contro 0.728), quindi l'esito qualcosa aggiunge. Il
+  tasso di ognuno
   passa per uno **shrinkage** verso la media della squadra pesato sui minuti —
   senza, chi entra dieci minuti e segna varrebbe più di tutta la squadra. Due
   regole di onestà: sotto `MINIMO_PARTITE` partite con tabellino non si stima
@@ -248,7 +284,8 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   all'archivio vale la produzione **media** di un titolare, non zero — non
   sapere nulla di lui non è sapere che non vale niente. Il metodo **vede gli
   attaccanti, non i difensori**, ed è un limite da dichiarare in pagina, non da
-  compensare con un'ipotesi. `FATTORE_PREDEFINITO` **non è calibrato**: dovrà
+  compensare con un'ipotesi — i tiri **non** lo curano, misurano chi sta
+  davanti esattamente come gol e assist. `FATTORE_PREDEFINITO` **non è calibrato**: dovrà
   uscire dal backtest.
 - `ufficiali.py` — il pronostico rifatto quando escono le formazioni, in
   `MODE_UFFICIALE` **accanto** a quello secco e mai al suo posto: due
@@ -286,6 +323,33 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   e si dichiarano in `--stato` e nella scheda partita: "manca" e "l'API non
   l'ha ancora consolidato" sono due risposte diverse, e la seconda si risolve
   da sola.
+- `panchine.py` — chi allenava chi, e da quando. Come `players.py` non chiede
+  niente all'API: l'allenatore sta già dentro ogni busta `/fixtures/lineups`,
+  con un **id** che è la sua identità (il nome no: l'archivio contiene sia
+  "Ivan Jurić" sia "Ivan Juric"). Serve a una cosa sola e piccola: il modello
+  pesa una partita solo per l'**età**, quindi una squadra che ha cambiato
+  allenatore tre giornate fa si porta dietro il girone precedente a peso pieno
+  come se fosse la stessa squadra. Da qui `_pesi_allenatore` in
+  `model/dixon_coles.py`, che moltiplica per un fattore < 1 il peso delle
+  partite giocate sotto un'altra guida. **Quel fattore è misurato e vale 1.00,
+  cioè la correzione è spenta**: rigiocate quattro stagioni (25 agosto 2026,
+  `backtest.py --cerca-allenatore`), il Brier 1X2 peggiora *monotonicamente*
+  allontanandosi da 1 — 0.5968 a fattore 1.00, 0.6003 a fattore 0.00 — e vale
+  in tutte e quattro separatamente. La ragione è che la correzione fa due cose
+  insieme: toglie una squadra che non esiste più e toglie **partite vere**. La
+  seconda si paga sempre, la prima rende solo se il cambio sposta la forza più
+  di quanto quelle partite insegnino — e non lo fa, anche perché lo shrinkage
+  già tira verso la media chi ha poche partite recenti, e l'esonero arriva dopo
+  una serie anormalmente brutta che rientrerebbe da sola. Il codice resta
+  perché è **un parametro solo** e la misura si rifà in venti minuti quando i
+  dati saranno di più; chi lo rialza deve rifare quella misura, non fidarsi di
+  questa. Due trappole coperte da test: una partita **senza formazioni non
+  spezza** un tratto di panchina ("non lo so" non è "è cambiato", e inventare
+  esoneri farebbe dimenticare al modello mezzo campionato), e il
+  **traghettatore** di una giornata — il vice per una squalifica — è un tratto
+  vero e non si ricuce con una soglia inventata sulla lunghezza; se capita di
+  essere l'ultima partita nota, quella squadra pesa meno per una giornata e
+  torna com'era.
 - `notifiche.py` (fuori da `data/`, perché non è una sorgente ma un'uscita) —
   i messaggi su Telegram. Quattro regole, tutte difensive: **il silenzio è il
   default** (senza token il sistema gira identico), **non solleva mai** (un
@@ -349,12 +413,16 @@ quel file ci sia ancora.
 
 `web/engine.py` tiene dati e modello caldi in uno `Snapshot`, ricostruito solo
 quando cambia l'impronta degli archivi (mtime+size di `fixtures.json` **più**
-quella di `data/storico/` **più** quella di `data/importato/`), non a ogni
-richiesta HTTP — la stima costa un paio di secondi. I pezzi oltre il primo
+quella di `data/storico/` **più** quella di `data/importato/` **più** quella
+dei dettagli), non a ogni richiesta HTTP — la stima costa un paio di secondi. I pezzi oltre il primo
 servono al riempimento storico e all'importazione: senza, il modello resterebbe
 fermo alle stagioni di prima anche dopo aver ricomprato o importato un
 campionato intero, con il sito aperto e nessun motivo apparente per riavviarlo.
-Un lock protegge da stime duplicate su richieste concorrenti.
+L'ultimo pezzo — i dettagli — è entrato quando il modello ha cominciato a
+guardare chi sedeva in panchina (`data/panchine.py`): prima le formazioni erano
+roba delle sole pagine dei giocatori, che hanno un'impronta loro, e una stima
+che non se ne accorgesse resterebbe ferma all'allenatore di prima. Un lock
+protegge da stime duplicate su richieste concorrenti.
 
 Alla ristima — l'unico momento in cui i pronostici possono cambiare — l'engine
 fa due cose in fila: congela i pronostici delle partite in programma e risolve
@@ -407,9 +475,44 @@ conto**, perché è vero: quanto pesi chi manca è il lavoro che deve ancora
 arrivare. Se di quella partita non esiste nessuna lettura la sezione non
 compare affatto: una sezione vuota si leggerebbe come "non manca nessuno", che
 è un'informazione, e sarebbe inventata.
-L'hub mostra, sotto le partite: accuratezza per mercato con la sua baseline e
-il confronto con le quote di chiusura — entrambe le sezioni compaiono solo
-quando c'è qualcosa di misurato, e dichiarano quando i dati non bastano.
+Con la stessa regola, e per la stessa ragione, dichiara il **cambio di
+allenatore**: se una delle due squadre ha cambiato guida negli ultimi sei mesi
+lo dice, e dice che il pronostico **non ne tiene conto** — vero, misurato, e
+spiegato in pagina. Oltre i sei mesi non compare: le partite della gestione
+precedente pesano già quasi zero per conto loro, e allarmare allora
+significherebbe allarmare per un problema che il decadimento temporale ha già
+risolto. A differenza dell'affidabilità basta una squadra sola: che il Milan
+abbia cambiato allenatore non dice niente di falso sull'avversario, mentre
+l'affidabilità è un confronto e va mostrata a coppie.
+Quando di una partita esiste anche il pronostico **rifatto con le formazioni
+ufficiali**, la scheda mostra i due affiancati (`confronto_ufficiale` in
+`web/views.py`): 1/X/2 dell'uno, dell'altro e la differenza. Tre regole, tutte
+già in codice. Il confronto usa **due righe di registro**, mai il modello
+caldo: il secco ricalcolato adesso avrebbe visto più partite dell'ufficiale
+congelato ieri, e la loro differenza racconterebbe il tempo passato invece
+delle formazioni. Il pronostico grande in cima alla pagina **resta il secco**,
+ed è detto in chiaro — non perché sia migliore (è esattamente ciò che non si sa
+ancora) ma perché è l'unico che esiste per ogni partita: una testata che cambia
+fonte a seconda di cosa c'è sul disco mostrerebbe due cose diverse su due
+partite della stessa giornata. E la sezione **dichiara il limite del metodo**,
+come si fa per panchina e indisponibili: i pesi si misurano da gol, assist e
+tiri, quindi vedono gli attaccanti e quasi non i difensori — un centrale o un
+portiere che salta la partita risultano lì «quasi gratis», e non è vero. Se i
+due pronostici coincidono a meno di un punto percentuale la pagina dice che le
+formazioni hanno **confermato**: «non è cambiato niente» è un esito, non un
+vuoto.
+L'hub mostra, sotto le partite: accuratezza per mercato con la sua baseline,
+il confronto con le quote di chiusura e — quando esiste qualche partita
+pronosticata in entrambi i modi — il **verdetto sulle formazioni ufficiali**
+(`confronto_fra_modi`, `Engine.confronto_modi`), cioè i due Brier a confronto
+sulle sole partite che hanno tutti e due. Tutte le sezioni compaiono solo
+quando c'è qualcosa di misurato, e dichiarano quando i dati non bastano: una
+tabella vuota si leggerebbe come «provato e non ha reso», che è diverso da
+«non ancora provato». Oggi nessuna delle due sezioni nuove compare, ed è il
+comportamento giusto — di pronostici ufficiali non ne esiste ancora nessuno.
+Sono state scritte e provate **prima** perché il giorno dell'accensione il
+lavoro partirebbe, scriverebbe nel registro, e sul sito non cambierebbe
+niente.
 
 La scheda partita dichiara anche **su cosa poggia** il pronostico
 (`TeamEvidence` in `model/dixon_coles.py`, `righe_affidabilita` in
@@ -425,6 +528,21 @@ partita più recente del campione, non rispetto a oggi, quindi un archivio fermo
 da un anno ha pesi identici a uno di ieri e risulterebbe "solido". Da qui la
 regola nel verdetto: oltre un'emivita dall'ultima partita nota nessuna stima si
 chiama solida, per quante partite abbia dietro.
+
+Il sito si guarda anche **dal telefono**, e il come e' una scelta di sicurezza
+prima che di comodita': il server resta in ascolto su **127.0.0.1** com'e'
+sempre stato, e a pubblicarlo dentro la rete privata ci pensa Tailscale
+(`tailscale serve --bg 8000`, dato una volta sola, vive fuori dal progetto).
+Con `--host 0.0.0.0` il sito si aprirebbe a chiunque fosse sullo stesso Wi-Fi;
+cosi' invece risponde solo ai dispositivi dell'utente, in HTTPS con
+certificato valido, e a internet non e' esposto niente. Tenerlo acceso e'
+compito di `scripts/run_web.ps1` e dell'attivita' `SerieAAnalyzer-Web`, che e'
+l'unica del progetto **senza limite di durata** — le altre si spengono da sole
+dopo 10-30 minuti perche' una raccolta lunga e' una raccolta bloccata, e lo
+stesso valore qui spegnerebbe il sito ogni mezz'ora. Il limite che resta e'
+dichiarato e non aggirabile: se il computer e' spento, dal telefono non si
+vede niente — nessuna sveglia automatica, per la stessa regola che vale per la
+raccolta.
 
 ## Vincoli di progetto
 
@@ -475,8 +593,10 @@ squalifiche (**metà fatti**: si raccolgono e si vedono, vedi
 riempimento della stagione 2025/26 (**metà fatto**: i risultati sono entrati
 gratis da un file, vedi `data/importato.py`; i tabellini restano a pagamento,
 vedi `data/storico.py`); i tabellini delle stagioni 2022-2024, che oggi
-abbiamo solo come risultati; l'impatto dell'allenatore, che si ricava dalle
-formazioni senza spendere richieste; i mercati dei gol (**fatti** il 22 agosto
+abbiamo solo come risultati; l'impatto dell'allenatore (**fatto e misurato
+piatto** il 25 agosto 2026, vedi `data/panchine.py`: la macchina c'è, il
+fattore è 1.00 cioè spento, perché dimenticare la gestione precedente peggiora
+i pronostici in tutte e quattro le stagioni); i mercati dei gol (**fatti** il 22 agosto
 2026 con la compressione dei totali, vedi `comprimi_totale` in
 `model/dixon_coles.py` e `backtest.py --cerca-compressione`); e il **modello
 a tiri**, che è l'unica strada rimasta per sapere davvero qualcosa sui gol —
@@ -501,7 +621,9 @@ fa in una giornata. Non proporlo come lavoro gratuito senza ricordare i tempi.
 Contiene per ognuno cosa esiste già nel codice e quali sono le insidie — fra
 cui tre che sembrano buone idee e non lo sono: i tabellini vecchi non
 migliorano i pronostici; una "forza dell'allenatore" che viaggia da una squadra
-all'altra non è identificabile con un campionato solo; e i mercati dei gol
+all'altra non è identificabile con un campionato solo — e infatti non è quella
+la strada presa, si è pesato il **cambio** come rottura, che è l'unica cosa
+identificabile, e nemmeno quella ha reso; e i mercati dei gol
 **non** si curano con una distribuzione a coda più grassa, perché nei nostri
 dati i gol totali sono *sotto*-dispersi (varianza sempre minore della media,
 quattro stagioni su quattro) e il modello è già troppo largo. Se il file non

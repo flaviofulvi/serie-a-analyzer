@@ -211,6 +211,7 @@ def parse_player(raw: dict[str, Any]) -> PlayerRecord:
 def to_model_matches(
     fixtures: list[FixtureRecord],
     name_by_team_id: dict[int, str] | None = None,
+    panchine: Any | None = None,
 ) -> list[Match]:
     """Filtra e converte le partite concluse in input per il modello.
 
@@ -219,6 +220,13 @@ def to_model_matches(
     dall'id di API-Football, non dal nome, perche' i nomi cambiano fra endpoint
     e stagioni ("Inter" / "Internazionale") e un disallineamento sdoppierebbe
     silenziosamente una squadra in due entita' distinte.
+
+    ``panchine`` e' facoltativo (`data/panchine.py`): quando c'e', ogni partita
+    si porta dietro gli id degli allenatori di quel giorno, e il modello puo'
+    pesare meno le partite di una squadra che nel frattempo ha cambiato
+    panchina. Senza, gli allenatori restano ``None`` e la stima e' quella di
+    sempre — che e' anche cio' che deve succedere sulle stagioni di cui
+    possediamo solo i risultati.
     """
     names = name_by_team_id or {}
     matches: list[Match] = []
@@ -232,6 +240,12 @@ def to_model_matches(
                 home_goals=f.home_goals,
                 away_goals=f.away_goals,
                 played_on=f.played_on,
+                allenatore_casa=(
+                    panchine.allenatore(f.api_id, f.home_team_id) if panchine else None
+                ),
+                allenatore_ospite=(
+                    panchine.allenatore(f.api_id, f.away_team_id) if panchine else None
+                ),
             )
         )
     return matches

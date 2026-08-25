@@ -10,15 +10,17 @@ venga detta invece che nascosta, e che il modello non venga ristimato a ogni
 richiesta.
 """
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from serie_a_analyzer.config import Settings
-from serie_a_analyzer.data.predictions import registra_partite
+from serie_a_analyzer.data.predictions import MODE_SECCO, MODE_UFFICIALE, registra_partite
 from serie_a_analyzer.web import app as app_module
 from serie_a_analyzer.web.engine import Engine
+from serie_a_analyzer.web.views import confronto_ufficiale
 
 SQUADRE = {
     1: "Inter", 2: "Milan", 3: "Juventus",
@@ -549,6 +551,22 @@ def test_la_pagina_giocatori_mostra_i_marcatori(con_dettagli, client):
 
     assert r.status_code == 200
     assert "Bomber" in r.text
+    assert "Marcatori" in r.text
+
+
+def test_la_pagina_giocatori_dichiara_l_annata(con_dettagli, client):
+    """Una classifica senza annata sopra sarebbe la somma di quattro campionati."""
+    r = client.get("/giocatori")
+
+    assert r.status_code == 200
+    assert "un campionato per volta" in r.text
+
+
+def test_un_annata_inventata_non_e_un_guasto(con_dettagli, client):
+    """E' un indirizzo scritto a mano: si mostra la piu' recente, non un 404."""
+    r = client.get("/giocatori?stagione=1999")
+
+    assert r.status_code == 200
     assert "Marcatori" in r.text
 
 
@@ -1089,3 +1107,227 @@ def test_l_affidabilita_non_compare_su_una_partita_gia_giocata(client_col_passat
 
     assert "Su cosa si basa" in client_col_passato.get(f"/partita/{futura.api_id}").text
     assert "Su cosa si basa" not in client_col_passato.get(f"/partita/{passata.api_id}").text
+
+
+# ---- il cambio di allenatore ------------------------------------------------
+
+
+def _lineups(casa, ospite, allenatore_casa, allenatore_ospite):
+    return [
+        {"team": {"id": casa, "name": _nome(casa)}, "formation": "4-3-3",
+         "coach": {"id": allenatore_casa, "name": f"Mister {allenatore_casa}"},
+         "startXI": [], "substitutes": []},
+        {"team": {"id": ospite, "name": _nome(ospite)}, "formation": "4-3-3",
+         "coach": {"id": allenatore_ospite, "name": f"Mister {allenatore_ospite}"},
+         "startXI": [], "substitutes": []},
+    ]
+
+
+def _milan_cambia_allenatore(eng: Engine, quante: int = 4) -> None:
+    """Le formazioni sul disco, col Milan che cambia panchina nelle ultime."""
+    partite = sorted(eng.snapshot().dataset.finished, key=lambda f: f.kickoff_utc)
+    del_milan = [f for f in partite if 2 in (f.home_team_id, f.away_team_id)]
+    nuove = {f.api_id for f in del_milan[-quante:]}
+    for f in partite:
+        def mister(team_id):
+            if team_id == 2:
+                return 999 if f.api_id in nuove else 111
+            return 500 + team_id
+        eng.store.save_detail(f.api_id, "lineups", _lineups(
+            f.home_team_id, f.away_team_id,
+            mister(f.home_team_id), mister(f.away_team_id),
+        ))
+
+
+def test_la_scheda_dichiara_il_cambio_di_panchina(motore, client):
+    """Il modello pesa solo l'eta' di una partita: se la squadra ha cambiato
+    guida, le partite di prima entrano lo stesso e la pagina deve dirlo."""
+    _milan_cambia_allenatore(motore)
+
+    pagina = client.get("/partita/9002").text   # Milan - Juventus, da giocare
+
+    assert "Ha cambiato allenatore" in pagina
+    assert "Mister 999" in pagina, "l'allenatore di adesso"
+    assert "Mister 111" in pagina, "e quello di prima"
+
+
+def test_la_scheda_dice_che_il_pronostico_non_ne_tiene_conto(motore, client):
+    """La stessa regola degli indisponibili: se il modello non usa un dato,
+    la pagina lo dichiara invece di lasciarlo credere."""
+    _milan_cambia_allenatore(motore)
+
+    pagina = client.get("/partita/9002").text
+
+    assert "non ne tiene conto" in pagina
+
+
+def test_senza_cambi_la_sezione_non_compare(motore, client):
+    """Una sezione vuota si leggerebbe come "e' cambiato qualcosa", che sarebbe
+    inventato: senza cambi non compare affatto."""
+    _milan_cambia_allenatore(motore, quante=0)
+
+    pagina = client.get("/partita/9002").text
+
+    assert "Ha cambiato allenatore" not in pagina
+
+
+def test_una_formazione_nuova_fa_ristimare_il_modello(motore):
+    """Il modello ora dipende dalle formazioni, quindi l'impronta degli archivi
+    deve muoversi anche quando arriva soltanto un dettaglio.
+
+    Senza, la stima resterebbe all'allenatore di prima con il sito aperto e
+    nessun motivo apparente per riavviarlo.
+    """
+    prima = motore.snapshot()
+    _milan_cambia_allenatore(motore)
+
+    dopo = motore.snapshot()
+
+    assert dopo is not prima
+    assert dopo.panchine is not None
+    assert len(dopo.panchine.cronologia(2)) == 2
+
+
+# ---- il pronostico rifatto con le formazioni ufficiali ----------------------
+#
+# Oggi non ne esiste nessuno: la macchina c'e' ed e' spenta finche' i tabellini
+# non bastano. Queste pagine vanno pero' scritte e provate PRIMA, altrimenti il
+# giorno dell'accensione il lavoro partirebbe, scriverebbe nel registro, e sul
+# sito non cambierebbe niente.
+
+
+def _pronostico_con_le_formazioni(eng: Engine, fixture_id: int, spinta: float = 0.45):
+    """Aggiunge a una partita il secondo pronostico, come fara' `ufficiali.py`.
+
+    Il modello e' deliberatamente diverso da quello secco — piu' sbilanciato
+    verso la casa — perche' un pronostico identico non avrebbe niente da
+    mostrare e, nel sistema vero, non verrebbe nemmeno scritto (`vale_la_pena`).
+    """
+    snap = eng.snapshot()
+    partita = snap.dataset.by_id[fixture_id]
+
+    registra_partite(
+        eng.pronostici, snap.model, [partita], snap.dataset.name,
+        now=partita.kickoff_utc - timedelta(hours=6),
+    )
+
+    gonfiato = replace(snap.model, home_advantage=snap.model.home_advantage + spinta)
+    registra_partite(
+        eng.pronostici, gonfiato, [partita], snap.dataset.name,
+        mode=MODE_UFFICIALE,
+        now=partita.kickoff_utc - timedelta(hours=1),
+    )
+
+
+def test_senza_formazioni_ufficiali_la_sezione_non_compare(client):
+    """La situazione di oggi, e deve restare muta.
+
+    Una sezione vuota direbbe "le formazioni non cambiano niente", che e'
+    un'informazione, e sarebbe inventata.
+    """
+    pagina = client.get("/partita/9001").text
+
+    assert "Il pronostico rifatto" not in pagina
+    assert "Con le formazioni" not in pagina
+
+
+def test_la_scheda_partita_mostra_i_due_pronostici_a_confronto(motore, monkeypatch):
+    _pronostico_con_le_formazioni(motore, 9001)
+    monkeypatch.setattr(app_module, "_engine", motore)
+
+    pagina = TestClient(app_module.app).get("/partita/9001").text
+
+    assert "Il pronostico rifatto" in pagina
+    # Il confronto e' fra due righe di registro, e la pagina lo dice.
+    assert "secco scritto" in pagina
+    assert "rifatto" in pagina
+    # Il limite del metodo va dichiarato, non compensato.
+    assert "quasi gratis" in pagina
+    assert "difensori" in pagina
+
+
+def test_la_scheda_dice_quale_dei_due_e_il_pronostico_grande(motore, monkeypatch):
+    """Se non lo dicesse, i due numeri diversi in pagina si contraddirebbero."""
+    _pronostico_con_le_formazioni(motore, 9001)
+    monkeypatch.setattr(app_module, "_engine", motore)
+
+    pagina = TestClient(app_module.app).get("/partita/9001").text
+
+    assert "in cima alla pagina e' quello <b>secco</b>" in pagina
+
+
+def test_il_confronto_viene_da_due_righe_congelate_e_non_dal_modello_caldo(motore):
+    """La differenza fra i due deve raccontare le formazioni, non il tempo.
+
+    Il secco ricalcolato adesso avrebbe visto piu' partite dell'ufficiale
+    congelato ieri: la loro differenza direbbe quanto e' passato nel
+    frattempo, non quanto pesa sapere chi gioca.
+    """
+    _pronostico_con_le_formazioni(motore, 9001)
+
+    confronto = confronto_ufficiale(
+        motore.congelato(9001, MODE_SECCO),
+        motore.congelato(9001, MODE_UFFICIALE),
+    )
+
+    assert confronto is not None
+    # La spinta sul fattore campo deve vedersi come casa piu' probabile.
+    casa = next(e for e in confronto.esiti if e["esito"] == "1")
+    assert casa["scarto"] > 0
+    assert confronto.spostamento_massimo > 0.01
+
+
+def test_senza_una_delle_due_righe_non_si_confronta_niente(motore):
+    """Mostrare l'ufficiale da solo lo farebbe sembrare "il pronostico" e
+    basta, e sparirebbe l'informazione per cui e' stato scritto."""
+    assert confronto_ufficiale(None, None) is None
+    assert confronto_ufficiale(motore.congelato(9001, MODE_SECCO), None) is None
+
+
+def test_l_hub_mostra_il_verdetto_sulle_formazioni_solo_quando_ce_n_e_uno(
+    motore, monkeypatch
+):
+    monkeypatch.setattr(app_module, "_engine", motore)
+    client = TestClient(app_module.app)
+
+    assert "Le formazioni ufficiali" not in client.get("/").text
+
+    # Una partita conclusa con tutti e due i pronostici, poi risolta.
+    conclusa = motore.snapshot().dataset.finished[-1]
+    _pronostico_con_le_formazioni(motore, conclusa.api_id)
+    motore.snapshot(force=True)
+
+    pagina = client.get("/").text
+    assert "Le formazioni ufficiali" in pagina
+    assert "Serve rifarlo?" in pagina
+
+
+def test_il_verdetto_dell_hub_usa_solo_le_partite_con_entrambi(motore, monkeypatch):
+    """Il numero di partite dichiarato in pagina e' quello del confronto, non
+    quello di tutti i pronostici: sono cose diverse e mostrare il secondo
+    gonfierebbe la base di una misura che ne usa un'altra."""
+    _congela_il_passato(motore)
+    conclusa = motore.snapshot().dataset.finished[-1]
+    _pronostico_con_le_formazioni(motore, conclusa.api_id)
+    motore.snapshot(force=True)
+
+    confronto = motore.confronto_modi()
+
+    assert confronto["partite"] == 1
+    assert motore.pronostici.conteggi()["pronostici"] > 1
+
+
+def test_quando_le_formazioni_confermano_la_pagina_lo_dice(motore, monkeypatch):
+    """"Non e' cambiato niente" e' un esito, non un vuoto da nascondere.
+
+    Un pronostico ufficiale nasce solo se sposta qualcosa, ma "qualcosa" puo'
+    essere mezzo punto percentuale: dirlo evita che il lettore cerchi una
+    differenza che non c'e'.
+    """
+    _pronostico_con_le_formazioni(motore, 9001, spinta=0.001)
+    monkeypatch.setattr(app_module, "_engine", motore)
+
+    pagina = TestClient(app_module.app).get("/partita/9001").text
+
+    assert "Il pronostico rifatto" in pagina
+    assert "hanno <b>confermato</b>" in pagina

@@ -12,8 +12,6 @@ from serie_a_analyzer.data.client import API_SPORTS_BASE_URL, ApiFootballClient
 from serie_a_analyzer.data.ingest import (
     backfill_candidates,
     collect_seasons,
-    fit_from_api,
-    next_matchday,
     run_backfill,
 )
 
@@ -122,51 +120,6 @@ def test_budget_esaurito_interrompe_senza_esplodere(client):
     # Nessuna eccezione: si restituisce cio' che si e' riusciti a ottenere.
     assert training.seasons == []
     assert training.matches == []
-
-
-@respx.mock
-def test_stima_end_to_end(client):
-    respx.get(url__startswith=f"{API_SPORTS_BASE_URL}/fixtures").mock(
-        return_value=httpx.Response(200, json=_stagione(2024))
-    )
-    modello, training = fit_from_api(client, [2024], regularization=1.0)
-    assert modello.n_matches == 30
-    assert len(modello.teams) == 6
-
-    prob = modello.predict("Squadra 0", "Squadra 3")
-    assert prob.home_win + prob.draw + prob.away_win == pytest.approx(1.0)
-
-
-@respx.mock
-def test_senza_partite_concluse_errore_esplicito(client):
-    respx.get(url__startswith=f"{API_SPORTS_BASE_URL}/fixtures").mock(
-        return_value=httpx.Response(200, json={"errors": [], "response": []})
-    )
-    with pytest.raises(RuntimeError, match="nessuna partita conclusa"):
-        fit_from_api(client, [2024])
-
-
-@respx.mock
-def test_prossima_giornata_e_una_finestra_non_un_numero(client):
-    """Una giornata di Serie A si spalma su piu' giorni; i recuperi slittano."""
-    adesso = datetime(2025, 9, 10, 12, 0, tzinfo=timezone.utc)
-    partite = [
-        # Prossima giornata: venerdi' -> lunedi'.
-        _partita(1, 500, "A", 501, "B", None, None, adesso + timedelta(days=2), "NS"),
-        _partita(2, 502, "C", 503, "D", None, None, adesso + timedelta(days=3), "NS"),
-        _partita(3, 504, "E", 505, "F", None, None, adesso + timedelta(days=4), "NS"),
-        # Giornata successiva, una settimana dopo: non deve entrare.
-        _partita(4, 500, "A", 502, "C", None, None, adesso + timedelta(days=9), "NS"),
-        # Partita gia' giocata: esclusa.
-        _partita(5, 501, "B", 503, "D", 1, 0, adesso - timedelta(days=3)),
-    ]
-    respx.get(url__startswith=f"{API_SPORTS_BASE_URL}/fixtures").mock(
-        return_value=httpx.Response(200, json={"errors": [], "response": partite})
-    )
-    training = collect_seasons(client, [2025])
-    prossime = next_matchday(training, now=adesso)
-
-    assert [f.api_id for f in prossime] == [1, 2, 3]
 
 
 @respx.mock

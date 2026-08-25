@@ -555,11 +555,11 @@ src/serie_a_analyzer/
     views.py         dal dominio a cio' che i template disegnano
     templates/       hub e scheda partita
     static/          foglio di stile
-tests/               532 test
+tests/               591 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata
-  predict_next_round.py  pronostici sui dati reali
+  predict_next_round.py  i pronostici dell'hub, dal terminale (stesso motore)
   daily_collect.py       raccolta giornaliera (da schedulare)
   formazioni_ufficiali.py pronostico rifatto a ridosso del calcio d'inizio
   verifica_raccolta.py   controllo di prontezza, senza spendere richieste

@@ -41,11 +41,12 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Iterable
 
 from .budget import BudgetExhausted, Priority
 from .cache import TTL_FOREVER, TTL_UPCOMING_FIXTURES
 from .client import SERIE_A_LEAGUE_ID, ApiFootballClient, ApiFootballError
-from .daily import DETAIL_KINDS, collect_details_for
+from .daily import DETAIL_KINDS, DETTAGLI_NOTI, collect_details_for
 from .ingest import current_season
 from .parsers import parse_status
 from .store import SeasonStore
@@ -96,12 +97,28 @@ class RapportoStagione:
     nuove: int = 0
     aggiornate: int = 0
     dettagli: dict[str, int] = field(default_factory=dict)
+    tipi: tuple[str, ...] = DETAIL_KINDS
     in_sospeso: int = 0
     richieste: int = 0
     errore: str | None = None
 
     @property
+    def parziale_per_scelta(self) -> bool:
+        """Sono stati chiesti solo alcuni dei tre dettagli.
+
+        Chi legge il rapporto deve poterlo dire, altrimenti "completa"
+        significherebbe due cose diverse senza che si veda quale.
+        """
+        return tuple(self.tipi) != DETAIL_KINDS
+
+    @property
     def completa(self) -> bool:
+        """Niente piu' buchi **fra i dettagli chiesti**.
+
+        Con `tipi` ristretto non vuol dire che la stagione abbia tutto: vuol
+        dire che ha tutto quello per cui si e' pagato. Vedi
+        `parziale_per_scelta`.
+        """
         return self.disponibile and self.in_sospeso == 0
 
 
@@ -129,6 +146,26 @@ def leggi_piano(client: ApiFootballClient) -> StatoPiano:
 
 
 # ---- gli archivi delle stagioni riempite -----------------------------------
+
+
+def scegli_tipi_dettaglio(argomento: str | None) -> tuple[str, ...]:
+    """Legge la scelta dei dettagli da riga di comando. Senza, tutti e tre.
+
+    Solleva su un nome sconosciuto invece di ignorarlo, ed e' il punto: qui si
+    sta per spendere mille richieste, e un `--solo player` (senza la s) che
+    scaricasse in silenzio tutti e tre gli endpoint si scoprirebbe a spesa
+    fatta.
+    """
+    if not argomento:
+        return DETAIL_KINDS
+    scelti = tuple(t.strip() for t in argomento.split(",") if t.strip())
+    ignoti = [t for t in scelti if t not in DETTAGLI_NOTI]
+    if ignoti or not scelti:
+        raise ValueError(
+            f"dettaglio sconosciuto: {', '.join(ignoti) or '(niente)'}. "
+            f"I nomi validi sono {', '.join(DETTAGLI_NOTI)}."
+        )
+    return scelti
 
 
 def store_stagione(radice: Path, stagione: int) -> SeasonStore:
@@ -194,16 +231,21 @@ def _concluse(store: SeasonStore) -> list[dict]:
     return concluse
 
 
-def dettagli_in_sospeso(store: SeasonStore) -> int:
+def dettagli_in_sospeso(store: SeasonStore, tipi: Iterable[str] | None = None) -> int:
     """Quante richieste di dettaglio mancano ancora a questa stagione.
 
     E' il numero da mostrare a chi ha interrotto un riempimento: dice se
     rilanciarlo costa dieci richieste o mille.
+
+    ``tipi`` lo restringe a quelli che si e' scelto di comprare: dopo un
+    `--solo players` il conto dev'essere quello di `players`, o direbbe
+    "mancano 760 richieste" a chi non le vuole spendere.
     """
+    tipi = tuple(tipi) if tipi is not None else DETAIL_KINDS
     return sum(
         1
         for raw in _concluse(store)
-        for kind in DETAIL_KINDS
+        for kind in tipi
         if store.needs_detail((raw.get("fixture") or {}).get("id"), kind)
     )
 
@@ -247,6 +289,7 @@ def riempi_stagione(
     con_dettagli: bool = True,
     max_richieste: int | None = None,
     pausa: float = PAUSA_PREDEFINITA,
+    tipi_dettaglio: Iterable[str] | None = None,
 ) -> RapportoStagione:
     """Ricompra una stagione intera: prima le partite, poi i dettagli.
 
@@ -259,10 +302,15 @@ def riempi_stagione(
     sono lavoro arretrato di un anno fa, e la riserva CRITICAL protegge le
     formazioni ufficiali della giornata di *oggi*.
 
+    ``tipi_dettaglio`` sceglie quali dei tre comprare (vedi `kinds` in
+    `collect_details_for`): sono ~380 richieste ciascuno, e comprarli tutti e
+    tre quando ne serve uno costa il triplo per lo stesso risultato.
+
     Non solleva: restituisce un rapporto che dice fin dove e' arrivato.
     """
+    tipi = tuple(tipi_dettaglio) if tipi_dettaglio is not None else DETAIL_KINDS
     prima = client.budget.used
-    rapporto = RapportoStagione(stagione=stagione)
+    rapporto = RapportoStagione(stagione=stagione, tipi=tipi)
 
     partite, errore = scarica_partite(client, stagione, league)
     if errore:
@@ -292,9 +340,10 @@ def riempi_stagione(
             max_requests=max_richieste,
             priorita=Priority.BACKFILL,
             pausa=pausa,
+            kinds=tipi,
         )
 
-    rapporto.in_sospeso = dettagli_in_sospeso(store)
+    rapporto.in_sospeso = dettagli_in_sospeso(store, tipi)
     rapporto.richieste = client.budget.used - prima
     logger.info(
         "stagione %s: %d partite (%d concluse), dettagli %s, in sospeso %d, %d richieste",
@@ -304,10 +353,12 @@ def riempi_stagione(
     return rapporto
 
 
-def stima_richieste(n_concluse: int) -> int:
+def stima_richieste(n_concluse: int, tipi: Iterable[str] | None = None) -> int:
     """Quante richieste costa una stagione da riempire da zero.
 
-    Una per l'elenco delle partite, tre per ogni partita conclusa. Serve a dire
-    all'utente il prezzo prima di iniziare, non dopo.
+    Una per l'elenco delle partite, una per ogni dettaglio chiesto di ogni
+    partita conclusa — tre se non si sceglie. Serve a dire all'utente il
+    prezzo prima di iniziare, non dopo.
     """
-    return 1 + n_concluse * len(DETAIL_KINDS)
+    tipi = tuple(tipi) if tipi is not None else DETAIL_KINDS
+    return 1 + n_concluse * len(tipi)

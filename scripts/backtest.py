@@ -25,6 +25,8 @@ stagione diversa da quelle che il modello conosce misura un altro programma.
     python scripts/backtest.py --stagione 2024  # una in particolare
     python scripts/backtest.py --compressione 0 # sui gol, sempre la media di lega
     python scripts/backtest.py --cerca-compressione   # quale compressione conviene
+    python scripts/backtest.py --fattore-allenatore 0   # dimentica la gestione precedente
+    python scripts/backtest.py --cerca-allenatore     # quanto pesa il cambio di panchina
 """
 
 from __future__ import annotations
@@ -48,8 +50,11 @@ from serie_a_analyzer.config import (
     load_settings,
 )
 from serie_a_analyzer.data.dataset import Dataset, load_dataset
+from serie_a_analyzer.data.panchine import Panchine, costruisci_panchine
 from serie_a_analyzer.data.parsers import FixtureRecord
+from serie_a_analyzer.data.store import StoreUnito
 from serie_a_analyzer.model.dixon_coles import (
+    DEFAULT_FATTORE_ALLENATORE,
     DEFAULT_GOAL_COMPRESSION,
     comprimi_totale,
     fit_dixon_coles,
@@ -71,6 +76,14 @@ PARTITE_STAGIONE_COMPLETA = 300
 # bastano: il fattore migliore oscilla parecchio da una stagione all'altra,
 # quindi cercarlo al centesimo sarebbe misurare il rumore.
 GRIGLIA_COMPRESSIONE = tuple(round(x / 20, 2) for x in range(21))
+
+# I fattori dell'allenatore provati da `--cerca-allenatore`. Sono pochi e
+# larghi apposta: al contrario della compressione, questo fattore entra nella
+# STIMA, quindi ogni valore costa una rigiocata intera della stagione — una
+# ventina di minuti per un giro completo. Cercarlo al centesimo costerebbe ore
+# per misurare rumore: il segnale, se c'e', si vede fra "dimentica tutto" e
+# "non dimenticare niente".
+GRIGLIA_ALLENATORE = (0.0, 0.25, 0.5, 0.75, 1.0)
 
 
 @dataclass
@@ -209,7 +222,11 @@ def stagione_predefinita(dataset: Dataset) -> int | None:
 
 
 def run_backtest(
-    dataset: Dataset, target: int, compressione: float = DEFAULT_GOAL_COMPRESSION
+    dataset: Dataset,
+    target: int,
+    compressione: float = DEFAULT_GOAL_COMPRESSION,
+    panchine: Panchine | None = None,
+    fattore_allenatore: float = DEFAULT_FATTORE_ALLENATORE,
 ) -> tuple[list[Prediction], dict]:
     """Rigioca la stagione ``target`` giornata per giornata. Zero richieste API.
 
@@ -219,6 +236,11 @@ def run_backtest(
     No: il filtro e' sull'ora, non sulla stagione, quindi una partita del 2026
     non puo' entrare nella stima di una del 2025. E' il taglio che rende il
     backtest onesto, e vale anche all'indietro.
+
+    Lo stesso taglio protegge da solo il fattore dell'allenatore: "chi allena
+    adesso" e' l'allenatore dell'ultima partita **dentro il campione**, quindi
+    alla decima giornata e' quello di allora e non quello di fine stagione.
+    Nessuna regola in piu' da ricordarsi.
     """
     nomi = dataset.team_names
 
@@ -257,11 +279,12 @@ def run_backtest(
         # dopo senza ristimare niente.
         modello = fit_dixon_coles(
             [
-                _to_match(f, nomi)
+                _to_match(f, nomi, panchine)
                 for f in storico
             ],
             as_of=taglio.date(),
             goal_compression=1.0,
+            fattore_allenatore=fattore_allenatore,
         )
         giornate_usate += 1
 
@@ -298,7 +321,7 @@ def run_backtest(
     }
 
 
-def _to_match(f: FixtureRecord, nomi: dict[int, str]):
+def _to_match(f: FixtureRecord, nomi: dict[int, str], panchine: Panchine | None = None):
     from serie_a_analyzer.model.dixon_coles import Match
 
     return Match(
@@ -307,7 +330,24 @@ def _to_match(f: FixtureRecord, nomi: dict[int, str]):
         home_goals=f.home_goals,
         away_goals=f.away_goals,
         played_on=f.played_on,
+        allenatore_casa=(
+            panchine.allenatore(f.api_id, f.home_team_id) if panchine else None
+        ),
+        allenatore_ospite=(
+            panchine.allenatore(f.api_id, f.away_team_id) if panchine else None
+        ),
     )
+
+
+def carica_panchine(settings, store, dataset: Dataset) -> Panchine:
+    """Chi allenava chi, letto dagli stessi archivi che legge il sito.
+
+    Zero richieste: le formazioni sono buste gia' pagate. Le stagioni
+    importate da un file non entrano — non hanno formazioni e non le avranno —
+    e sulle loro partite il fattore dell'allenatore semplicemente non agisce.
+    """
+    storici = list(build_storico_stores(settings).values())
+    return costruisci_panchine(StoreUnito(stores=[store, *storici]), dataset.fixtures)
 
 
 # ---- baseline --------------------------------------------------------------
@@ -473,6 +513,129 @@ def cerca_compressione(dataset: Dataset, stagioni: Sequence[int]) -> int:
     return 0
 
 
+def migliore_allenatore(
+    scansioni: Sequence[dict[float, tuple[float, float, float]]]
+) -> float:
+    """Il fattore che minimizza l'1X2 su piu' stagioni insieme.
+
+    Il criterio e' l'1X2 e non i gol, all'opposto della compressione: qui si
+    sta parlando di **quanto vale una squadra**, che e' esattamente cio' che
+    l'1X2 misura e cio' che il modello sa fare. Se dimenticare la gestione
+    precedente serve a qualcosa, si vede li'. I mercati dei gol restano da
+    guardare come guardia — non devono peggiorare — ma non scelgono.
+    """
+    griglia = sorted(scansioni[0])
+    def costo(f: float) -> float:
+        return sum(s[f][0] for s in scansioni) / len(scansioni)
+    return min(griglia, key=costo)
+
+
+def cerca_allenatore(
+    dataset: Dataset, stagioni: Sequence[int], panchine: Panchine
+) -> int:
+    """Sceglie quanto pesano le partite giocate sotto un altro allenatore.
+
+    A differenza della compressione, questo fattore entra nella STIMA: non si
+    puo' rigiocare una volta e provare venti valori a posteriori, ogni valore
+    vuole la sua rigiocata. Da qui la griglia corta e i venti minuti.
+
+    Vale la stessa regola di onesta': il fattore si sceglie sulle stagioni
+    DIVERSE da quella su cui lo si misura. Scelto sulla stessa, misurerebbe la
+    propria capacita' di indovinare il passato, che e' perfetta per costruzione
+    e non serve a niente.
+    """
+    titolo("L'ALLENATORE - quanto pesa la squadra di prima del cambio")
+    print("Il modello pesa le partite solo per l'eta'. Una squadra che ha")
+    print("cambiato allenatore tre giornate fa si porta pero' dietro il girone")
+    print("precedente a peso pieno, come se fosse la stessa squadra.")
+    print("1.00 = niente correzione (come oggi), 0.00 = la gestione precedente")
+    print("non conta affatto.\n")
+
+    if panchine.vuoto:
+        print("Nessuna formazione sul disco: senza, non si sa chi allenava e")
+        print("non c'e' niente da cercare.\n")
+        return 1
+    print(f"Panchine lette: {len(panchine.squadre())} squadre, "
+          f"{panchine.partite_con_formazioni} partite su {panchine.partite_lette} "
+          f"con le formazioni.")
+    cambi = sum(len(panchine.cambi(s)) for s in panchine.squadre())
+    print(f"Cambi di allenatore visti nell'archivio: {cambi}.\n")
+
+    scansioni: dict[int, dict[float, tuple[float, float, float]]] = {}
+    for stagione in stagioni:
+        riga: dict[float, tuple[float, float, float]] = {}
+        for f in GRIGLIA_ALLENATORE:
+            preds, _ = run_backtest(
+                dataset, stagione, panchine=panchine, fattore_allenatore=f
+            )
+            if not preds:
+                break
+            riga[f] = brier_dei_tre(preds)
+        if riga:
+            scansioni[stagione] = riga
+            print(f"  stagione {stagione}: rigiocata {len(riga)} volte, "
+                  f"una per fattore")
+
+    if len(scansioni) < 2:
+        print("\nServono almeno due stagioni complete per scegliere onestamente.\n")
+        return 1
+
+    titolo("La misura onesta: fattore scelto sulle altre stagioni")
+    print(f"{'stagione':<10}{'f dalle altre':>15}{'1X2':>18}{'Over 2.5':>18}{'Gol/NoGol':>18}")
+    print("-" * 79)
+    deltas = [0.0, 0.0, 0.0]
+    for stagione, s in scansioni.items():
+        altre = [x for y, x in scansioni.items() if y != stagione]
+        f = migliore_allenatore(altre)
+        base, con = s[1.0], s[f]
+        for i in range(3):
+            deltas[i] += con[i] - base[i]
+        print(f"{stagione:<10}{f:>15.2f}"
+              f"{f'{base[0]:.4f}->{con[0]:.4f}':>18}"
+              f"{f'{base[1]:.4f}->{con[1]:.4f}':>18}"
+              f"{f'{base[2]:.4f}->{con[2]:.4f}':>18}")
+    n = len(scansioni)
+    print("-" * 79)
+    print(f"{'variazione media':<25}"
+          f"{deltas[0] / n:>+18.4f}{deltas[1] / n:>+18.4f}{deltas[2] / n:>+18.4f}")
+    print("\nNegativo = migliora. La colonna che decide e' l'1X2: e' il mercato")
+    print("che parla di quanto vale una squadra, ed e' quello che il cambio di")
+    print("allenatore dovrebbe spostare.")
+
+    titolo("Il quadro intero: ogni fattore, in media sulle stagioni")
+    print("Serve a vedere la forma della curva, non a scegliere: qui il fattore")
+    print("e' misurato sulle stesse stagioni su cui e' scelto.\n")
+    print(f"{'fattore':<10}{'1X2':>12}{'Over 2.5':>12}{'Gol/NoGol':>12}")
+    print("-" * 46)
+    quante = len(scansioni)
+    for f in GRIGLIA_ALLENATORE:
+        medie = [
+            sum(s[f][i] for s in scansioni.values()) / quante for i in range(3)
+        ]
+        print(f"{f:<10.2f}{medie[0]:>12.4f}{medie[1]:>12.4f}{medie[2]:>12.4f}")
+
+    print(f"\n{'stagione':<10}" + "".join(f"{f:>12.2f}" for f in GRIGLIA_ALLENATORE))
+    print("-" * (10 + 12 * len(GRIGLIA_ALLENATORE)))
+    for stagione, s in scansioni.items():
+        print(f"{stagione:<10}" + "".join(f"{s[f][0]:>12.4f}" for f in GRIGLIA_ALLENATORE))
+    print("(Brier 1X2 per stagione e per fattore: se il minimo cade ogni volta")
+    print(" in un punto diverso, il valore vero non e' determinato dai dati.)")
+
+    f_finale = migliore_allenatore(list(scansioni.values()))
+    titolo(f"IL FATTORE DA USARE: {f_finale:.2f}")
+    if f_finale == 1.0:
+        print("1.00 vuol dire NIENTE CORREZIONE: su questi dati dimenticare la")
+        print("gestione precedente non migliora i pronostici. E' un risultato e")
+        print("non un fallimento — il modello dice che quel peso non c'era, e la")
+        print("costante DEFAULT_FATTORE_ALLENATORE va lasciata a 1.")
+    else:
+        print("E' il valore da mettere in DEFAULT_FATTORE_ALLENATORE")
+        print("(model/dixon_coles.py). Guarda pero' anche la tabella per")
+        print("stagione qui sopra: se il minimo salta da un fattore all'altro,")
+        print("il guadagno medio e' un caso e non un segnale.")
+    return 0
+
+
 # ---- presentazione ---------------------------------------------------------
 
 
@@ -506,9 +669,26 @@ def main() -> int:
              "quale conviene, scegliendolo ogni volta sulle stagioni diverse "
              "da quella su cui lo misura",
     )
+    parser.add_argument(
+        "--fattore-allenatore",
+        type=float,
+        default=DEFAULT_FATTORE_ALLENATORE,
+        help="quanto pesano le partite giocate sotto un altro allenatore "
+             "(0 = la gestione precedente non conta, 1 = niente correzione; "
+             f"default: {DEFAULT_FATTORE_ALLENATORE})",
+    )
+    parser.add_argument(
+        "--cerca-allenatore",
+        action="store_true",
+        help="cerca quel fattore rigiocando ogni stagione una volta per "
+             "valore. Zero richieste, una ventina di minuti",
+    )
     args = parser.parse_args()
     if not 0.0 <= args.compressione <= 1.0:
         print("\n--compressione va da 0 a 1.\n")
+        return 1
+    if not 0.0 <= args.fattore_allenatore <= 1.0:
+        print("\n--fattore-allenatore va da 0 a 1.\n")
         return 1
 
     try:
@@ -529,7 +709,7 @@ def main() -> int:
         importati=build_importato_stores(settings),
     )
 
-    if args.cerca_compressione:
+    if args.cerca_compressione or args.cerca_allenatore:
         complete = [
             s for s, quante in stagioni_disponibili(dataset).items()
             if quante >= PARTITE_STAGIONE_COMPLETA
@@ -537,7 +717,16 @@ def main() -> int:
         if not complete:
             print("\nNessuna stagione completa in archivio: non c'e' niente da rigiocare.\n")
             return 1
-        return cerca_compressione(dataset, complete)
+        if args.cerca_compressione:
+            return cerca_compressione(dataset, complete)
+        return cerca_allenatore(
+            dataset, complete, carica_panchine(settings, store, dataset)
+        )
+
+    # Le panchine si leggono sempre: costano solo letture da disco, e senza di
+    # loro il fattore non avrebbe su cosa agire. Su una stagione priva di
+    # formazioni restano vuote e la stima e' identica a quella di sempre.
+    panchine = carica_panchine(settings, store, dataset)
 
     target = args.stagione or stagione_predefinita(dataset)
     if target is None:
@@ -553,7 +742,12 @@ def main() -> int:
           + ", ".join(f"{s} ({n})" for s, n in disponibili.items()))
 
     try:
-        preds, info = run_backtest(dataset, target, compressione=args.compressione)
+        preds, info = run_backtest(
+            dataset, target,
+            compressione=args.compressione,
+            panchine=panchine,
+            fattore_allenatore=args.fattore_allenatore,
+        )
     except RuntimeError as exc:
         # Chiedere una stagione che non c'e' e' un errore di chi lancia il
         # comando, non un guasto: si dice cosa c'e', senza traceback.
@@ -570,6 +764,10 @@ def main() -> int:
     if args.compressione < 1.0:
         print(f"Compressione dei gol: {args.compressione:.2f} "
               f"(media di lega {preds[0].media_lega:.2f} gol a partita)")
+    if args.fattore_allenatore < 1.0:
+        cambi = sum(len(panchine.cambi(sq)) for sq in panchine.squadre())
+        print(f"Fattore allenatore:   {args.fattore_allenatore:.2f} "
+              f"({cambi} cambi di panchina nell'archivio)")
 
     # --- 1X2 ---------------------------------------------------------------
     titolo("1X2 - il modello contro i suoi concorrenti")

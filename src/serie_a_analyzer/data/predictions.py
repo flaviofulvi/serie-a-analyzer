@@ -497,9 +497,22 @@ class PredictionStore:
             return conn.total_changes - prima
 
     def esiti_risolti(
-        self, market: str | None = None, selection: str | None = None
+        self,
+        market: str | None = None,
+        selection: str | None = None,
+        mode: str | None = None,
     ) -> list[dict]:
-        """Gli esiti gia' confrontati con la realta', pronti per le metriche."""
+        """Gli esiti gia' confrontati con la realta', pronti per le metriche.
+
+        ``mode`` non e' un filtro come gli altri due, ed e' il motivo per cui
+        la colonna viaggia **sempre** insieme alla riga anche quando non si
+        filtra. Una partita puo' avere due pronostici — quello secco e quello
+        rifatto con le formazioni ufficiali (`data/ufficiali.py`) — e sono due
+        risposte diverse alla stessa domanda, non due osservazioni della
+        stessa cosa. Sommarle in un'unica media conterebbe ogni partita due
+        volte e mediarebbe fra loro proprio i due numeri che il progetto vuole
+        confrontare: chi legge deve sapere quale sta guardando.
+        """
         condizioni, parametri = [], []
         if market is not None:
             condizioni.append("pm.market = ?")
@@ -507,6 +520,9 @@ class PredictionStore:
         if selection is not None:
             condizioni.append("pm.selection = ?")
             parametri.append(selection)
+        if mode is not None:
+            condizioni.append("p.mode = ?")
+            parametri.append(mode)
         dove = (" where " + " and ".join(condizioni)) if condizioni else ""
 
         with self._connessione() as conn:
@@ -514,7 +530,7 @@ class PredictionStore:
                 dict(r) for r in conn.execute(
                     "select pm.id, pm.prediction_id, pm.market, pm.selection, "
                     "       pm.probability, po.hit, po.brier, po.resolved_at, "
-                    "       p.fixture_id "
+                    "       p.fixture_id, p.mode "
                     "from prediction_outcomes po "
                     "join prediction_markets pm on pm.id = po.prediction_market_id "
                     "join predictions p on p.id = pm.prediction_id" + dove,

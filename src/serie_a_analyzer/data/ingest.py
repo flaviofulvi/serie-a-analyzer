@@ -1,5 +1,14 @@
 """Orchestrazione dell'ingestione dati.
 
+Qui si **raccoglie**, non si stima. Fino al 25 agosto 2026 il modulo sapeva
+anche stimare il modello (`fit_from_api`) e dire quale fosse la prossima
+giornata: due funzioni usate da un solo script, che percio' vedeva soltanto le
+stagioni in cache — non le stagioni ricomprate, non quella importata, non la
+raccolta giornaliera. Erano una seconda strada verso il pronostico, piu' corta
+e piu' povera, e nessuno diceva che i suoi numeri fossero diversi da quelli
+del sito. Sono state tolte: chi vuole un modello passa da `dataset.py` e
+`web/engine.py`, che e' la strada che usano le pagine.
+
 Il progetto vive con 100 richieste al giorno, quindi l'ingestione e' divisa in
 due velocita' molto diverse:
 
@@ -20,13 +29,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
-from ..model.dixon_coles import (
-    DEFAULT_HALF_LIFE_DAYS,
-    DEFAULT_REGULARIZATION,
-    FittedModel,
-    Match,
-    fit_dixon_coles,
-)
+from ..model.dixon_coles import Match
 from .budget import BudgetExhausted, Priority
 from .cache import TTL_FOREVER, TTL_UPCOMING_FIXTURES
 from .client import ApiFootballClient
@@ -145,54 +148,6 @@ def collect_seasons(
         seasons=tutte,
         requests_spent=client.budget.used - prima,
     )
-
-
-def fit_from_api(
-    client: ApiFootballClient,
-    seasons: tuple[int, ...] | list[int],
-    league: int | None = None,
-    half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
-    regularization: float = DEFAULT_REGULARIZATION,
-) -> tuple[FittedModel, TrainingSet]:
-    """Scarica le stagioni e stima il modello. Il percorso piu' corto ai dati veri."""
-    training = collect_seasons(client, seasons, league)
-    if not training.matches:
-        raise RuntimeError(
-            "nessuna partita conclusa disponibile: impossibile stimare il modello. "
-            "Verifica che le stagioni configurate siano coperte dal tuo piano."
-        )
-    modello = fit_dixon_coles(
-        training.matches,
-        half_life_days=half_life_days,
-        regularization=regularization,
-    )
-    return modello, training
-
-
-def next_matchday(
-    training: TrainingSet, now: datetime | None = None
-) -> list[FixtureRecord]:
-    """Le partite della prossima giornata da giocare.
-
-    Non si filtra per numero di giornata: in Serie A una giornata si spalma da
-    venerdi' a lunedi' e i recuperi possono slittare di mesi, quindi "prossima
-    giornata" significa il primo blocco di partite in programma, non un numero.
-    """
-    adesso = now or datetime.now(timezone.utc)
-    future = [
-        f
-        for s in training.seasons
-        for f in s.scheduled
-        if f.kickoff_utc > adesso
-    ]
-    if not future:
-        return []
-
-    future.sort(key=lambda f: f.kickoff_utc)
-    # Tutte le partite entro una finestra di 5 giorni dalla prima in programma:
-    # copre il consueto venerdi'-lunedi' senza inglobare la giornata successiva.
-    prima = future[0].kickoff_utc
-    return [f for f in future if (f.kickoff_utc - prima).days < 5]
 
 
 def backfill_candidates(training: TrainingSet, already_have: set[int]) -> list[int]:

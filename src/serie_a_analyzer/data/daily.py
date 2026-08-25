@@ -54,10 +54,27 @@ FREE_PLAN_WINDOW_DAYS = 1
 # formazioni servono ai pronostici, gli altri due alla scheda giocatore.
 DETAIL_KINDS = ("lineups", "players", "events")
 
+# Un quarto dettaglio che l'archivio sa chiedere ma la raccolta giornaliera
+# NON prende: `/fixtures/statistics`, cioe' i totali di squadra e soprattutto
+# l'**xG**. Sta fuori da DETAIL_KINDS di proposito e la distinzione e' il punto:
+# quello che la raccolta prende ogni giorno e' cio' di cui il sistema vive, e
+# l'xG per ora e' un dato in prova (il lavoro 8, riaperto il 24 agosto 2026
+# dopo che i tiri sono usciti piatti). Si compra per le stagioni passate con
+# `riempi_storico.py --solo statistics` e si misura; se paga, allora entra
+# qui — non prima, o si sarebbe raccolto ogni giorno un dato che nessuno usa.
+# Nessun'altra parte del codice va toccata per chiederlo: `needs_detail` e
+# `save_detail` lavorano su una stringa qualunque.
+DETTAGLIO_STATISTICHE = "statistics"
+
+# Tutti i dettagli che si sa chiedere. E' contro questo che si valida una
+# scelta da riga di comando, non contro DETAIL_KINDS.
+DETTAGLI_NOTI = DETAIL_KINDS + (DETTAGLIO_STATISTICHE,)
+
 _DETAIL_PRIORITY = {
     "lineups": Priority.NORMAL,
     "players": Priority.BACKFILL,
     "events": Priority.BACKFILL,
+    DETTAGLIO_STATISTICHE: Priority.BACKFILL,
 }
 
 # --- quando conviene raccogliere ------------------------------------------
@@ -294,6 +311,7 @@ def collect_details_for(
     max_requests: int | None = None,
     priorita: Priority | None = None,
     pausa: float = 0.0,
+    kinds: Iterable[str] | None = None,
 ) -> dict[str, int]:
     """Formazioni, statistiche giocatori ed eventi delle partite concluse.
 
@@ -317,7 +335,18 @@ def collect_details_for(
     zero quando se ne fanno mille di fila, perche' i piani a pagamento hanno
     anche un limite **al minuto** e superarlo fa rispondere 429 all'API mentre
     il contatore locale continua a segnare richieste spese.
+
+    ``kinds`` restringe quali dei tre dettagli chiedere. La raccolta di oggi
+    li vuole tutti — costano nove richieste e la partita e' una sola — ma il
+    riempimento di una stagione passata no: li' ogni endpoint sono ~380
+    richieste, e i tre non servono alle stesse cose. `players` e' l'unico che
+    puo' cambiare un pronostico (minuti, gol, assist e tiri: `data/pesi.py` e
+    il modello a tiri); `lineups` serve all'allenatore e alla pagina della
+    partita, `events` solo a dire *quando* si e' segnato. Un terzo della spesa
+    porta quindi quasi tutto il valore, e questo parametro e' il modo di
+    comprare quel terzo.
     """
+    kinds = tuple(kinds) if kinds is not None else DETAIL_KINDS
     raccolti: dict[str, int] = {}
     spese = 0
     errori_di_fila = 0
@@ -329,7 +358,7 @@ def collect_details_for(
         if fid is None:
             continue
 
-        for kind in DETAIL_KINDS:
+        for kind in kinds:
             if not store.needs_detail(fid, kind):
                 continue
             if max_requests is not None and spese >= max_requests:

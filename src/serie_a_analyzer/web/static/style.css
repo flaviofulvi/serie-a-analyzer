@@ -365,6 +365,14 @@ h3 {
   font-weight: 600;
 }
 
+/* Le annate sopra le classifiche dei giocatori. Non e' un menu di
+   navigazione ma un filtro: sta dentro l'apertura, staccato dal sommario,
+   perche' cambia cosa dicono le tabelle sotto e non dove si va. */
+.apertura .annate {
+  margin-top: 2rem;
+  gap: .375rem;
+}
+
 .briciole {
   font-family: var(--dati);
   font-size: .75rem;

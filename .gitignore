@@ -18,3 +18,8 @@ data/importato/
 # Non tracciati di proposito, sono la scrivania di chi sviluppa.
 DA_FARE.txt
 run
+
+# Appunti locali e log delle esecuzioni: la scrivania, non il progetto.
+DA_SISTEMARE.txt
+logs/
+*.bak-*

@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterable
 
+from .ingest import current_season
 from .store import tabellino_provvisorio
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,10 @@ class Prestazione:
 
     fixture_id: int
     quando: datetime
+    # L'anno con cui si etichetta la stagione: la 2025/26 e' 2025. Senza, i
+    # totali di un giocatore sommerebbero quattro campionati in un numero solo
+    # e una classifica marcatori direbbe una carriera invece di una stagione.
+    stagione: int
     player_id: int
     nome: str
     team_id: int
@@ -98,6 +103,10 @@ class Prestazione:
     rossi: int
     tiri: int | None
     tiri_in_porta: int | None
+    # I passaggi da cui e' nato un tiro: la stessa cosa dell'assist, misurata
+    # un passo prima e senza dipendere da chi tira. Capitano dieci volte piu'
+    # spesso degli assist, che e' l'unico motivo per cui sono qui.
+    passaggi_chiave: int | None
     voto: float | None
 
     @property
@@ -128,6 +137,11 @@ class Formazione:
     squadra: str
     modulo: str | None
     allenatore: str | None
+    # L'identita' di un allenatore e' l'id, come per giocatori e squadre. Il
+    # nome accanto e' solo l'etichetta da mostrare: "Allegri" e "M. Allegri"
+    # sono lo stesso uomo e diventerebbero due panchine diverse. Serve a
+    # `data/panchine.py`, che da qui ricava chi allenava chi e quando.
+    allenatore_id: int | None
     titolari: list[InCampo]
     panchina: list[InCampo]
 
@@ -157,16 +171,24 @@ class Gol:
 # ---- lettura dei dettagli ----------------------------------------------------
 
 
-def prestazioni_partita(store, fixture_id: int, quando: datetime) -> list[Prestazione]:
+def prestazioni_partita(
+    store, fixture_id: int, quando: datetime, stagione: int | None = None
+) -> list[Prestazione]:
     """Le prestazioni dei giocatori scesi in campo in una partita.
 
     Chi non e' entrato resta fuori: un panchinaro inutilizzato compare nel
     payload con i minuti a ``null``, e tenerlo gonfierebbe le presenze con
     partite mai giocate. La panchina, dove serve vederla, sta in `Formazione`.
+
+    ``stagione`` si passa quando la si conosce — chi ha in mano la partita ce
+    l'ha, ed e' il dato vero. Senza, si ricava dalla data con la stessa regola
+    del resto del programma (`current_season`): una stagione europea prende il
+    nome dell'anno in cui comincia, e in luglio non si gioca.
     """
     blocchi = store.load_detail(fixture_id, "players")
     if not blocchi:
         return []
+    anno = stagione if stagione is not None else current_season(quando.date())
     if tabellino_provvisorio(blocchi):
         # Un tabellino fermo a partita in corso non e' un tabellino parziale:
         # e' un tabellino SBAGLIATO. Genoa-Napoli del 22 agosto 2026 diceva
@@ -200,9 +222,11 @@ def prestazioni_partita(store, fixture_id: int, quando: datetime) -> list[Presta
             gol = statistiche.get("goals") or {}
             cartellini = statistiche.get("cards") or {}
             tiri = statistiche.get("shots") or {}
+            passaggi = statistiche.get("passes") or {}
             out.append(Prestazione(
                 fixture_id=fixture_id,
                 quando=quando,
+                stagione=anno,
                 player_id=player_id,
                 nome=giocatore.get("name") or str(player_id),
                 team_id=team_id,
@@ -215,8 +239,16 @@ def prestazioni_partita(store, fixture_id: int, quando: datetime) -> list[Presta
                 assist=_intero(gol.get("assists")) or 0,
                 gialli=_intero(cartellini.get("yellow")) or 0,
                 rossi=_intero(cartellini.get("red")) or 0,
+                # Attenzione alla convenzione, verificata sull'intero archivio:
+                # su tiri e passaggi chiave lo zero NON viene mai scritto, al suo
+                # posto c'e' `null`. Quindi `None` qui significa zero e non "non
+                # lo so" — al contrario di `assists`, dove lo zero c'e' per
+                # esteso. Il default `None` si tiene lo stesso, perche' una busta
+                # di un campionato che quei campi non li pubblica affatto
+                # dev'essere distinguibile.
                 tiri=_intero(tiri.get("total"), None),
                 tiri_in_porta=_intero(tiri.get("on"), None),
+                passaggi_chiave=_intero(passaggi.get("key"), None),
                 voto=_decimale(partita.get("rating")),
             ))
     return out
@@ -256,6 +288,7 @@ def formazioni_partita(store, fixture_id: int) -> list[Formazione]:
             squadra=squadra.get("name") or str(team_id),
             modulo=blocco.get("formation"),
             allenatore=(blocco.get("coach") or {}).get("name"),
+            allenatore_id=_intero((blocco.get("coach") or {}).get("id"), None),
             titolari=_in_campo(blocco.get("startXI")),
             panchina=_in_campo(blocco.get("substitutes")),
         ))
@@ -336,6 +369,16 @@ class SchedaGiocatore:
         return sum(p.assist for p in self.prestazioni)
 
     @property
+    def tiri(self) -> int:
+        """I tiri, che `data/pesi.py` usa per pesare il giocatore.
+
+        `None` vale zero: su questo campo l'API non scrive mai lo zero (vedi
+        `prestazioni_partita`), quindi sommarlo come zero e' la lettura giusta
+        e non un ripiego.
+        """
+        return sum(p.tiri or 0 for p in self.prestazioni)
+
+    @property
     def gialli(self) -> int:
         return sum(p.gialli for p in self.prestazioni)
 
@@ -402,6 +445,25 @@ class SchedaGiocatore:
             prestazioni=[p for p in self.prestazioni if p.team_id == team_id],
         )
 
+    def con_stagione(self, stagione: int) -> "SchedaGiocatore":
+        """La stessa scheda ristretta a un campionato solo.
+
+        I totali di un giocatore non si sommano fra stagioni quando si mostra
+        una classifica: "12 gol" deve voler dire dodici gol in un campionato,
+        non dodici in quattro. La carriera intera resta disponibile — e' la
+        scheda non ristretta — e serve alla sua pagina, non alle classifiche.
+        """
+        return SchedaGiocatore(
+            player_id=self.player_id,
+            nome=self.nome,
+            prestazioni=[p for p in self.prestazioni if p.stagione == stagione],
+        )
+
+    @property
+    def stagioni(self) -> list[int]:
+        """Le stagioni in cui e' sceso in campo, dalla piu' recente."""
+        return sorted({p.stagione for p in self.prestazioni}, reverse=True)
+
 
 # Come si ordina una classifica: la chiave, e i criteri che rompono la parita'.
 _CLASSIFICHE = {
@@ -429,6 +491,12 @@ class ArchivioGiocatori:
     prestazioni: list[Prestazione]
     partite_concluse: int = 0
     partite_con_statistiche: int = 0
+    # Gli stessi due conti spezzati per annata. Servono alle pagine che
+    # mostrano una stagione per volta: dichiarare "1530 partite su 1530"
+    # sopra la classifica di un campionato solo sarebbe un numero vero al
+    # posto sbagliato, che e' un modo di mentire.
+    concluse_per_stagione: dict[int, int] = field(default_factory=dict)
+    con_statistiche_per_stagione: dict[int, int] = field(default_factory=dict)
     # Quante sono ferme alla fotografia del feed live. Si contano invece di
     # sparire, perche' "manca" e "l'API non l'ha ancora consolidato" sono due
     # risposte diverse e la seconda si risolve da sola.
@@ -476,10 +544,31 @@ class ArchivioGiocatori:
         """
         return set(self._per_giocatore)
 
-    def scheda(self, player_id: int) -> SchedaGiocatore | None:
+    def stagioni(self) -> list[int]:
+        """Le annate presenti nell'archivio, dalla piu' recente."""
+        return sorted({p.stagione for p in self.prestazioni}, reverse=True)
+
+    def giocatori_di(self, stagione: int | None = None) -> int:
+        """Quanti giocatori si sono visti, in un'annata o in tutte."""
+        if stagione is None:
+            return self.giocatori_conosciuti
+        return len({p.player_id for p in self.prestazioni if p.stagione == stagione})
+
+    def scheda(self, player_id: int, stagione: int | None = None) -> SchedaGiocatore | None:
+        """La scheda di un giocatore, tutta o ristretta a un'annata.
+
+        Ristretta puo' venire **vuota** — un giocatore che quell'anno non c'era
+        — e in quel caso si restituisce ``None`` come per uno sconosciuto: una
+        scheda con zero partite non e' una scheda, e mostrarla metterebbe in
+        classifica gente che non ha giocato.
+        """
         righe = self._per_giocatore.get(player_id)
         if not righe:
             return None
+        if stagione is not None:
+            righe = [p for p in righe if p.stagione == stagione]
+            if not righe:
+                return None
         return SchedaGiocatore(
             player_id=player_id, nome=self._nomi[player_id], prestazioni=righe
         )
@@ -509,10 +598,19 @@ class ArchivioGiocatori:
         chiave: str = "gol",
         limite: int = 20,
         minimo_voti: int = MINIMO_PARTITE_PER_VOTO,
+        stagione: int | None = None,
     ) -> list[SchedaGiocatore]:
-        """I primi della lista per gol, assist, minuti o voto medio."""
+        """I primi della lista per gol, assist, minuti o voto medio.
+
+        ``stagione`` restringe a un campionato. Senza, i totali sommano tutte
+        le annate sul disco: da quando i tabellini delle stagioni passate sono
+        stati comprati (agosto 2026) sono quattro, e una classifica marcatori
+        senza annata racconterebbe una carriera spacciandola per un campionato.
+        """
         ordina = _CLASSIFICHE.get(chiave, _CLASSIFICHE["gol"])
-        schede = [s for s in (self.scheda(pid) for pid in self._per_giocatore) if s]
+        schede = [
+            s for s in (self.scheda(pid, stagione) for pid in self._per_giocatore) if s
+        ]
         if chiave == "voto":
             schede = [s for s in schede if s.partite_con_voto >= minimo_voti]
         return sorted(schede, key=ordina, reverse=True)[:limite]
@@ -542,11 +640,20 @@ def costruisci_archivio(store, fixtures: Iterable[Any]) -> ArchivioGiocatori:
     prestazioni: list[Prestazione] = []
     con_statistiche = 0
     provvisorie = 0
+    per_stagione: dict[int, int] = {}
+    con_stat_per_stagione: dict[int, int] = {}
 
     for f in concluse:
-        righe = prestazioni_partita(store, f.api_id, f.kickoff_utc)
+        # La stagione la sa la partita: si passa quella, non la si indovina.
+        stagione = getattr(f, "season", None)
+        righe = prestazioni_partita(store, f.api_id, f.kickoff_utc, stagione)
+        anno = righe[0].stagione if righe else stagione
+        if anno is not None:
+            per_stagione[anno] = per_stagione.get(anno, 0) + 1
         if righe:
             con_statistiche += 1
+            if anno is not None:
+                con_stat_per_stagione[anno] = con_stat_per_stagione.get(anno, 0) + 1
             prestazioni.extend(righe)
         elif tabellino_provvisorio(store.load_detail(f.api_id, "players")):
             provvisorie += 1
@@ -562,4 +669,6 @@ def costruisci_archivio(store, fixtures: Iterable[Any]) -> ArchivioGiocatori:
         partite_concluse=len(concluse),
         partite_con_statistiche=con_statistiche,
         partite_provvisorie=provvisorie,
+        concluse_per_stagione=per_stagione,
+        con_statistiche_per_stagione=con_stat_per_stagione,
     )

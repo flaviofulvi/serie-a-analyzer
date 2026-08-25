@@ -31,9 +31,9 @@ ADESSO = datetime(2026, 9, 20, 18, 45, tzinfo=timezone.utc)
 # ---- materiale di prova -----------------------------------------------------
 
 
-def _partita(api_id, quando, casa=INTER, ospite=TORINO, gol=(2, 0)):
+def _partita(api_id, quando, casa=INTER, ospite=TORINO, gol=(2, 0), season=2026):
     return FixtureRecord(
-        api_id=api_id, season=2026, league_id=135,
+        api_id=api_id, season=season, league_id=135,
         round_label="Regular Season - 1", matchday=1,
         kickoff_utc=quando, status="finished",
         home_team_id=casa, home_team_name=str(casa),
@@ -453,3 +453,90 @@ def test_la_classifica_marcatori_ordina_per_gol(store):
     classifica = costruisci_archivio(store, [_partita(1, ADESSO)]).classifica("gol", limite=2)
 
     assert [s.nome for s in classifica] == ["Due", "Uno"]
+
+
+# ---- le annate ---------------------------------------------------------------
+#
+# Da agosto 2026 l'archivio contiene quattro stagioni di tabellini, non una. Un
+# capocannoniere calcolato su tutte sarebbe la somma di quattro campionati con
+# l'aria di essere uno solo, e metterebbe davanti chi ha giocato piu' anni.
+
+
+def _archivio_di_due_stagioni(tmp_path):
+    """Un veterano che segna in tutte e due, e un altro solo nella vecchia."""
+    store = SeasonStore(root=tmp_path / "due")
+    store.upsert_fixtures([{"fixture": {"id": 1}}, {"fixture": {"id": 2}}])
+    vecchia = ADESSO - timedelta(days=400)
+
+    store.save_detail(1, "players", _tabellino((INTER, [
+        _giocatore(10, "Veterano", gol=1),
+        _giocatore(11, "Sparito", gol=3),
+    ])))
+    store.save_detail(2, "players", _tabellino((INTER, [
+        _giocatore(10, "Veterano", gol=2),
+    ])))
+    partite = [
+        _partita(1, vecchia, season=2025),
+        _partita(2, ADESSO, season=2026),
+    ]
+    return costruisci_archivio(store, partite)
+
+
+def test_una_classifica_non_somma_due_campionati(tmp_path):
+    archivio = _archivio_di_due_stagioni(tmp_path)
+
+    assert archivio.stagioni() == [2026, 2025]
+
+    quest_anno = archivio.classifica("gol", stagione=2026)
+    assert [s.nome for s in quest_anno] == ["Veterano"]
+    assert quest_anno[0].gol == 2          # non 3: quello dell'altro anno resta li'
+
+    l_anno_scorso = archivio.classifica("gol", stagione=2025)
+    assert [s.nome for s in l_anno_scorso] == ["Sparito", "Veterano"]
+    assert l_anno_scorso[1].gol == 1
+
+
+def test_senza_annata_i_totali_restano_quelli_di_sempre(tmp_path):
+    """La carriera intera serve alla scheda del giocatore e non sparisce."""
+    archivio = _archivio_di_due_stagioni(tmp_path)
+
+    assert archivio.scheda(10).gol == 3
+    assert archivio.scheda(10).stagioni == [2026, 2025]
+
+
+def test_chi_non_ha_giocato_quell_anno_non_e_in_classifica(tmp_path):
+    """`None` e non una scheda a zero: chi non c'era non e' arrivato ultimo."""
+    archivio = _archivio_di_due_stagioni(tmp_path)
+
+    assert archivio.scheda(11, stagione=2026) is None
+    assert archivio.scheda(11, stagione=2025).gol == 3
+
+
+def test_le_partite_si_contano_per_annata(tmp_path):
+    """Dichiarare la copertura dell'archivio intero sopra una sola stagione
+    sarebbe un numero vero al posto sbagliato."""
+    archivio = _archivio_di_due_stagioni(tmp_path)
+
+    assert archivio.concluse_per_stagione == {2025: 1, 2026: 1}
+    assert archivio.con_statistiche_per_stagione == {2025: 1, 2026: 1}
+
+
+def test_la_stagione_si_ricava_dalla_data_quando_non_la_si_passa(tmp_path):
+    """Chi ha in mano la partita passa `season`; gli altri non devono indovinare.
+
+    Una partita di settembre appartiene alla stagione che comincia
+    quell'anno, una di maggio a quella cominciata l'anno prima.
+    """
+    store = SeasonStore(root=tmp_path / "date")
+    store.save_detail(1, "players", [{
+        "team": {"id": INTER, "name": "Inter"},
+        "players": [_giocatore(10, "Uno")],
+    }])
+
+    settembre = datetime(2026, 9, 14, 18, 45, tzinfo=timezone.utc)
+    maggio = datetime(2026, 5, 24, 18, 45, tzinfo=timezone.utc)
+
+    assert prestazioni_partita(store, 1, settembre)[0].stagione == 2026
+    assert prestazioni_partita(store, 1, maggio)[0].stagione == 2025
+    # Se la partita la sa, vince lei.
+    assert prestazioni_partita(store, 1, maggio, 2030)[0].stagione == 2030

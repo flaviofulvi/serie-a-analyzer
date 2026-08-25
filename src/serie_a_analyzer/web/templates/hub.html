@@ -318,6 +318,172 @@
   </section>
 {% endif %}
 
+{% if confronto_modi %}
+  {# Il verdetto sul lavoro delle formazioni ufficiali. Compare solo quando
+     esiste qualche partita pronosticata in tutti e due i modi: prima non c'e'
+     niente da dire, e una tabella vuota si leggerebbe come "provato e non ha
+     reso" invece di "non ancora provato". #}
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Serve rifarlo?</p>
+      <h2>Le formazioni ufficiali</h2>
+      <p class="spiega">
+        Su alcune partite il pronostico viene fatto <b>due volte</b>: una
+        appena la partita compare in calendario, e una quando escono le
+        formazioni ufficiali, pesando chi gioca davvero. Nessuna delle due
+        sostituisce l'altra.
+      </p>
+      <p class="spiega">
+        Qui si vede se la seconda e' servita, su <b>{{ confronto_modi_partite }}</b>
+        partite che hanno tutti e due i pronostici. Solo quelle: misurare il
+        primo su tutte le partite e il secondo su una parte direbbe quale
+        gruppo era piu' facile da indovinare, non quale pronostico era
+        migliore.
+      </p>
+      <p class="spiega">
+        Se il secondo non fara' meglio, quel lavoro <b>si butta</b>. Non e'
+        un'opinione contro un'altra: e' il modello che dice che quel peso non
+        c'era.
+      </p>
+    </div>
+
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th>Mercato</th>
+              <th class="destra">Esiti</th>
+              <th class="destra">Secco</th>
+              <th class="destra">Con le formazioni</th>
+              <th class="destra">Differenza</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in confronto_modi %}
+              <tr>
+                <td class="forte">{{ c.mercato }}</td>
+                <td class="destra mono fioco">{{ c.n }}</td>
+                <td class="destra mono">{{ "%.4f"|format(c.brier_secco) }}</td>
+                <td class="destra mono forte">{{ "%.4f"|format(c.brier_ufficiale) }}</td>
+                <td class="destra mono">{{ "%+.4f"|format(c.scarto) }}</td>
+                <td>
+                  {% if c.tono == "ok" %}<span class="verdetto ok">{{ c.verdetto }}</span>
+                  {% elif c.tono == "no" %}<span class="verdetto no">{{ c.verdetto }}</span>
+                  {% else %}<span class="verdetto attesa">{{ c.verdetto }}</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="nota">
+        Differenza negativa = rifare il pronostico con le formazioni ha
+        migliorato le cose. Punteggio piu' basso = meglio, come sempre.
+      </p>
+    </div>
+  </section>
+{% endif %}
+
+{% if classifica %}
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Il campionato</p>
+      <h2>Classifica</h2>
+      <p class="spiega">
+        I punti fatti, non le forze stimate: sono due cose diverse e questa e'
+        quella che decide il campionato.
+      </p>
+      <p class="spiega">
+        L'ultima colonna e' <b>dove starebbe la squadra se contasse la forza
+        stimata invece dei punti</b>. Non e' una previsione di dove finira': e'
+        il posto che occuperebbe oggi con un altro metro. Dove i due numeri si
+        allontanano c'e' una squadra che sta rendendo piu' — o meno — di quanto
+        abbia mostrato in campo.
+      </p>
+      {% set giornate = classifica|map(attribute="giocate")|max %}
+      {% if giornate < 5 %}
+        <p class="spiega">
+          Siamo alla giornata <b>{{ giornate }}</b>: a questo punto la
+          classifica dice piu' su chi hanno incontrato le squadre che su quanto
+          valgono. La colonna del modello, che guarda anche le stagioni
+          passate, e' il numero meno ballerino dei due.
+        </p>
+      {% endif %}
+      {% set con_pareggi = classifica|selectattr("criterio")|first %}
+      {% if con_pareggi %}
+        <p class="spiega">
+          Le parita' si rompono con gli <b>scontri diretti</b>, come in Serie A,
+          ma solo quando le squadre in parita' hanno gia' completato fra loro
+          andata e ritorno. Quando non e' ancora cosi' decide la differenza
+          reti: e' il caso di gran parte della stagione, e vuol dire che
+          l'ordine puo' non coincidere con quello della classifica ufficiale.
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th class="destra">#</th>
+              <th>Squadra</th>
+              <th class="destra">G</th>
+              <th class="destra">V</th>
+              <th class="destra">N</th>
+              <th class="destra">P</th>
+              <th class="destra">GF</th>
+              <th class="destra">GS</th>
+              <th class="destra">DR</th>
+              <th class="destra">Punti</th>
+              <th class="destra">Secondo il modello</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in classifica %}
+              <tr>
+                <td class="destra mono fioco">{{ r.posizione }}</td>
+                <td class="forte">
+                  <a href="/squadra/{{ r.squadra_id }}">{{ r.squadra }}</a>
+                </td>
+                <td class="destra mono fioco">{{ r.giocate }}</td>
+                <td class="destra mono">{{ r.vinte }}</td>
+                <td class="destra mono">{{ r.pari }}</td>
+                <td class="destra mono">{{ r.perse }}</td>
+                <td class="destra mono fioco">{{ r.fatti }}</td>
+                <td class="destra mono fioco">{{ r.subiti }}</td>
+                <td class="destra mono">{{ "%+d"|format(r.differenza) if r.differenza else 0 }}</td>
+                <td class="destra mono forte">{{ r.punti }}</td>
+                <td class="destra mono">
+                  {% if r.posizione_modello %}
+                    {{ r.posizione_modello }}
+                    {% if r.scarto_modello %}
+                      <span class="fioco">{{ "%+d"|format(r.scarto_modello) }}</span>
+                    {% else %}
+                      <span class="fioco">=</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="fioco">&ndash;</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="chiave">
+        G giocate &middot; V vinte &middot; N pareggi &middot; P perse &middot;
+        DR differenza reti &middot; nell'ultima colonna un numero positivo vuol
+        dire che il modello la mette piu' in alto di dov'e'
+      </p>
+    </div>
+  </section>
+{% endif %}
+
 {% if forze %}
   <section class="blocco">
     <div class="lato">

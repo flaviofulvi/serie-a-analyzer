@@ -21,15 +21,24 @@ rumore travestito da misura, per tre ragioni che si sommano:
   volta e si segna poco. Nel basket funziona; nel calcio servono molte
   stagioni.
 
-Qui si misura invece cio' che ogni giocatore **ha prodotto**: gol e assist per
-minuto giocato. E' un dato che sta gia' sul disco, pagato dalla raccolta
-giornaliera, e non costa nessuna richiesta.
+Qui si misura invece cio' che ogni giocatore **ha fatto davanti**: gol,
+assist e **tiri** per minuto giocato (vedi `produzione`). E' un dato che sta
+gia' sul disco, pagato dalla raccolta giornaliera, e non costa nessuna
+richiesta.
+
+I tiri ci sono per una ragione sola, ed e' misurata: un titolare produce 0,08
+gol a partita, e su una quarantina di episodi in tutta la stagione non si
+distinguono quattro giocatori. Il tiro e' lo stesso gesto un passo prima,
+capita otto volte piu' spesso, e indovina meglio la produzione futura
+(r 0.645 -> 0.728 su quattro stagioni, `scripts/prova_pesi.py`). Il
+**bersaglio** pero' non cambia mai: restano gol e assist la cosa che si vuole
+prevedere, i tiri sono solo il modo meno rumoroso di arrivarci.
 
 IL LIMITE, che va dichiarato e non nascosto
 
-Questo metodo **vede gli attaccanti, non i difensori**. Gol e assist misurano
-chi sta davanti: un centrale o un portiere che salta la partita risultano quasi
-gratis, e non e' vero. Chi mostra questo numero deve dirlo. Un pezzo difensivo
+Questo metodo **vede gli attaccanti, non i difensori**, e i tiri non lo
+curano: misurano chi sta davanti esattamente come gol e assist. Un centrale o
+un portiere che salta la partita risultano quasi gratis, e non e' vero. Chi mostra questo numero deve dirlo. Un pezzo difensivo
 si potra' aggiungere — dai gol subiti quando quel giocatore era in campo — ma
 e' piu' rumoroso e non appartiene alla prima versione.
 
@@ -76,6 +85,22 @@ MINIMO_PARTITE = 5
 MINUTI_PARTITA = 90
 GIOCATORI_IN_CAMPO = 11
 
+# Quanto pesa un gol (o un assist) rispetto a un tiro, nel numeratore della
+# produzione. Non e' una scelta di gusto: viene da `scripts/prova_pesi.py`,
+# misurato il 24 agosto 2026 su quattro stagioni. Vedi `produzione` per il
+# perche' i tiri entrano affatto.
+#
+# Il numero e' scelto con la regola del progetto — per ogni stagione il peso
+# migliore sulle **altre tre**, poi misurato su quella tenuta fuori — e viene
+# 2 tre volte su quattro. Sulla stagione mai vista guadagna sempre, da +0.050
+# a +0.101 di correlazione. L'ottimo e' **piatto fra 1 e 3**: chi lo ritocca
+# dentro quell'intervallo non sta sbagliando, chi lo porta a 8 si'.
+#
+# Attenzione a una cosa che non si vede: un gol e' ANCHE un tiro, e nel
+# tabellino e' contato in tutti e due i campi. Con PESO_PRODUZIONE = 2 un gol
+# vale quindi 3 in totale e un assist 2.
+PESO_PRODUZIONE = 2
+
 # Forza dello shrinkage, in partite-equivalenti. Con 5, un giocatore che ha
 # giocato 5 partite piene sta a meta' strada fra il suo tasso e quello della
 # squadra.
@@ -102,16 +127,56 @@ LIMITE_SPOSTAMENTO = 0.30
 MASSIMO_SCONOSCIUTI = 4
 
 
+def produzione(gol: int, assist: int, tiri: int) -> int:
+    """Il numeratore del peso di un giocatore: quanto ha inciso davanti.
+
+    Non sono solo gol e assist, ed e' la correzione piu' importante fatta a
+    questo modulo. Un titolare produce **0,08 gol a partita**: in una stagione
+    intera fa una quarantina di episodi, e distinguere quattro giocatori con
+    quaranta episodi non si puo'. Chi ne fa 5 invece di 3 puo' semplicemente
+    essere stato fortunato, e il modulo lo prendeva per piu' forte.
+
+    Il **tiro** e' lo stesso gesto un passo prima, dove la fortuna non e'
+    ancora intervenuta, e capita 0,62 volte a partita: otto volte piu' spesso.
+    Contarlo non cambia cosa si vuole sapere — resta "quanto incide davanti" —
+    cambia su quante prove lo si giudica.
+
+    Misurato prima di scriverlo (`scripts/prova_pesi.py`, quattro stagioni,
+    1036 giocatori-stagione): la capacita' di indovinare i gol+assist futuri
+    di un giocatore passa da r = 0.645 a r = 0.728, e il vantaggio tiene su
+    tutte e quattro le stagioni — la peggiore guadagna +0.050. Sopravvive
+    anche allo shrinkage qui sotto, che era il rischio vero: lo shrinkage
+    aiuta di piu' il metro piu' rumoroso, quindi avrebbe potuto mangiarsi il
+    vantaggio, e invece lo lascia intero.
+
+    Due cose che sono state provate e NON entrano:
+
+    * i **passaggi chiave** sopra i tiri non aggiungono niente (0.701 contro
+      0.711 dei soli tiri): la creazione la cattura gia' il tiro. Da soli sono
+      molto peggio (0.504);
+    * i **tiri da soli**, senza gol e assist, perdono contro la somma (0.711
+      contro 0.728). L'esito qualcosa aggiunge, non e' solo rumore.
+    """
+    return (gol + assist) * PESO_PRODUZIONE + tiri
+
+
 @dataclass(frozen=True)
 class PesoGiocatore:
-    """Quanto produce un giocatore, in gol+assist per 90 minuti."""
+    """Quanto incide un giocatore davanti, per 90 minuti.
+
+    Gol, assist e tiri restano visibili uno per uno: `per_90` e' un indice
+    composto (vedi `produzione`) e da solo non si spiega a nessuno. Chi lo
+    mostra in pagina deve poter dire da cosa viene.
+    """
 
     player_id: int
     nome: str
     minuti: int
     gol: int
     assist: int
-    # Gia' passato per lo shrinkage: e' il numero da usare, non (gol+assist).
+    tiri: int
+    # Gia' passato per lo shrinkage: e' il numero da usare, non la produzione
+    # grezza.
     per_90: float
 
     @property
@@ -119,7 +184,7 @@ class PesoGiocatore:
         """Il tasso senza shrinkage. Serve a mostrare la differenza, non a usarlo."""
         if self.minuti <= 0:
             return 0.0
-        return (self.gol + self.assist) * MINUTI_PARTITA / self.minuti
+        return produzione(self.gol, self.assist, self.tiri) * MINUTI_PARTITA / self.minuti
 
 
 @dataclass(frozen=True)
@@ -192,7 +257,7 @@ def pesi_squadra(
         return None
 
     minuti_totali = sum(s.minuti for s in rosa)
-    produzione_totale = sum(s.gol + s.assist for s in rosa)
+    produzione_totale = sum(produzione(s.gol, s.assist, s.tiri) for s in rosa)
     if minuti_totali <= 0:
         return None
 
@@ -202,7 +267,7 @@ def pesi_squadra(
 
     pesi: dict[int, PesoGiocatore] = {}
     for s in rosa:
-        prodotto = s.gol + s.assist
+        prodotto = produzione(s.gol, s.assist, s.tiri)
         tasso = (
             (prodotto + prior_minuti * tasso_squadra) / (s.minuti + prior_minuti)
         )
@@ -212,6 +277,7 @@ def pesi_squadra(
             minuti=s.minuti,
             gol=s.gol,
             assist=s.assist,
+            tiri=s.tiri,
             per_90=tasso * MINUTI_PARTITA,
         )
 
@@ -309,18 +375,46 @@ def titolari_da_formazione(formazione: Any) -> list[int]:
 
 
 def partite_recenti(
-    fixtures: Iterable[Any], adesso, giorni: int = GIORNI_FINESTRA
+    fixtures: Iterable[Any],
+    adesso,
+    giorni: int = GIORNI_FINESTRA,
+    stagione: int | None = None,
 ) -> list[Any]:
     """Le partite concluse dentro la finestra, che sono quelle da cui pesare.
 
     Serve a costruire l'archivio delle prestazioni su cio' che racconta la rosa
     di oggi. Guardare tutto l'archivio darebbe pesi piu' stabili e riferiti a
     una squadra che non esiste piu': meta' dei giocatori hanno cambiato maglia.
+
+    Due tagli, e servono tutti e due perche' tagliano cose diverse.
+
+    Il primo sono i **giorni**, e vale dentro una stagione: a marzo le partite
+    di ottobre raccontano una rosa che il mercato di gennaio ha gia' cambiato.
+
+    Il secondo e' la **stagione**, e vale al confine fra due: fra maggio e
+    agosto c'e' il mercato estivo, che e' il momento in cui una rosa cambia di
+    piu'. Senza questo taglio, ad agosto la finestra di 120 giorni arriva ad
+    aprile e pesca le ultime giornate dell'anno prima — cinque, cioe'
+    esattamente quante ne servono per accendere la macchina (`MINIMO_PARTITE`).
+    Ne uscirebbero pronostici costruiti su rose di PRIMA del mercato, e i
+    pronostici sono immutabili: quelle righe resterebbero per sempre nel
+    confronto fra i due Brier, che e' l'unica ragione per cui i pronostici con
+    le formazioni ufficiali esistono.
+
+    Il taglio per stagione toglie anche un vincolo che non c'entra niente col
+    modello: senza, non si potevano comprare i tabellini di una stagione
+    conclusa senza far partire la macchina per sbaglio. Con, si comprano quando
+    si vuole.
+
+    ``stagione`` a ``None`` non taglia niente ed e' quel che serve ai test e a
+    chi vuole misurare a cavallo di due stagioni di proposito.
     """
     from datetime import timedelta
 
     inizio = adesso - timedelta(days=giorni)
     return [
         f for f in fixtures
-        if getattr(f, "is_finished", False) and inizio <= f.kickoff_utc <= adesso
+        if getattr(f, "is_finished", False)
+        and inizio <= f.kickoff_utc <= adesso
+        and (stagione is None or getattr(f, "season", None) == stagione)
     ]

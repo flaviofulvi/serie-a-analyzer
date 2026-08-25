@@ -39,13 +39,33 @@
 {% else %}
 
 <section class="apertura">
-  <p class="occhiello">Serie A &middot; stagione in corso</p>
-  <h1>{{ archivio.giocatori_conosciuti }} giocatori visti in campo</h1>
+  <p class="occhiello">
+    Serie A &middot;
+    {% if stagione %}stagione {{ stagione }}/{{ (stagione + 1) % 100 }}{% else %}nessuna stagione{% endif %}
+  </p>
+  <h1>{{ quanti }} giocatori visti in campo</h1>
+  <p class="sommario">
+    Le classifiche sono di <b>un campionato per volta</b>: sommare quattro
+    stagioni metterebbe davanti chi ha giocato piu' anni, non chi ha segnato
+    di piu'. La carriera intera sta nella scheda del singolo giocatore.
+  </p>
   <p class="sommario">
     Chi non e' mai entrato non compare: l'archivio sa solo cio' che e'
     successo in campo, <b>non le rose ufficiali</b>. Un acquisto mai impiegato
     non c'e', ed e' giusto cosi'.
   </p>
+
+  {% if stagioni|length > 1 %}
+    <nav class="navigazione annate" aria-label="Scegli la stagione">
+      {% for anno in stagioni %}
+        <a class="bottone{% if anno == stagione %} attivo{% endif %}"
+           href="/giocatori?stagione={{ anno }}"
+           {% if anno == stagione %}aria-current="page"{% endif %}>
+          {{ anno }}/{{ (anno + 1) % 100 }}
+        </a>
+      {% endfor %}
+    </nav>
+  {% endif %}
 </section>
 
 <section class="blocco disteso">
@@ -53,12 +73,13 @@
     <p class="occhiello">Chi segna</p>
     <h2>Marcatori</h2>
     <p class="spiega">
-      Conti costruiti sulle <b>{{ archivio.partite_con_statistiche }}</b>
-      partite con tabellino, su {{ archivio.partite_concluse }} concluse
-      nell'archivio della stagione in corso
-      ({{ (archivio.copertura*100)|round|int }}%). Le stagioni 2022-2024
-      servono a stimare il modello ma non compaiono qui: di quelle l'archivio
-      conserva i risultati, non i tabellini.
+      Conti di questa stagione soltanto: <b>{{ con_tabellino }}</b> partite
+      col tabellino su {{ concluse }} concluse
+      {%- if concluse %} ({{ (con_tabellino * 100 // concluse) }}%){% endif %}.
+      {% if con_tabellino < concluse %}
+        Le partite che mancano non sono perse: i tabellini si rileggono
+        dall'id, e l'id non scade.
+      {% endif %}
     </p>
   </div>
 

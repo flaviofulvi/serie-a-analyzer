@@ -12,6 +12,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from ..data.indisponibili import ASSENTE, traduci_motivo
+from ..data.panchine import Panchine
 from ..data.parsers import FixtureRecord
 from ..model.dixon_coles import TeamEvidence
 from ..model.markets import MatchProbabilities
@@ -339,6 +340,165 @@ def righe_affidabilita(
     return righe  # type: ignore[return-value]
 
 
+@dataclass
+class CambioPanchina:
+    """Una squadra che ha cambiato allenatore di recente, pronta da disegnare.
+
+    Non e' un giudizio sull'allenatore — quello il modello non lo sa dare, e
+    non ci prova. E' un avviso su cosa c'e' dentro la stima: le partite di
+    prima del cambio le ha giocate una squadra guidata da un altro, e il
+    modello le conta comunque perche' pesa solo l'eta' di una partita.
+    """
+
+    squadra: str
+    squadra_id: int
+    allenatore: str
+    dal: str
+    giorni: int
+    partite: int
+    precedente: str | None
+    # Se il modello ne tenga conto oppure no. Non e' un dettaglio di
+    # presentazione: dire "ne tiene conto" quando il fattore e' spento sarebbe
+    # la stessa bugia che la pagina evita sugli indisponibili.
+    conta: bool
+
+
+def cambio_panchina(
+    panchine: Panchine | None,
+    squadra: str,
+    squadra_id: int,
+    oggi: date,
+    conta: bool,
+) -> CambioPanchina | None:
+    """Il cambio di allenatore di una squadra, se c'e' stato e se pesa ancora.
+
+    Due condizioni, e servono tutte e due. **C'e' stato un cambio**: una
+    squadra con un allenatore solo in archivio non ha niente da dichiarare.
+    **E' recente**: oltre un'emivita le partite della gestione precedente
+    pesano gia' quasi zero da sole, e dirlo sarebbe allarmare per un problema
+    che il decadimento temporale ha gia' risolto.
+    """
+    if panchine is None:
+        return None
+    tratti = panchine.cronologia(squadra_id)
+    if len(tratti) < 2:
+        return None
+    attuale = tratti[-1]
+    giorni = (oggi - attuale.dal).days
+    if giorni > GIORNI_FRESCHI:
+        return None
+    return CambioPanchina(
+        squadra=squadra,
+        squadra_id=squadra_id,
+        allenatore=attuale.nome,
+        dal=f"{attuale.dal.day} {_MESI[attuale.dal.month - 1]} {attuale.dal.year}",
+        giorni=giorni,
+        partite=attuale.partite,
+        precedente=tratti[-2].nome,
+        conta=conta,
+    )
+
+
+def righe_panchina(
+    panchine: Panchine | None,
+    riga: RigaPartita,
+    conta: bool,
+    oggi: date | None = None,
+) -> list[CambioPanchina]:
+    """Le squadre di questa partita che hanno cambiato allenatore di recente.
+
+    Qui, al contrario dell'affidabilita', va bene mostrarne **una sola**: che
+    il Milan abbia cambiato allenatore non dice niente di falso sull'Udinese.
+    L'affidabilita' e' un confronto e va mostrata a coppie, questo e' un fatto
+    su una squadra.
+    """
+    quando = oggi or date.today()
+    righe = [
+        cambio_panchina(panchine, riga.casa, riga.casa_id, quando, conta),
+        cambio_panchina(panchine, riga.ospite, riga.ospite_id, quando, conta),
+    ]
+    return [r for r in righe if r is not None]
+
+
+@dataclass(frozen=True)
+class ConfrontoUfficiale:
+    """I due pronostici sulla stessa partita, messi uno accanto all'altro.
+
+    Sono il pronostico **secco** — scritto appena il modello ha visto la
+    partita in calendario — e quello **rifatto quando sono uscite le
+    formazioni ufficiali**, che pesa chi gioca davvero (`data/ufficiali.py`).
+
+    Esistono tutti e due apposta, e questa e' la pagina in cui si vedono
+    insieme: due pronostici sulla stessa partita sono l'unico modo di scoprire
+    se rifarli serve. Il verdetto vero non e' qui ma nell'hub, dove i Brier di
+    tutte le partite si confrontano; qui si vede **cosa** e' cambiato su
+    questa, che e' la domanda che ci si fa guardandola.
+
+    Il pronostico grande in cima alla pagina resta il **secco**, ed e' detto in
+    chiaro nel template. Non perche' sia migliore — non si sa ancora, e' tutto
+    il punto — ma perche' e' l'unico che esiste per ogni partita: se la testata
+    cambiasse fonte a seconda di cosa c'e' sul disco, due partite della stessa
+    giornata mostrerebbero due cose diverse senza dirlo.
+    """
+
+    esiti: list[dict]
+    quando_secco: str | None
+    quando_ufficiale: str | None
+    gol_attesi_secco: tuple[float, float]
+    gol_attesi_ufficiale: tuple[float, float]
+
+    @property
+    def spostamento_massimo(self) -> float:
+        """Di quanto si e' mosso l'esito che si e' mosso di piu'.
+
+        Serve al template per dire la cosa piu' utile in una riga sola: le
+        formazioni hanno cambiato qualcosa, o hanno confermato? Un pronostico
+        ufficiale viene scritto solo se sposta qualcosa (`vale_la_pena`), ma
+        "qualcosa" puo' essere mezzo punto percentuale.
+        """
+        return max((abs(e["scarto"]) for e in self.esiti), default=0.0)
+
+
+def confronto_ufficiale(secco, ufficiale) -> ConfrontoUfficiale | None:
+    """Il confronto fra i due pronostici registrati, o ``None`` se non si puo'.
+
+    Servono **entrambi**: mostrare l'ufficiale da solo lo farebbe sembrare il
+    pronostico e basta, e sparirebbe proprio l'informazione per cui e' stato
+    scritto — di quanto ha spostato le cose sapere chi gioca.
+
+    Prende due ``Congelato`` (`web/engine.py`), cioe' due righe di registro:
+    mai il modello caldo. Il secco ricalcolato adesso e l'ufficiale congelato
+    ieri non sono confrontabili — uno dei due avrebbe visto piu' partite — e
+    la differenza fra i due non direbbe piu' niente sulle formazioni.
+    """
+    if secco is None or ufficiale is None:
+        return None
+
+    coppie = (
+        ("1", "home_win"),
+        ("X", "draw"),
+        ("2", "away_win"),
+    )
+    esiti = [
+        {
+            "esito": etichetta,
+            "secco": getattr(secco.prob, campo),
+            "ufficiale": getattr(ufficiale.prob, campo),
+            "scarto": getattr(ufficiale.prob, campo) - getattr(secco.prob, campo),
+        }
+        for etichetta, campo in coppie
+    ]
+    return ConfrontoUfficiale(
+        esiti=esiti,
+        quando_secco=formatta_data(secco.quando) if secco.quando else None,
+        quando_ufficiale=(
+            formatta_data(ufficiale.quando) if ufficiale.quando else None
+        ),
+        gol_attesi_secco=secco.gol_attesi,
+        gol_attesi_ufficiale=ufficiale.gol_attesi,
+    )
+
+
 def griglia_risultati(matrice, massimo: int = 5) -> list[dict]:
     """La matrice dei risultati esatti, ritagliata e pronta da disegnare.
 
@@ -433,6 +593,94 @@ def righe_confronto_mercato(accuratezza: dict) -> list[dict]:
             "n": voce["n"],
             "brier_modello": voce["brier_modello"],
             "brier_mercato": voce["brier_mercato"],
+            "scarto": voce["scarto"],
+            "verdetto": verdetto,
+            "tono": tono,
+        })
+    return righe
+
+
+def righe_classifica(
+    classifica: list, forze: list[tuple] | None = None
+) -> list[dict]:
+    """La classifica pronta da disegnare, col posto che il modello darebbe.
+
+    La colonna in piu' e' la ragione per cui questa tabella vale la pena: da
+    sola la classifica la sanno tutti, e il sito non aggiunge niente a
+    guardarla. Accanto al **posto secondo le forze stimate** dice invece una
+    cosa che nessun altro dice — chi sta sopra o sotto quello che il modello si
+    aspetterebbe — e quella e' la lettura per cui uno apre questo sito e non un
+    altro.
+
+    Attenzione a cosa NON e' quella colonna: non e' una previsione di dove la
+    squadra finira'. E' dove starebbe **oggi** se contasse la forza stimata
+    invece dei punti fatti, e le due divergono anche solo per il calendario.
+
+    Le forze arrivano da `FittedModel.strength_table()`, che copre tutte le
+    squadre di tutte le stagioni in archivio: qui si tiene solo l'ordine
+    relativo fra quelle del campionato in corso, altrimenti una squadra di
+    Serie A risulterebbe quindicesima fra ventisette.
+    """
+    posto_modello: dict[str, int] = {}
+    if forze:
+        nomi_in_classifica = {r.squadra for r in classifica}
+        solo_queste = [f for f in forze if f[0] in nomi_in_classifica]
+        for posizione, voce in enumerate(solo_queste, start=1):
+            posto_modello[voce[0]] = posizione
+
+    righe = []
+    for r in classifica:
+        secondo_il_modello = posto_modello.get(r.squadra)
+        righe.append({
+            "posizione": r.posizione,
+            "squadra": r.squadra,
+            "squadra_id": r.squadra_id,
+            "giocate": r.giocate,
+            "vinte": r.vinte,
+            "pari": r.pari,
+            "perse": r.perse,
+            "fatti": r.fatti,
+            "subiti": r.subiti,
+            "differenza": r.differenza,
+            "punti": r.punti,
+            "criterio": r.criterio,
+            "posizione_modello": secondo_il_modello,
+            # Positivo = il modello la mette piu' in alto di dov'e'.
+            "scarto_modello": (
+                r.posizione - secondo_il_modello
+                if secondo_il_modello is not None else None
+            ),
+        })
+    return righe
+
+
+def righe_confronto_modi(confronto: dict | None) -> list[dict]:
+    """Il pronostico secco contro quello rifatto con le formazioni ufficiali.
+
+    E' il verdetto sul lavoro delle formazioni, ed e' l'unico posto in cui
+    quel lavoro puo' morire: se dopo qualche mese il Brier non migliora, non
+    e' un'opinione contro un'altra: e' il modello che dice che quel peso non
+    c'era.
+
+    Resta vuoto finche' non esiste nemmeno una partita con tutti e due i
+    pronostici — cioe' oggi — e l'hub non mostra la sezione affatto: una
+    tabella vuota si leggerebbe come "provato e non ha reso", che e' una cosa
+    diversa da "non ancora provato".
+    """
+    righe = []
+    for voce in (confronto or {}).get("mercati", []):
+        if not voce["significativo"]:
+            verdetto, tono = "troppi pochi dati", "attesa"
+        elif voce["il_secondo_e_migliore"]:
+            verdetto, tono = "le formazioni aiutano", "ok"
+        else:
+            verdetto, tono = "il secco fa meglio", "no"
+
+        righe.append({
+            "mercato": ETICHETTE_MERCATI.get(voce["mercato"], voce["mercato"]),
+            "n": voce["n"],
+            "brier_secco": voce["brier_primo"],
+            "brier_ufficiale": voce["brier_secondo"],
             "scarto": voce["scarto"],
             "verdetto": verdetto,
             "tono": tono,

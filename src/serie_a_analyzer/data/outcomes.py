@@ -32,13 +32,35 @@ from math import log
 from typing import Any, Callable, Iterable
 
 from .odds import consenso_per_partita
-from .predictions import PredictionStore
+from .predictions import MODE_SECCO, MODE_UFFICIALE, PredictionStore
 
 logger = logging.getLogger(__name__)
 
 # Sotto questa soglia di pronostici risolti, ogni metrica e' rumore: due
 # partite fortunate bastano a far sembrare eccellente un mercato inutile.
 SOGLIA_SIGNIFICATIVITA = 30
+
+# Su quale dei due pronostici si misura, quando nessuno lo dice.
+#
+# Una partita puo' averne due: quello **secco**, scritto appena il modello la
+# vede, e quello rifatto quando escono le **formazioni ufficiali**
+# (`data/ufficiali.py`). Nessuna misura puo' sommarli: sono due risposte alla
+# stessa domanda, quindi una media che li mescola conta ogni partita due volte
+# e appiattisce l'uno sull'altro proprio i due numeri che si vogliono
+# confrontare.
+#
+# Il default e' il secco, e non e' una scelta di comodo. E' l'unico dei due che
+# esiste per **ogni** partita pronosticata: e' la serie continua, quella il cui
+# andamento nel tempo si puo' guardare senza che cambi cosa si sta misurando.
+# L'ufficiale compare solo dove i pesi dei giocatori esistevano e spostavano
+# qualcosa (`vale_la_pena`), quindi su un sottoinsieme che si allarga da solo
+# col passare delle giornate: usarlo come numero di riferimento significherebbe
+# cambiare popolazione ogni settimana.
+#
+# Il confronto vero fra i due sta in `confronto_fra_modi`, che li mette uno
+# accanto all'altro **sugli stessi esiti** — l'unico modo in cui la domanda ha
+# una risposta.
+MODO_PREDEFINITO = MODE_SECCO
 
 
 class EsitoNonRisolvibile(ValueError):
@@ -239,15 +261,20 @@ def _raggruppa(righe: list[dict], chiave) -> dict[Any, list[dict]]:
     return gruppi
 
 
-def accuratezza_per_selezione(store: PredictionStore) -> list[dict]:
+def accuratezza_per_selezione(
+    store: PredictionStore, mode: str = MODO_PREDEFINITO
+) -> list[dict]:
     """Come sta andando ogni singolo esito: Over 2.5 separato da Over 4.5.
 
     E' il livello a cui la baseline ha davvero senso, ed e' dove si vede quale
     parte di un mercato funziona e quale no.
+
+    Su ``mode`` vale quel che dice `MODO_PREDEFINITO`: si misura un tipo di
+    pronostico alla volta, mai i due insieme.
     """
     risultato = []
     for (mercato, selezione), righe in _raggruppa(
-        store.esiti_risolti(), lambda r: (r["market"], r["selection"])
+        store.esiti_risolti(mode=mode), lambda r: (r["market"], r["selection"])
     ).items():
         voce = {"mercato": mercato, "selezione": selezione, **_metriche(righe)}
         voce["significativo"] = voce["n"] >= SOGLIA_SIGNIFICATIVITA
@@ -256,7 +283,9 @@ def accuratezza_per_selezione(store: PredictionStore) -> list[dict]:
     return sorted(risultato, key=lambda v: (v["mercato"], v["selezione"]))
 
 
-def accuratezza_per_mercato(store: PredictionStore) -> list[dict]:
+def accuratezza_per_mercato(
+    store: PredictionStore, mode: str = MODO_PREDEFINITO
+) -> list[dict]:
     """Come sta andando ogni mercato, dal piu' misurato al meno.
 
     Il Brier si media direttamente sugli esiti, la baseline **no**: va
@@ -270,9 +299,14 @@ def accuratezza_per_mercato(store: PredictionStore) -> list[dict]:
     ``significativo`` dice se ci sono abbastanza esiti perche' il numero
     significhi qualcosa: mostrarlo senza questa avvertenza sarebbe il modo piu'
     semplice di mentire con dati veri.
+
+    Su ``mode`` vale quel che dice `MODO_PREDEFINITO`: si misura un tipo di
+    pronostico alla volta, mai i due insieme.
     """
     risultato = []
-    for mercato, righe in _raggruppa(store.esiti_risolti(), lambda r: r["market"]).items():
+    for mercato, righe in _raggruppa(
+        store.esiti_risolti(mode=mode), lambda r: r["market"]
+    ).items():
         voce = {"mercato": mercato, **_metriche(righe)}
         voce["baseline"] = sum(
             _baseline(sum(1 for r in gruppo if r["hit"]) / len(gruppo)) * len(gruppo)
@@ -285,7 +319,9 @@ def accuratezza_per_mercato(store: PredictionStore) -> list[dict]:
     return sorted(risultato, key=lambda v: -v["n"])
 
 
-def brier_1x2_multiclasse(store: PredictionStore) -> dict | None:
+def brier_1x2_multiclasse(
+    store: PredictionStore, mode: str = MODO_PREDEFINITO
+) -> dict | None:
     """Il Brier dell'1X2 nella forma confrontabile col backtest.
 
     Il backtest somma i tre esiti di ogni partita (0 perfetto, 0.667 tirando a
@@ -293,9 +329,13 @@ def brier_1x2_multiclasse(store: PredictionStore) -> dict | None:
     diviso tre, ma metterli accanto senza dirlo confonderebbe: qui si calcola
     per partita, come nel backtest, cosi' i due valori si possono guardare
     insieme.
+
+    Qui il filtro su ``mode`` fa piu' che tenere pulita una media: senza,
+    ``n_partite`` conterebbe i **pronostici** e non le partite, e una sola
+    partita con tutti e due i pronostici ne varrebbe due.
     """
     per_pronostico: dict[int, float] = {}
-    for riga in store.esiti_risolti(market="1x2"):
+    for riga in store.esiti_risolti(market="1x2", mode=mode):
         per_pronostico[riga["prediction_id"]] = (
             per_pronostico.get(riga["prediction_id"], 0.0) + riga["brier"]
         )
@@ -309,7 +349,9 @@ def brier_1x2_multiclasse(store: PredictionStore) -> dict | None:
     }
 
 
-def confronto_col_mercato(store: PredictionStore) -> dict:
+def confronto_col_mercato(
+    store: PredictionStore, mode: str = MODO_PREDEFINITO
+) -> dict:
     """Modello contro quote di chiusura, sugli stessi identici esiti.
 
     E' la domanda che conta: battere chi tira a caso non e' un risultato,
@@ -321,13 +363,18 @@ def confronto_col_mercato(store: PredictionStore) -> dict:
     cose, pronostico risolto e quota di consenso. Confrontare il Brier del
     modello su tutte le partite con quello del mercato su una meta' diversa
     darebbe un numero che non significa niente.
+
+    Per la stessa ragione si guarda un tipo di pronostico alla volta: la quota
+    di chiusura di una partita e' **una**, e mettergli accanto due pronostici
+    la conterebbe due volte, con lo stesso Brier del banco ripetuto — cioe' un
+    confronto falsato proprio dalla parte che non e' cambiata.
     """
     quote = consenso_per_partita(store.quote_di_chiusura())
     if not quote:
         return {"mercati": [], "totale": None, "partite": 0}
 
     accoppiati: list[dict] = []
-    for riga in store.esiti_risolti():
+    for riga in store.esiti_risolti(mode=mode):
         chiave = (riga["fixture_id"], riga["market"], riga["selection"])
         if chiave not in quote:
             continue
@@ -368,19 +415,101 @@ def confronto_col_mercato(store: PredictionStore) -> dict:
     }
 
 
+def confronto_fra_modi(
+    store: PredictionStore,
+    primo: str = MODE_SECCO,
+    secondo: str = MODE_UFFICIALE,
+) -> dict:
+    """Il pronostico secco contro quello rifatto con le formazioni ufficiali.
+
+    E' la domanda per cui `data/ufficiali.py` esiste: rifare il pronostico
+    quando escono le formazioni **serve**? Non e' un'opinione, e' un numero —
+    ed e' anche il modo in cui quel lavoro puo' morire, come sono morti il
+    modello a tiri e il fattore dell'allenatore.
+
+    La regola che rende il confronto onesto e' la stessa gia' usata contro le
+    quote: si guardano **solo** gli esiti per cui esistono tutti e due. Il
+    pronostico ufficiale nasce su un sottoinsieme — solo dove i pesi dei
+    giocatori esistevano e spostavano qualcosa — e misurarlo su quelle partite
+    contro un secco misurato su tutte confronterebbe due popolazioni diverse:
+    verrebbe fuori quale gruppo di partite era piu' facile da indovinare, non
+    quale dei due pronostici era migliore.
+
+    Torna vuoto finche' i due modi non si sovrappongono da nessuna parte, che
+    e' la situazione di oggi (nessun pronostico ufficiale scritto) e va
+    mostrata come un vuoto, non come un pareggio.
+    """
+    def per_esito(mode: str) -> dict[tuple, dict]:
+        return {
+            (r["fixture_id"], r["market"], r["selection"]): r
+            for r in store.esiti_risolti(mode=mode)
+        }
+
+    righe_primo = per_esito(primo)
+    righe_secondo = per_esito(secondo)
+    comuni = sorted(set(righe_primo) & set(righe_secondo))
+    if not comuni:
+        return {"mercati": [], "totale": None, "partite": 0, "primo": primo, "secondo": secondo}
+
+    accoppiati = [
+        {
+            "fixture_id": chiave[0],
+            "market": chiave[1],
+            "selection": chiave[2],
+            "brier_primo": righe_primo[chiave]["brier"],
+            "brier_secondo": righe_secondo[chiave]["brier"],
+        }
+        for chiave in comuni
+    ]
+
+    def riepiloga(righe: list[dict]) -> dict:
+        n = len(righe)
+        uno = sum(r["brier_primo"] for r in righe) / n
+        due = sum(r["brier_secondo"] for r in righe) / n
+        return {
+            "n": n,
+            "brier_primo": uno,
+            "brier_secondo": due,
+            # Negativo = il secondo (le formazioni) e' migliore. Il segno e'
+            # questo e non l'opposto perche' nel Brier piu' basso e' meglio.
+            "scarto": due - uno,
+            "il_secondo_e_migliore": due < uno,
+        }
+
+    mercati = [
+        {"mercato": mercato, **riepiloga(righe)}
+        for mercato, righe in _raggruppa(accoppiati, lambda r: r["market"]).items()
+    ]
+    for voce in mercati:
+        voce["significativo"] = voce["n"] >= SOGLIA_SIGNIFICATIVITA
+
+    return {
+        "mercati": sorted(mercati, key=lambda v: -v["n"]),
+        "totale": riepiloga(accoppiati),
+        "partite": len({r["fixture_id"] for r in accoppiati}),
+        "primo": primo,
+        "secondo": secondo,
+    }
+
+
 def calibrazione(
     store: PredictionStore,
     market: str = "1x2",
     selection: str | None = None,
     n_bin: int = 5,
+    mode: str = MODO_PREDEFINITO,
 ) -> list[dict]:
     """Quando il modello dice 30%, succede il 30% delle volte?
 
     E' la metrica che conta di piu' per un'applicazione di pronostici: si puo'
     avere un buon Brier ed essere sistematicamente troppo sicuri di se'.
+
+    Un tipo di pronostico alla volta, come per le altre misure: due modi di
+    dichiarare la fiducia mescolati nella stessa fascia direbbero che e'
+    calibrato un sistema che non esiste.
     """
     bins: dict[int, list[dict]] = {}
-    for riga in store.esiti_risolti(market=market, selection=selection):
+    for riga in store.esiti_risolti(market=market, selection=selection, mode=mode):
         idx = min(int(riga["probability"] * n_bin), n_bin - 1)
         bins.setdefault(idx, []).append(riga)
 

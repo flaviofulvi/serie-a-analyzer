@@ -13,7 +13,10 @@ attacco = +0.30 significa "segna circa il 35% in piu' della squadra media".
 Due accorgimenti separano un modello utilizzabile da uno ingenuo:
 
 * **Decadimento temporale** — ogni partita pesa ``exp(-xi * giorni_fa)``. Una
-  partita di dieci mesi fa descrive una squadra che non esiste piu'.
+  partita di dieci mesi fa descrive una squadra che non esiste piu'. Il tempo
+  pero' non e' l'unico modo in cui una squadra smette di essere se stessa: se
+  ha cambiato allenatore, anche le partite di un mese fa parlano di un'altra
+  squadra, e ``_pesi_allenatore`` e' la seconda meta' di questo peso.
 * **Shrinkage** — una penalita' ridge tira attacco e difesa verso la media del
   campionato. Senza, dopo tre giornate il modello e' convinto che la neopromossa
   che ha vinto due volte sia da scudetto. Con poche partite vince la media della
@@ -83,6 +86,50 @@ RHO_BOUNDS = (-0.3, 0.1)
 # un danno, non aggiunge una capacita'.
 DEFAULT_GOAL_COMPRESSION = 0.2
 
+# Quanto pesa una partita giocata sotto un ALTRO allenatore.
+#
+# Il decadimento temporale sa una cosa sola: quanto e' vecchia una partita.
+# Non sa che a novembre quella squadra e' stata esonerata, quindi le tre
+# giornate col mister nuovo e le venti col vecchio entrano nella stima come se
+# le avesse giocate la stessa squadra. Qui si dice che non e' cosi': le
+# partite di prima del cambio pesano ``fattore`` volte le altre, con 1.0 =
+# niente correzione e 0.0 = "la squadra di prima non conta affatto".
+#
+# **Sta a 1.00 perche' e' stato misurato, non perche' non e' stato provato.**
+# Il 25 agosto 2026, con `scripts/backtest.py --cerca-allenatore`, quattro
+# stagioni sono state rigiocate una volta per ogni valore della griglia (zero
+# richieste, 85 cambi di panchina in archivio). Brier 1X2 medio:
+#
+#     fattore   0.00     0.25     0.50     0.75     0.90     0.95     1.00
+#     1X2     0.6003   0.5985   0.5976   0.5971   0.5969   0.5969   0.5968
+#
+# La curva e' **monotona** e il minimo cade sul bordo: non c'e' nessun punto
+# interno, e vale in tutte e quattro le stagioni separatamente, non solo in
+# media. Dimenticare la gestione precedente peggiora i pronostici, sempre.
+#
+# Perche' — ed e' la parte che vale la pena ricordare. La correzione fa due
+# cose in una: toglie una squadra che non esiste piu' e toglie partite vere.
+# La seconda si paga sempre; la prima rende solo se il cambio di allenatore
+# sposta la forza di una squadra piu' di quanto quelle partite insegnino. Nei
+# nostri dati non lo fa. In parte perche' lo shrinkage gia' tira verso la
+# media di lega chi ha poche partite recenti — cioe' proprio chi ha appena
+# cambiato — e in parte perche' un esonero arriva dopo una serie di risultati
+# anormalmente brutti, che rientrano da soli: il modello la corregge gia',
+# come ritorno alla media.
+#
+# Il codice resta, e non e' un ripiego: e' un parametro solo, misurabile in
+# venti minuti quando i dati saranno di piu'. Chi lo rialza deve rifare la
+# misura, non fidarsi di questa — e deve controllare da dove passano le
+# panchine: oggi le leggono il sito (`web/engine.py`) e il backtest, mentre
+# `data/ingest.py` stima dalla sola cache e allenatori non ne ha. Finche'
+# il fattore e' 1.00 le due strade danno lo stesso identico modello;
+# rialzandolo, non piu'.
+#
+# Cio' che questo numero NON e' e non dev'essere: un bonus al mister nuovo.
+# Premiare il rimbalzo conterebbe due volte il ritorno alla media che lo
+# shrinkage gia' fa. Qui si dimentica, non si premia.
+DEFAULT_FATTORE_ALLENATORE = 1.0
+
 
 def comprimi_totale(
     lam: float, mu: float, media_lega: float, fattore: float
@@ -138,13 +185,23 @@ def comprimi_totale(
 
 @dataclass(frozen=True)
 class Match:
-    """Una partita conclusa, unita' di osservazione del modello."""
+    """Una partita conclusa, unita' di osservazione del modello.
+
+    Gli allenatori sono gli **id** di chi sedeva in panchina quel giorno, e
+    sono facoltativi: una partita di cui non possediamo le formazioni li ha a
+    ``None`` e vale come tutte le altre. Non servono a stimare l'allenatore —
+    quella forza non e' identificabile con un campionato solo — ma a sapere se
+    la squadra di quel giorno e' ancora la squadra di adesso (vedi
+    ``_pesi_allenatore``).
+    """
 
     home: str
     away: str
     home_goals: int
     away_goals: int
     played_on: date
+    allenatore_casa: int | None = None
+    allenatore_ospite: int | None = None
 
 
 @dataclass(frozen=True)
@@ -216,6 +273,11 @@ class FittedModel:
     # allora non si comprime niente.
     goal_compression: float = DEFAULT_GOAL_COMPRESSION
     league_total_goals: float = 0.0
+    # Quanto hanno pesato le partite giocate sotto un altro allenatore. Non
+    # entra nell'impronta della versione (`data/predictions.py`) e non serve:
+    # se ha spostato qualcosa, l'ha spostato dentro attacco e difesa, che
+    # nell'impronta ci sono gia'.
+    fattore_allenatore: float = DEFAULT_FATTORE_ALLENATORE
     # Quanto il modello sa di ogni squadra. Non entra nell'impronta della
     # versione (`data/predictions.py`): descrive la stima, non la definisce,
     # e due modelli con gli stessi parametri restano lo stesso modello.
@@ -293,6 +355,78 @@ def _time_weights(
     if (days_ago < 0).any():
         raise ValueError("presente una partita successiva alla data di riferimento")
     return np.exp(-xi * days_ago)
+
+
+def _pesi_allenatore(matches: Sequence[Match], fattore: float) -> np.ndarray:
+    """Peso ridotto per le partite giocate sotto un allenatore diverso da quello di adesso.
+
+    "Adesso" e' l'allenatore dell'**ultima partita nota** di quella squadra
+    dentro il campione, non quello vero di oggi. La differenza conta solo nel
+    backtest, dove il campione si ferma al giorno del taglio: cosi' la
+    correzione guarda la panchina di allora e non puo' sapere niente del
+    futuro, senza che nessuno debba ricordarsi di dirglielo.
+
+    **Il peso e' della partita, non della squadra**, ed e' il compromesso da
+    dichiarare. Nel modello di Dixon-Coles una partita insegna qualcosa su
+    tutte e quattro le forze in gioco — l'attacco di chi segna e la difesa di
+    chi subisce, da entrambe le parti — e i termini non si separano: i gol
+    fatti dalla squadra di casa parlano insieme del suo attacco e della difesa
+    avversaria. Non esiste quindi un peso "solo per la squadra che ha cambiato
+    allenatore". Da qui la **media** dei due fattori: se una sola delle due
+    squadre ha cambiato panchina, meta' di cio' che quella partita insegna
+    riguarda una squadra che non esiste piu', e l'altra meta' resta buona. Il
+    prodotto dei due fattori sarebbe piu' severo e punirebbe l'avversario
+    quanto chi ha cambiato, che e' proprio la cosa da non fare.
+
+    Una partita di cui non conosciamo l'allenatore pesa come prima. E' la
+    scelta giusta e non un ripiego: "non lo so" non e' "e' cambiato", e le
+    stagioni senza formazioni sul disco devono continuare a comportarsi
+    esattamente come si sono sempre comportate.
+
+    **Il traghettatore**, cioe' il punto fragile, che va conosciuto e non
+    nascosto. A volte in panchina siede il vice per una partita sola —
+    squalifica dell'allenatore, un esonero a meta' settimana — e l'API lo
+    registra come allenatore a tutti gli effetti: nell'archivio ci sono
+    Martusciello per una giornata alla Lazio e Nicola per una in mezzo a due
+    tratti di Giampaolo alla Cremonese. Se una di quelle partite e' l'ULTIMA
+    conosciuta, tutta la storia della squadra risulta "di un altro allenatore"
+    e viene alleggerita per sbaglio. Non e' rimediabile al momento del
+    pronostico — che il titolare torni domenica prossima e' cosa che si sa
+    dopo — e non si rimedia con una soglia inventata sulla lunghezza dei
+    tratti. Il danno e' comunque limitato: quella squadra pesa meno per una
+    giornata e torna com'era, ed e' esattamente il genere di rumore che il
+    backtest conta quando sceglie il fattore.
+    """
+    if not 0.0 <= fattore <= 1.0:
+        raise ValueError("il fattore dell'allenatore sta fra 0 e 1")
+    if fattore == 1.0:
+        return np.ones(len(matches), dtype=float)
+
+    # L'ultimo allenatore conosciuto di ogni squadra.
+    corrente: dict[str, tuple[date, int]] = {}
+    for m in matches:
+        for squadra, allenatore in (
+            (m.home, m.allenatore_casa), (m.away, m.allenatore_ospite)
+        ):
+            if allenatore is None:
+                continue
+            visto = corrente.get(squadra)
+            if visto is None or m.played_on >= visto[0]:
+                corrente[squadra] = (m.played_on, allenatore)
+
+    pesi = np.ones(len(matches), dtype=float)
+    for i, m in enumerate(matches):
+        quote = []
+        for squadra, allenatore in (
+            (m.home, m.allenatore_casa), (m.away, m.allenatore_ospite)
+        ):
+            visto = corrente.get(squadra)
+            if allenatore is None or visto is None or allenatore == visto[1]:
+                quote.append(1.0)
+            else:
+                quote.append(fattore)
+        pesi[i] = sum(quote) / len(quote)
+    return pesi
 
 
 def _log_tau(
@@ -398,6 +532,7 @@ def fit_dixon_coles(
     half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
     regularization: float = DEFAULT_REGULARIZATION,
     goal_compression: float = DEFAULT_GOAL_COMPRESSION,
+    fattore_allenatore: float = DEFAULT_FATTORE_ALLENATORE,
     max_iterations: int = 500,
 ) -> FittedModel:
     """Stima attacco, difesa, fattore campo e rho per massima verosimiglianza.
@@ -413,6 +548,9 @@ def fit_dixon_coles(
         goal_compression: quanto delle differenze fra squadre resta nei gol
             totali attesi (1 = niente compressione). Non entra nella stima:
             agisce sul pronostico, in ``expected_goals``.
+        fattore_allenatore: quanto pesano le partite giocate sotto un altro
+            allenatore (1 = niente correzione). Questo invece entra eccome
+            nella stima: cambia i pesi, quindi le forze.
         max_iterations: tetto di iterazioni dell'ottimizzatore.
 
     Returns:
@@ -429,7 +567,10 @@ def fit_dixon_coles(
         raise ValueError("servono almeno due squadre distinte")
 
     reference = as_of or max(m.played_on for m in matches)
-    weights = _time_weights(matches, reference, half_life_days)
+    # Due pesi che si moltiplicano e rispondono a due domande diverse: quanto
+    # e' vecchia questa partita, e quanto e' ancora questa squadra.
+    pesi_tempo = _time_weights(matches, reference, half_life_days)
+    weights = pesi_tempo * _pesi_allenatore(matches, fattore_allenatore)
 
     home_idx = np.array([index[m.home] for m in matches])
     away_idx = np.array([index[m.away] for m in matches])
@@ -505,9 +646,16 @@ def fit_dixon_coles(
     # con `fattore = 0` il pronostico sui gol deve coincidere con la baseline
     # vera — dire ogni volta la frequenza di campionato — e non con la media
     # che il modello crede.
+    #
+    # Qui pero' pesano solo gli ANNI, non le panchine: quanti gol si segnano in
+    # Serie A non dipende da quante squadre hanno cambiato allenatore, e usare
+    # i pesi della stima farebbe dipendere il bersaglio della compressione da
+    # un fatto che col numero di gol del campionato non c'entra niente.
     gol_totali = home_goals + away_goals
-    peso_totale = float(weights.sum())
-    media_gol = float(np.sum(weights * gol_totali) / peso_totale) if peso_totale > 0 else 0.0
+    peso_totale = float(pesi_tempo.sum())
+    media_gol = (
+        float(np.sum(pesi_tempo * gol_totali) / peso_totale) if peso_totale > 0 else 0.0
+    )
 
     return FittedModel(
         teams=teams,
@@ -524,6 +672,7 @@ def fit_dixon_coles(
         regularization=regularization,
         goal_compression=goal_compression,
         league_total_goals=media_gol,
+        fattore_allenatore=fattore_allenatore,
         evidence=_team_evidence(
             matches, weights, lam_finale, mu_finale, regularization
         ),

@@ -16,7 +16,15 @@ lavoro 5 in DA_FARE.txt per i tempi veri.
     python scripts/riempi_storico.py                   # la scorsa stagione, tutta
     python scripts/riempi_storico.py --stagioni 2025,2021
     python scripts/riempi_storico.py --no-dettagli     # solo partite e risultati
+    python scripts/riempi_storico.py --solo players    # solo i tabellini, un terzo del prezzo
     python scripts/riempi_storico.py --max-richieste 500
+
+I tre dettagli non valgono la stessa cosa e costano ~380 richieste ciascuno
+per stagione: `players` (minuti, gol, assist, tiri) e' l'unico che possa
+cambiare un pronostico, `lineups` serve all'allenatore e alla pagina della
+partita, `events` solo a dire *quando* si e' segnato. Con `--solo players` una
+stagione costa 381 richieste invece di 1141, e il resto si compra dopo: gli
+endpoint per singola partita non scadono.
 
 Vale anche per la **stagione in corso**: `--stagioni 2026` la scarica in blocco,
 cosa che il piano gratuito non permette, e recupera cosi' anche i giorni che la
@@ -41,12 +49,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from serie_a_analyzer.config import ConfigError, build_client, load_settings
+from serie_a_analyzer.data.daily import DETAIL_KINDS, DETTAGLI_NOTI
 from serie_a_analyzer.data.ingest import current_season
 from serie_a_analyzer.data.storico import (
     PAUSA_PREDEFINITA,
     dettagli_in_sospeso,
     leggi_piano,
     riempi_stagione,
+    scegli_tipi_dettaglio,
     stima_richieste,
     store_stagione,
 )
@@ -90,6 +100,15 @@ def main() -> int:
         help="solo partite e risultati: niente formazioni, tabellini, eventi",
     )
     parser.add_argument(
+        "--solo",
+        default=None,
+        metavar="TIPI",
+        help="quali dettagli comprare, separati da virgola fra "
+             + ", ".join(DETTAGLI_NOTI)
+             + f" (default: {', '.join(DETAIL_KINDS)}). `--solo players` costa "
+               "un terzo; `statistics` porta l'xG e non e' fra i predefiniti",
+    )
+    parser.add_argument(
         "--max-richieste",
         type=int,
         default=None,
@@ -112,6 +131,13 @@ def main() -> int:
 
     client = build_client(settings)
     stagioni = _stagioni(args.stagioni)
+    try:
+        tipi = scegli_tipi_dettaglio(args.solo)
+    except ValueError as exc:
+        print("")
+        print(f"[--solo] {exc}")
+        print("")
+        return 1
 
     # --- che piano abbiamo davvero ------------------------------------------
     #
@@ -158,9 +184,11 @@ def main() -> int:
     print(f"Archivio di destinazione: {settings.storico_dir}")
     print(f"Budget disponibile oggi:  {client.budget.remaining}/{settings.daily_request_limit}")
     print(f"Stagioni richieste:       {', '.join(str(s) for s in stagioni)}")
+    print(f"Dettagli richiesti:       {', '.join(tipi)}"
+          + ("" if len(tipi) == len(DETAIL_KINDS) else "  (gli altri si comprano dopo)"))
     print(
-        f"\nCosto pieno di una stagione: ~{stima_richieste(380)} richieste "
-        "(1 per il calendario, 3 per ogni partita conclusa).\n"
+        f"\nCosto pieno di una stagione: ~{stima_richieste(380, tipi)} richieste "
+        f"(1 per il calendario, {len(tipi)} per ogni partita conclusa).\n"
         "Si puo' interrompere in qualsiasi momento: il giro dopo riprende da qui."
     )
 
@@ -172,6 +200,7 @@ def main() -> int:
                 client, store, stagione,
                 league=settings.league_id,
                 con_dettagli=False,
+                tipi_dettaglio=tipi,
             )
             if rapporto.errore:
                 print(f"{stagione}: {rapporto.errore}")
@@ -197,6 +226,7 @@ def main() -> int:
             con_dettagli=not args.no_dettagli,
             max_richieste=args.max_richieste,
             pausa=args.pausa,
+            tipi_dettaglio=tipi,
         )
 
         if rapporto.errore:
@@ -211,7 +241,23 @@ def main() -> int:
                   + ", ".join(f"{k} {v}" for k, v in sorted(rapporto.dettagli.items())))
         print(f"Richieste spese:      {rapporto.richieste}")
 
-        if rapporto.completa:
+        if rapporto.completa and rapporto.parziale_per_scelta:
+            # "Completa" qui vuol dire "completa per cio' che si e' chiesto".
+            # Dirlo e' l'unico modo di non far credere finita una stagione a
+            # cui mancano ancora due endpoint su tre.
+            mancanti = [
+                f"{k} ({quanti})"
+                for k in DETTAGLI_NOTI if k not in rapporto.tipi
+                for quanti in [dettagli_in_sospeso(store, (k,))] if quanti
+            ]
+            print("")
+            print(f"Stagione completa per {', '.join(rapporto.tipi)}: non ci sono piu' buchi.")
+            if mancanti:
+                print(f"Restano da comprare {', '.join(mancanti)}, se e quando")
+                print("serviranno: i dettagli si leggono dall'id, e l'id non scade.")
+            else:
+                print("E non manca nient'altro: la stagione ha tutti i dettagli.")
+        elif rapporto.completa:
             print("\nStagione completa: partite e dettagli non hanno piu' buchi.")
         else:
             print(
@@ -226,7 +272,9 @@ def main() -> int:
         store = store_stagione(settings.storico_dir, stagione)
         s = store.stats()
         print(f"{stagione}: {s['partite']} partite, {s['con_dettagli']} con dettagli, "
-              f"{dettagli_in_sospeso(store)} richieste ancora da fare")
+              f"{dettagli_in_sospeso(store, tipi)} richieste ancora da fare"
+              + ("" if len(tipi) == len(DETAIL_KINDS)
+                 else f" di {', '.join(tipi)} ({dettagli_in_sospeso(store)} contando tutto)"))
     print(f"\nBudget usato oggi: {client.budget.used}/{settings.daily_request_limit}")
     print(
         "\nLe stagioni riempite entrano nel modello da sole: il sito se ne accorge\n"

@@ -107,6 +107,7 @@ def _prestazione(fixture_id, player_id, team_id, minuti=90, gol=0):
     return Prestazione(
         fixture_id=fixture_id,
         quando=ADESSO - timedelta(days=fixture_id),
+        stagione=2026,
         player_id=player_id,
         nome=f"Giocatore {player_id}",
         team_id=team_id,
@@ -121,6 +122,7 @@ def _prestazione(fixture_id, player_id, team_id, minuti=90, gol=0):
         rossi=0,
         tiri=None,
         tiri_in_porta=None,
+        passaggi_chiave=None,
         voto=None,
     )
 

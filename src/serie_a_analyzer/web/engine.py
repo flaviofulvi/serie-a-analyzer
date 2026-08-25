@@ -32,11 +32,14 @@ from ..config import (
 )
 from ..data.dataset import Dataset, load_dataset
 from ..data.outcomes import (
+    MODO_PREDEFINITO,
     accuratezza_per_mercato,
     brier_1x2_multiclasse,
     confronto_col_mercato,
+    confronto_fra_modi,
     risolvi_pronostici,
 )
+from ..data.panchine import Panchine, costruisci_panchine
 from ..data.players import ArchivioGiocatori, costruisci_archivio
 from ..data.predictions import MODE_SECCO, registra_partite
 from ..data.importato import firma_importato
@@ -56,6 +59,10 @@ class Snapshot:
     model: FittedModel | None
     built_at: datetime
     archive_signature: tuple
+    # Chi allenava chi. Sta nello snapshot e non da parte perche' e' un
+    # ingrediente della stima, non un contorno delle pagine: il modello qui
+    # accanto e' stato stimato con queste panchine e con nessun'altra.
+    panchine: Panchine | None = None
     error: str | None = None
 
     @property
@@ -120,13 +127,20 @@ class Engine:
     def _archive_signature(self) -> tuple:
         """Impronta degli archivi: cambia se e solo se qualcosa ha scritto.
 
-        Tre pezzi, che si muovono per ragioni diverse: la raccolta giornaliera
-        scrive `fixtures.json` quattro volte al giorno, un riempimento storico
-        aggiunge una cartella dentro `data/storico/` una volta ogni tanto, e
-        l'importazione di un file ne aggiunge una dentro `data/importato/`.
+        Quattro pezzi, che si muovono per ragioni diverse: la raccolta
+        giornaliera scrive `fixtures.json` quattro volte al giorno, un
+        riempimento storico aggiunge una cartella dentro `data/storico/` una
+        volta ogni tanto, l'importazione di un file ne aggiunge una dentro
+        `data/importato/`, e i **dettagli** arrivano per conto loro.
         Guardare solo il primo lascerebbe il modello fermo alle stagioni di
         prima anche dopo aver ricomprato o importato un campionato intero — con
         il sito aperto e nessun motivo apparente per riavviarlo.
+
+        L'ultimo pezzo e' entrato quando il modello ha cominciato a guardare
+        chi sedeva in panchina (`data/panchine.py`). Prima i dettagli erano
+        roba delle sole pagine dei giocatori, che hanno un'impronta loro;
+        adesso una formazione che arriva puo' cambiare la stima, e una stima
+        che non se ne accorge sarebbe ferma all'allenatore di prima.
         """
         path = Path(self.store.root) / "fixtures.json"
         corrente = (path.stat().st_mtime, path.stat().st_size) if path.exists() else (0.0, 0)
@@ -134,6 +148,7 @@ class Engine:
             corrente,
             firma_storico(self.settings.storico_dir),
             firma_importato(self.settings.importato_dir),
+            self._archivi_dettagli().details_signature(),
         )
 
     def snapshot(self, force: bool = False) -> Snapshot:
@@ -153,10 +168,21 @@ class Engine:
         )
         adesso = datetime.now(timezone.utc)
 
-        partite = dataset.matches()
+        # Chi allenava chi, dalle formazioni gia' sul disco: zero richieste.
+        # Un guasto qui non deve impedire di stimare — senza panchine il
+        # modello e' quello di sempre, che e' un pronostico in meno di
+        # informazione, non una pagina rotta.
+        try:
+            panchine = costruisci_panchine(self._archivi_dettagli(), dataset.fixtures)
+        except Exception as exc:
+            logger.warning("panchine non lette: %s", exc)
+            panchine = None
+
+        partite = dataset.matches(panchine)
         if not partite:
             return Snapshot(
                 dataset=dataset, model=None, built_at=adesso, archive_signature=firma,
+                panchine=panchine,
                 error="Nessuna partita conclusa disponibile: impossibile stimare il modello.",
             )
 
@@ -165,7 +191,8 @@ class Engine:
         self._registra_pronostici(dataset, modello)
         self._risolvi_esiti(dataset)
         return Snapshot(
-            dataset=dataset, model=modello, built_at=adesso, archive_signature=firma
+            dataset=dataset, model=modello, built_at=adesso, archive_signature=firma,
+            panchine=panchine,
         )
 
     def _registra_pronostici(self, dataset: Dataset, modello: FittedModel) -> None:
@@ -209,21 +236,50 @@ class Engine:
                 "esiti risolti: %d mercati su %d partite", esito["esiti"], esito["partite"]
             )
 
-    def accuratezza(self) -> dict:
+    def accuratezza(self, mode: str = MODO_PREDEFINITO) -> dict:
         """Quanto valgono i pronostici gia' verificati dalla realta'.
 
         Vuoto finche' non c'e' nulla di risolto — ed e' giusto che l'interfaccia
         mostri il vuoto invece di un numero costruito su tre partite.
+
+        Il modo si passa **esplicitamente** anche se e' il default: dal giorno
+        in cui `data/ufficiali.py` comincia a scrivere, una partita ha due
+        pronostici, e "quale dei due sta guardando l'hub" e' una domanda con
+        una risposta, non un dettaglio. E' il secco perche' e' l'unico che
+        esiste per ogni partita: la serie continua, quella il cui andamento nel
+        tempo si puo' leggere senza che cambi cosa si sta misurando.
         """
         try:
             return {
-                "mercati": accuratezza_per_mercato(self.pronostici),
-                "uno_x_due": brier_1x2_multiclasse(self.pronostici),
-                "mercato": confronto_col_mercato(self.pronostici),
+                "mercati": accuratezza_per_mercato(self.pronostici, mode=mode),
+                "uno_x_due": brier_1x2_multiclasse(self.pronostici, mode=mode),
+                "mercato": confronto_col_mercato(self.pronostici, mode=mode),
+                "modo": mode,
             }
         except Exception as exc:
             logger.warning("accuratezza non calcolabile: %s", exc)
-            return {"mercati": [], "uno_x_due": None, "mercato": None}
+            return {"mercati": [], "uno_x_due": None, "mercato": None, "modo": mode}
+
+    def confronto_modi(self) -> dict | None:
+        """I due tipi di pronostico a confronto, sulle partite che hanno entrambi.
+
+        Sta a parte da `accuratezza` perche' risponde a un'altra domanda. Li'
+        si chiede "quanto vale il modello"; qui "rifare il pronostico quando
+        escono le formazioni **serve**?" — che e' la ragione per cui
+        `data/ufficiali.py` scrive una seconda riga invece di sostituire la
+        prima.
+
+        Torna ``None`` quando non c'e' niente da confrontare, che e' la
+        situazione finche' le formazioni ufficiali restano spente. Un vuoto e
+        un pareggio si mostrano in modo diverso: il primo dice "non ancora
+        provato", il secondo "provato e non ha reso".
+        """
+        try:
+            confronto = confronto_fra_modi(self.pronostici)
+        except Exception as exc:  # come l'accuratezza: mai far cadere una pagina
+            logger.warning("confronto fra i modi non calcolabile: %s", exc)
+            return None
+        return confronto if confronto["totale"] else None
 
     # ---- pronostici --------------------------------------------------------
 
@@ -407,6 +463,18 @@ class Engine:
             # sola cosa del pronostico che non si legge dalle forze: due
             # numeri diversi, a parita' di squadre, danno due Over diversi.
             "compressione_gol": snap.model.goal_compression if snap.model else None,
+            # Quanto pesano le partite giocate sotto un altro allenatore, e su
+            # quante squadre il sistema sappia dire chi le allena. Con il
+            # fattore a 1 la seconda riga resta comunque vera e utile: dice
+            # che il dato c'e', pronto per il giorno in cui servisse.
+            "fattore_allenatore": snap.model.fattore_allenatore if snap.model else None,
+            "squadre_con_panchina": (
+                len(snap.panchine.squadre()) if snap.panchine else 0
+            ),
+            "cambi_di_panchina": (
+                sum(len(snap.panchine.cambi(sq)) for sq in snap.panchine.squadre())
+                if snap.panchine else 0
+            ),
             "media_gol_lega": (
                 round(snap.model.league_total_goals, 3) if snap.model else None
             ),

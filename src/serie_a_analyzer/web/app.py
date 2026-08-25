@@ -17,19 +17,26 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..data.classifica import classifica
+from ..data.ingest import current_season
 from ..data.players import formazioni_partita, gol_partita, prestazioni_partita
+from ..data.predictions import MODE_SECCO, MODE_UFFICIALE
 from ..data.store import tabellino_provvisorio
 from .engine import Congelato, Engine
 from .views import (
     blocchi_formazione,
     blocchi_indisponibili,
+    confronto_ufficiale,
     formatta_data,
     formatta_giorno,
     griglia_risultati,
     riga_giocatore,
     riga_partita,
     righe_accuratezza,
+    righe_classifica,
     righe_affidabilita,
+    righe_confronto_modi,
+    righe_panchina,
     righe_confronto_mercato,
     righe_gol,
     righe_prestazioni,
@@ -130,15 +137,29 @@ def hub(request: Request):
             })
 
     accuratezza = motore.accuratezza()
+    confronto_modi = motore.confronto_modi()
+
+    # La classifica vera, quella a punti. Sempre di UNA stagione: sommando
+    # quelle in archivio verrebbe fuori una squadra con trecento punti.
+    tabella = righe_classifica(
+        classifica(snap.dataset.fixtures, current_season(), snap.dataset.name),
+        snap.model.strength_table() if snap.model else None,
+    )
 
     return templates.TemplateResponse(request, "hub.html", {
         "prossime": prossime,
         "recenti": recenti,
         "forze": forze,
+        "classifica": tabella,
         "accuratezza": righe_accuratezza(accuratezza),
         "accuratezza_1x2": accuratezza["uno_x_due"],
         "confronto_mercato": righe_confronto_mercato(accuratezza),
         "partite_confrontate": (accuratezza.get("mercato") or {}).get("partite", 0),
+        # Le formazioni ufficiali servono davvero? Compare solo quando esiste
+        # qualche partita pronosticata in tutti e due i modi.
+        "confronto_modi": righe_confronto_modi(confronto_modi),
+        "confronto_modi_totale": (confronto_modi or {}).get("totale"),
+        "confronto_modi_partite": (confronto_modi or {}).get("partite", 0),
         "salute": motore.health(),
         "modello": snap.model,
     })
@@ -171,6 +192,25 @@ def partita(request: Request, fixture_id: int):
             snap.dataset.name(fixture.home_team_id),
             snap.dataset.name(fixture.away_team_id),
         ))
+
+    # Il pronostico rifatto quando sono uscite le formazioni, se esiste.
+    #
+    # Si leggono **tutte e due** le righe dal registro, secco compreso, anche
+    # quando la testata della pagina mostra gia' il modello caldo. Il confronto
+    # ha senso solo fra due cose scritte nello stesso mondo: il secco
+    # ricalcolato adesso avrebbe visto piu' partite dell'ufficiale congelato
+    # ieri, e la loro differenza non direbbe piu' niente sulle formazioni —
+    # direbbe quanto e' passato nel frattempo.
+    #
+    # Resta ``None`` finche' `data/ufficiali.py` non scrive niente, cioe'
+    # finche' i tabellini non bastano: la sezione non compare affatto, che e'
+    # la stessa regola degli indisponibili. Una sezione vuota si leggerebbe
+    # come "le formazioni non cambiano niente", che e' un'informazione, e
+    # sarebbe inventata.
+    confronto_formazioni = confronto_ufficiale(
+        motore.congelato(fixture_id, MODE_SECCO),
+        motore.congelato(fixture_id, MODE_UFFICIALE),
+    )
 
     scontri = snap.dataset.head_to_head(fixture.home_team_id, fixture.away_team_id)
     scontri = [s for s in scontri if s.api_id != fixture.api_id][:8]
@@ -218,6 +258,22 @@ def partita(request: Request, fixture_id: int):
             )
             if not riga.iniziata else None
         ),
+        # Chi ha cambiato allenatore di recente. Vale la stessa regola
+        # dell'affidabilita' e per la stessa ragione: descrive cosa c'e'
+        # dentro la stima di ADESSO, e accanto a un pronostico congelato mesi
+        # fa parlerebbe di un modello diverso da quello mostrato.
+        #
+        # `conta` dice se il modello ne tenga davvero conto, e oggi la
+        # risposta e' no: il backtest ha misurato che pesare meno le partite
+        # della gestione precedente peggiora i pronostici. La pagina lo
+        # dichiara invece di lasciarlo credere, come fa per gli indisponibili.
+        "panchine": (
+            righe_panchina(
+                snap.panchine, riga,
+                conta=bool(snap.model and snap.model.fattore_allenatore < 1.0),
+            )
+            if not riga.iniziata else None
+        ),
         # Le pagelle vuote hanno due cause diverse, e dirle uguali sarebbe
         # sbagliato: o il tabellino non e' ancora stato raccolto, oppure c'e'
         # ma e' la fotografia del feed live a partita in corso e l'archivio lo
@@ -226,6 +282,7 @@ def partita(request: Request, fixture_id: int):
             motore.store.load_detail(fixture_id, "players")
         ),
         "formazioni": blocchi_formazione(formazioni, prestazioni),
+        "confronto_formazioni": confronto_formazioni,
         "indisponibili": fuori,
         "gol": righe_gol(gol_partita(motore.store, fixture_id), fixture.home_team_id),
         "scontri": [
@@ -243,16 +300,43 @@ def partita(request: Request, fixture_id: int):
 
 
 @app.get("/giocatori", response_class=HTMLResponse)
-def giocatori(request: Request):
-    """Chi ha fatto cosa: marcatori, assist e voti dalle partite raccolte."""
+def giocatori(request: Request, stagione: int | None = None):
+    """Chi ha fatto cosa in un campionato: marcatori, assist e voti.
+
+    **Una stagione per volta**, e non e' una preferenza di disegno. Da quando
+    i tabellini delle stagioni passate sono sul disco (agosto 2026) l'archivio
+    ne contiene quattro, e un capocannoniere calcolato su tutte sarebbe la
+    somma di quattro campionati con l'aria di essere uno solo. Chi ha giocato
+    piu' anni starebbe davanti a chi ha segnato di piu'.
+
+    Senza `stagione` si mostra la piu' recente. Un'annata che l'archivio non
+    ha si corregge nella piu' recente invece di dare 404: e' un indirizzo
+    scritto a mano, non un guasto.
+    """
     motore = engine()
     archivio = motore.giocatori()
+    stagioni = archivio.stagioni()
+    scelta = stagione if stagione in stagioni else (stagioni[0] if stagioni else None)
+
+    def classifica(chiave: str, limite: int):
+        return [
+            riga_giocatore(s)
+            for s in archivio.classifica(chiave, limite=limite, stagione=scelta)
+        ]
 
     return templates.TemplateResponse(request, "giocatori.html", {
-        "marcatori": [riga_giocatore(s) for s in archivio.classifica("gol", limite=20)],
-        "assistenti": [riga_giocatore(s) for s in archivio.classifica("assist", limite=10)],
-        "voti": [riga_giocatore(s) for s in archivio.classifica("voto", limite=10)],
+        "marcatori": classifica("gol", 20),
+        "assistenti": classifica("assist", 10),
+        "voti": classifica("voto", 10),
         "archivio": archivio,
+        "stagioni": stagioni,
+        "stagione": scelta,
+        "quanti": archivio.giocatori_di(scelta),
+        # I conti da dichiarare sopra la classifica sono quelli DI QUESTA
+        # annata: quelli dell'archivio intero sarebbero un numero vero al
+        # posto sbagliato.
+        "concluse": archivio.concluse_per_stagione.get(scelta, 0),
+        "con_tabellino": archivio.con_statistiche_per_stagione.get(scelta, 0),
         "salute": motore.health(),
     })
 

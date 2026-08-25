@@ -10,6 +10,7 @@
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Recupero" -Confirm:$false
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Formazioni" -Confirm:$false
 #   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Momento" -Confirm:$false
+#   Unregister-ScheduledTask -TaskName "SerieAAnalyzer-Web" -Confirm:$false
 #
 # Perche' quattro esecuzioni al giorno e non una sola: la finestra del piano
 # gratuito e' di tre giorni, quindi una singola esecuzione mancata non e'
@@ -24,10 +25,12 @@ $NomeTask = "SerieAAnalyzer-Raccolta"
 $NomeRecupero = "SerieAAnalyzer-Recupero"
 $NomeFormazioni = "SerieAAnalyzer-Formazioni"
 $NomeMomento = "SerieAAnalyzer-Momento"
+$NomeWeb = "SerieAAnalyzer-Web"
 $Radice = Split-Path -Parent $PSScriptRoot
 $Wrapper = Join-Path $Radice "scripts\run_daily.ps1"
 $WrapperFormazioni = Join-Path $Radice "scripts\run_formazioni.ps1"
 $WrapperMomento = Join-Path $Radice "scripts\run_momento.ps1"
+$WrapperWeb = Join-Path $Radice "scripts\run_web.ps1"
 $FileOrari = Join-Path $PSScriptRoot "orari_raccolta.ps1"
 
 if (-not (Test-Path $Wrapper)) {
@@ -44,6 +47,10 @@ if (-not (Test-Path $WrapperFormazioni)) {
 }
 if (-not (Test-Path $WrapperMomento)) {
     Write-Error "Non trovo $WrapperMomento"
+    exit 1
+}
+if (-not (Test-Path $WrapperWeb)) {
+    Write-Error "Non trovo $WrapperWeb"
     exit 1
 }
 
@@ -231,6 +238,48 @@ $ImpostazioniFormazioni = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
 
+# --- il sito sempre acceso --------------------------------------------------
+#
+# Non e' una raccolta: e' un processo che non finisce. Serve perche' il
+# telefono possa aprire il sito passando per Tailscale, e per farlo il server
+# deve essere gia' su quando qualcuno lo chiede - nessuno accende un computer
+# per guardare una pagina.
+#
+# Il server ascolta solo su 127.0.0.1, come quando si sviluppa: e' Tailscale
+# che lo pubblica dentro il tailnet (`tailscale serve --bg 8000`, configurato
+# una volta sola). Con --host 0.0.0.0 il sito si aprirebbe anche a chiunque
+# fosse sullo stesso Wi-Fi, e non e' quello che si vuole.
+$AzioneWeb = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WrapperWeb`"" `
+    -WorkingDirectory $Radice
+
+# All'accensione, che e' il momento vero: il sito deve esserci anche se
+# nessuno ha ancora fatto l'accesso a Windows. L'accesso e' la seconda rete di
+# sicurezza, per la macchina riaccesa senza passare di li'. Se il sito e' gia'
+# su, run_web.ps1 se ne accorge dalla porta occupata ed esce senza fare nulla.
+$TriggerWebAvvio = New-ScheduledTaskTrigger -AtStartup
+$TriggerWebAvvio.Delay = "PT1M"    # il tempo che Tailscale salga
+$TriggerWebAccesso = New-ScheduledTaskTrigger -AtLogOn
+$TriggerWebAccesso.Delay = "PT1M"
+
+# La differenza che conta rispetto a tutte le altre attivita': nessun limite
+# di durata. Le altre si spengono da sole dopo 10-30 minuti perche' una
+# raccolta che dura mezz'ora e' una raccolta bloccata; qui lo stesso valore
+# spegnerebbe il sito ogni mezz'ora. PT0S significa "senza limite".
+#
+# Il riavvio automatico invece serve per davvero: se uvicorn cade, l'unico
+# modo di accorgersene sarebbe il telefono che non apre piu' la pagina.
+$ImpostazioniWeb = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -DontStopOnIdleEnd `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -RestartCount 5
+
 # --- registrazione ----------------------------------------------------------
 
 if (Get-ScheduledTask -TaskName $NomeTask -ErrorAction SilentlyContinue) {
@@ -272,6 +321,19 @@ Register-ScheduledTask `
     -Principal $Principale `
     -Description "Quote e indisponibili nei 40 minuti prima del via, dettagli e risultati due ore e un quarto dopo. Non spende nulla quando non e' il momento." | Out-Null
 
+if (Get-ScheduledTask -TaskName $NomeWeb -ErrorAction SilentlyContinue) {
+    Write-Host "Attivita' del sito gia' presente: la sostituisco."
+    Unregister-ScheduledTask -TaskName $NomeWeb -Confirm:$false
+}
+
+Register-ScheduledTask `
+    -TaskName $NomeWeb `
+    -Action $AzioneWeb `
+    -Trigger @($TriggerWebAvvio, $TriggerWebAccesso) `
+    -Settings $ImpostazioniWeb `
+    -Principal $Principale `
+    -Description "Tiene acceso il sito su 127.0.0.1:8000, perche' il telefono lo raggiunga via Tailscale. Non espone niente a internet." | Out-Null
+
 if (Get-ScheduledTask -TaskName $NomeFormazioni -ErrorAction SilentlyContinue) {
     Write-Host "Attivita' delle formazioni gia' presente: la sostituisco."
     Unregister-ScheduledTask -TaskName $NomeFormazioni -Confirm:$false
@@ -291,10 +353,12 @@ Write-Host "Orari: $($OrariRaccolta -join ', ')  (il computer non viene acceso d
 Write-Host "Attivita' registrata: $NomeRecupero (all'accesso e al risveglio, solo se manca qualcosa)"
 Write-Host "Attivita' registrata: $NomeFormazioni (ogni 15 minuti dalle 11 alle 23)"
 Write-Host "Attivita' registrata: $NomeMomento (ogni 15 minuti dalle 11 alle 23:30, agisce solo a ridosso delle partite)"
+Write-Host "Attivita' registrata: $NomeWeb (il sito sempre acceso, all'accensione e all'accesso)"
 Write-Host ""
 Write-Host "Verifica:      .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py"
 Write-Host "Formazioni:    .\.venv\Scripts\python.exe .\scripts\formazioni_ufficiali.py --stato"
 Write-Host "Prova subito:  Start-ScheduledTask -TaskName $NomeRecupero"
 Write-Host "Log:           $Radice\data\logs\"
+Write-Host "Sito:          http://127.0.0.1:8000 - dal telefono, l'indirizzo dato da: tailscale serve status"
 Write-Host ""
 Write-Host "Tutte girano senza aprire nessuna finestra (accesso S4U)."

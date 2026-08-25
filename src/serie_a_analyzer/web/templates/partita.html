@@ -101,6 +101,97 @@
   </div>
 </section>
 
+{% if confronto_formazioni %}
+{# Il pronostico rifatto quando sono uscite le formazioni. Compare solo se
+   esiste davvero: finche' i tabellini non bastano, `data/ufficiali.py` non
+   scrive niente e questa sezione non c'e'. Una sezione vuota direbbe "le
+   formazioni non cambiano niente", che sarebbe inventato. #}
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">Con le formazioni</p>
+    <h2>Il pronostico rifatto</h2>
+    <p class="spiega">
+      Quando sono uscite le formazioni ufficiali il pronostico e' stato
+      <b>rifatto</b>, pesando chi scende in campo davvero. Il vecchio non e'
+      stato sostituito: restano tutti e due, ed e' voluto. Due pronostici
+      sulla stessa partita sono l'unico modo di scoprire se rifarli
+      <b>serve</b> — fra qualche mese si confrontano i punteggi e si vede.
+    </p>
+    <p class="spiega">
+      Il pronostico grande in cima alla pagina e' quello <b>secco</b>, cioe' il
+      primo. Non perche' sia migliore: perche' e' l'unico che esiste per ogni
+      partita, e cambiare fonte a seconda di cosa c'e' sul disco mostrerebbe
+      due cose diverse su due partite della stessa giornata.
+    </p>
+    <p class="spiega">
+      Un limite da sapere, che non e' un difetto da correggere ma un confine
+      del metodo: <b>quanto pesa un giocatore si misura da cio' che fa
+      davanti</b> — gol, assist e tiri. Vede quindi gli attaccanti e quasi non
+      vede i difensori: se manca un centrale o un portiere, qui risulta
+      <b>quasi gratis</b>, e non e' vero.
+    </p>
+  </div>
+
+  <div class="corpo">
+    <div class="tabella-avvolgente">
+      <table class="tabella">
+        <thead>
+          <tr>
+            <th>Esito</th>
+            <th class="destra">Secco</th>
+            <th class="destra">Con le formazioni</th>
+            <th class="destra">Differenza</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in confronto_formazioni.esiti %}
+            <tr>
+              <td class="forte">
+                {{ e.esito }}
+                <span class="fioco">
+                  {% if e.esito == "1" %}{{ p.casa }}
+                  {% elif e.esito == "2" %}{{ p.ospite }}
+                  {% else %}pareggio{% endif %}
+                </span>
+              </td>
+              <td class="destra mono">{{ (e.secco*100)|round(1) }}%</td>
+              <td class="destra mono forte">{{ (e.ufficiale*100)|round(1) }}%</td>
+              <td class="destra mono {{ 'fioco' if e.scarto|abs < 0.005 }}">
+                {{ '%+.1f'|format(e.scarto*100) }}
+              </td>
+            </tr>
+          {% endfor %}
+          <tr>
+            <td class="fioco">gol attesi</td>
+            <td class="destra mono fioco">
+              {{ confronto_formazioni.gol_attesi_secco[0]|round(2) }}&ndash;{{ confronto_formazioni.gol_attesi_secco[1]|round(2) }}
+            </td>
+            <td class="destra mono fioco">
+              {{ confronto_formazioni.gol_attesi_ufficiale[0]|round(2) }}&ndash;{{ confronto_formazioni.gol_attesi_ufficiale[1]|round(2) }}
+            </td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if confronto_formazioni.spostamento_massimo < 0.01 %}
+      <p class="spiega">
+        Le formazioni hanno <b>confermato</b>: nessun esito si e' mosso di un
+        punto percentuale. Non e' un lavoro sprecato, e' l'informazione che
+        chi gioca oggi e' chi ci si aspettava.
+      </p>
+    {% endif %}
+
+    <p class="chiave">
+      {% if confronto_formazioni.quando_secco %}secco scritto {{ confronto_formazioni.quando_secco }}{% endif %}
+      {% if confronto_formazioni.quando_ufficiale %}&middot; rifatto {{ confronto_formazioni.quando_ufficiale }}{% endif %}
+      &middot; nessuno dei due e' stato ricalcolato dopo
+    </p>
+  </div>
+</section>
+{% endif %}
+
 {% if affidabilita %}
 <section class="blocco">
   <div class="lato">
@@ -167,6 +258,68 @@
 
     <p class="chiave">
       <em class="dati"></em> quanto parlano i dati della squadra &middot; il vuoto e' la media di lega
+    </p>
+  </div>
+</section>
+{% endif %}
+
+{% if panchine %}
+<section class="blocco">
+  <div class="lato">
+    <p class="occhiello">La panchina</p>
+    <h2>Ha cambiato allenatore</h2>
+    <p class="spiega">
+      Il modello pesa una partita solo in base a <b>quanto e' vecchia</b>: una
+      di sei mesi fa vale la meta' di una di oggi. Non sa pero' che nel
+      frattempo la squadra ha cambiato guida, quindi le partite della gestione
+      precedente entrano nella stima <b>a peso pieno</b>, come se le avesse
+      giocate la stessa squadra.
+    </p>
+    {% if panchine|selectattr("conta")|first %}
+      <p class="spiega">
+        Il pronostico <b>ne tiene conto</b>: le partite giocate sotto l'altro
+        allenatore pesano meno delle altre.
+      </p>
+    {% else %}
+      <p class="spiega">
+        Il pronostico qui sopra <b>non ne tiene conto</b>, ed e' una scelta
+        misurata e non una dimenticanza: rigiocando quattro stagioni intere,
+        far pesare meno le partite della gestione precedente <b>peggiora</b> i
+        pronostici, in tutte e quattro. Cio' che si guadagna a dimenticare una
+        squadra diversa e' meno di cio' che si perde buttando via partite vere.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="corpo">
+    <div class="tabella-avvolgente">
+      <table class="tabella">
+        <thead>
+          <tr>
+            <th>Squadra</th>
+            <th>Allenatore</th>
+            <th class="destra">Dal</th>
+            <th class="destra">Partite con lui</th>
+            <th>Prima</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in panchine %}
+            <tr>
+              <td class="forte"><a href="/squadra/{{ c.squadra_id }}">{{ c.squadra }}</a></td>
+              <td>{{ c.allenatore }}</td>
+              <td class="destra mono fioco">{{ c.dal }}</td>
+              <td class="destra mono">{{ c.partite }}</td>
+              <td class="fioco">{{ c.precedente }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="chiave">
+      si dichiara solo un cambio degli ultimi sei mesi &middot; piu' indietro
+      le partite di prima pesano gia' quasi zero da sole
     </p>
   </div>
 </section>

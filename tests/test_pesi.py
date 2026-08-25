@@ -17,10 +17,12 @@ from serie_a_analyzer.data.pesi import (
     LIMITE_SPOSTAMENTO,
     MASSIMO_SCONOSCIUTI,
     MINIMO_PARTITE,
+    PESO_PRODUZIONE,
     Rapporto,
     aggiusta_gol_attesi,
     partite_recenti,
     pesi_squadra,
+    produzione,
     rapporto_produzione,
     vale_la_pena,
 )
@@ -30,10 +32,11 @@ ADESSO = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
 CASA = 505
 
 
-def _prestazione(fixture_id, player_id, minuti, gol=0, assist=0, quando=None):
+def _prestazione(fixture_id, player_id, minuti, gol=0, assist=0, quando=None, tiri=None):
     return Prestazione(
         fixture_id=fixture_id,
         quando=quando or ADESSO - timedelta(days=fixture_id),
+        stagione=2026,
         player_id=player_id,
         nome=f"Giocatore {player_id}",
         team_id=CASA,
@@ -46,8 +49,9 @@ def _prestazione(fixture_id, player_id, minuti, gol=0, assist=0, quando=None):
         assist=assist,
         gialli=0,
         rossi=0,
-        tiri=None,
+        tiri=tiri,
         tiri_in_porta=None,
+        passaggi_chiave=None,
         voto=None,
     )
 
@@ -100,19 +104,66 @@ def test_una_meteora_non_vale_piu_di_tutta_la_squadra():
     meteora = pesi.pesi[99]
     bomber = pesi.pesi[1]
 
-    # Senza shrinkage varrebbe 9 gol a partita.
-    assert meteora.grezzo_per_90 == pytest.approx(9.0)
+    # Senza shrinkage varrebbe come nove partite da un gol l'una.
+    assert meteora.grezzo_per_90 == pytest.approx(produzione(1, 0, 0) * 9)
     # Con lo shrinkage vale meno di chi segna ogni domenica da dieci giornate.
     assert meteora.per_90 < bomber.per_90
-    assert meteora.per_90 < 1.0
+    assert meteora.per_90 < produzione(1, 0, 0)
 
 
 def test_chi_gioca_sempre_resta_vicino_al_suo_tasso():
     pesi = pesi_squadra(_archivio(n_partite=30), CASA)
     bomber = pesi.pesi[1]
     # Un gol a partita, trenta partite: lo shrinkage lo sposta, non lo cancella.
-    assert bomber.grezzo_per_90 == pytest.approx(1.0)
-    assert 0.75 < bomber.per_90 < 1.0
+    pieno = produzione(1, 0, 0)
+    assert bomber.grezzo_per_90 == pytest.approx(pieno)
+    assert 0.75 * pieno < bomber.per_90 < pieno
+
+
+# ---- con che cosa si pesa ----------------------------------------------------
+#
+# `pesi.py` misurava un giocatore sui soli gol+assist, cioe' su ~0,14 episodi a
+# partita. I tiri sono lo stesso gesto un passo prima e capitano otto volte piu'
+# spesso: misurato su quattro stagioni, indovinano meglio la produzione futura
+# (r 0.645 -> 0.728, vedi scripts/prova_pesi.py).
+
+
+def test_un_gol_pesa_piu_di_un_tiro_ma_un_tiro_non_pesa_zero():
+    """Il rapporto fra i due e' l'unica cosa che PESO_PRODUZIONE decide."""
+    assert produzione(gol=0, assist=0, tiri=1) == 1
+    assert produzione(gol=1, assist=0, tiri=0) == PESO_PRODUZIONE
+    assert produzione(gol=0, assist=1, tiri=0) == PESO_PRODUZIONE
+    # Nel tabellino un gol e' anche un tiro, quindi nella pratica vale 3.
+    assert produzione(gol=1, assist=0, tiri=1) == PESO_PRODUZIONE + 1
+
+
+def test_un_attaccante_sfortunato_non_vale_piu_zero():
+    """E' il caso che il metodo vecchio sbagliava piu' spesso.
+
+    Tre giocatori con gli stessi minuti: chi segna, chi tira tanto senza
+    segnare, chi non tira mai. Prima gli ultimi due pesavano identici — cioe'
+    il modello diceva che toglierli dalla formazione era la stessa cosa.
+
+    Il marcatore tira quanto lo sfortunato, ed e' voluto: in un tabellino vero
+    un gol e' **anche** un tiro, e un attaccante con dieci gol e zero tiri non
+    esiste. Un test costruito cosi' direbbe che i tiri battono i gol, che e'
+    falso e non e' quello che la misura ha trovato.
+    """
+    righe = []
+    for f in range(1, 11):
+        for pid in range(1, GIOCATORI_IN_CAMPO + 1):
+            segna = pid == 1
+            tira = pid in (1, 2)
+            righe.append(_prestazione(
+                f, pid, 90, gol=1 if segna else 0, tiri=3 if tira else None,
+            ))
+
+    pesi = pesi_squadra(ArchivioGiocatori(prestazioni=righe), CASA)
+
+    # Chi tira e non segna vale piu' di chi non tira: e' la correzione.
+    assert pesi.pesi[2].per_90 > pesi.pesi[3].per_90
+    # Ma chi segna resta davanti: l'esito conta piu' del tentativo.
+    assert pesi.pesi[1].per_90 > pesi.pesi[2].per_90
 
 
 # ---- formazione tipo e rapporto ---------------------------------------------
@@ -252,9 +303,10 @@ def test_un_rapporto_inaffidabile_non_giustifica_una_riga():
 
 
 class PartitaFinta:
-    def __init__(self, giorni_fa, finita=True):
+    def __init__(self, giorni_fa, finita=True, season=2026):
         self.kickoff_utc = ADESSO - timedelta(days=giorni_fa)
         self.is_finished = finita
+        self.season = season
 
 
 def test_la_finestra_prende_solo_le_concluse_e_recenti():
@@ -266,3 +318,36 @@ def test_la_finestra_prende_solo_le_concluse_e_recenti():
     scelte = partite_recenti(partite, ADESSO, giorni=120)
     assert len(scelte) == 1
     assert scelte[0].kickoff_utc == ADESSO - timedelta(days=5)
+
+
+def test_la_finestra_non_scavalca_il_mercato_estivo():
+    """Ad agosto i 120 giorni arrivano ad aprile, e li' c'e' un'altra squadra.
+
+    E' il taglio che impedisce di accendere i pronostici con le formazioni
+    ufficiali sulla rosa di PRIMA del mercato — e siccome i pronostici sono
+    immutabili, quelle righe non si toglierebbero piu'. E' anche cio' che
+    rende innocuo comprare i tabellini di una stagione conclusa: senza, quei
+    tabellini accendevano la macchina da soli.
+    """
+    partite = [
+        PartitaFinta(5, season=2026),     # questa stagione
+        PartitaFinta(100, season=2025),   # dentro i 120 giorni, ma è la scorsa
+    ]
+
+    senza_taglio = partite_recenti(partite, ADESSO, giorni=120)
+    assert len(senza_taglio) == 2, "i giorni da soli non bastano: la vecchia entra"
+
+    scelte = partite_recenti(partite, ADESSO, giorni=120, stagione=2026)
+    assert [p.season for p in scelte] == [2026]
+
+
+def test_i_giorni_tagliano_anche_dentro_la_stessa_stagione():
+    """Il taglio per stagione non sostituisce quello per giorni: si sommano.
+
+    A marzo le partite di ottobre sono della stessa stagione e raccontano
+    comunque una rosa che il mercato di gennaio ha cambiato.
+    """
+    partite = [PartitaFinta(5, season=2026), PartitaFinta(200, season=2026)]
+
+    scelte = partite_recenti(partite, ADESSO, giorni=120, stagione=2026)
+    assert len(scelte) == 1
