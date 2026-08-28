@@ -25,6 +25,14 @@ la sua impronta cambia, e il nuovo pronostico si affianca al vecchio senza
 cancellarlo. Cosi' resta leggibile anche *come* la previsione e' cambiata
 avvicinandosi alla partita.
 
+**E si registra solo cio' che sta per giocarsi, e solo se e' cambiato.** Sono i
+due freni di `registra_partite` (`GIORNI_DI_REGISTRO`, `SOGLIA_MOVIMENTO`), e
+sono nati insieme al calendario di stagione: da quando l'archivio conosce tutte
+e 380 le partite, "le partite in programma" non sono piu' una decina ma
+trecentosettanta, e ogni ristima le riscriverebbe tutte. La regola dei due e'
+la stessa di `vale_la_pena` in data/pesi.py: qui non si scrive per prudenza, si
+scrive quando c'e' qualcosa da dire. Cio' che si scrive non si cancella.
+
 Il database e' SQLite in `data/pronostici.db`: sta accanto al resto dei dati,
 non chiede infrastruttura e regge comodamente una stagione. `data/schema.sql`
 descrive le stesse tabelle in Postgres, per il giorno in cui si passasse a
@@ -38,7 +46,7 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -57,6 +65,32 @@ MODES = (MODE_SECCO, MODE_UFFICIALE)
 
 # Quanti risultati esatti conservare fra i mercati derivati.
 N_RISULTATI_ESATTI = 5
+
+# Quanto lontano nel futuro ha senso registrare un pronostico.
+#
+# Finche' le partite in programma erano quelle che la finestra di tre giorni
+# riusciva a vedere, questo freno non serviva: erano una decina e ogni ristima
+# ne scriveva una decina. Col calendario di stagione intero ne arrivano 370
+# tutte insieme, e le ristime in una stagione sono ~380 — una per risultato
+# nuovo. Senza orizzonte farebbe decine di migliaia di pronostici, per una
+# partita di maggio ri-pronosticata trecento volte, e i pronostici non si
+# cancellano.
+#
+# Otto giorni coprono una giornata piena piu' un turno infrasettimanale, che e'
+# l'orizzonte entro cui un pronostico e' una cosa che qualcuno guarda. Oltre,
+# non e' informazione: il modello non ha ancora visto le partite che lo
+# cambieranno.
+GIORNI_DI_REGISTRO = 8
+
+# Di quanto devono muoversi le tre probabilita' 1X2 perche' valga la pena
+# scrivere un'altra riga. Fra due ristime a poche ore di distanza si spostano
+# di frazioni di punto, e sono lo stesso pronostico detto due volte.
+#
+# E' la regola di `vale_la_pena` in data/pesi.py, per la stessa ragione: una
+# riga identica alla precedente non e' inutile, e' dannosa. Un registro fatto
+# di ripetizioni fa sembrare che il modello abbia cambiato idea trecento volte
+# quando non l'ha mai cambiata, e quelle righe restano li' per sempre.
+SOGLIA_MOVIMENTO = 0.005
 
 SCHEMA = """
 create table if not exists model_versions (
@@ -818,6 +852,55 @@ class PredictionStore:
             }
 
 
+def _1x2(prob: MatchProbabilities) -> dict[str, float]:
+    return {sel: p for mercato, sel, p in righe_mercati(prob) if mercato == "1x2"}
+
+
+def pronostico_fermo(
+    store: PredictionStore,
+    fixture_id: int,
+    mode: str,
+    prob: MatchProbabilities,
+    soglia: float = SOGLIA_MOVIMENTO,
+    version_id: int | None = None,
+) -> bool:
+    """Questo pronostico dice qualcosa di diverso dall'ultimo scritto?
+
+    Si guarda l'1X2 e non tutti i mercati perche' e' quello su cui il modello
+    sa qualcosa: se le tre probabilita' non si sono mosse, non si e' mosso
+    niente che valga una riga.
+
+    Se l'ultima riga viene proprio da questo modello la risposta e' no, e non
+    perche' il pronostico sia fermo: e' la stessa identica cosa, e a dirlo e'
+    gia' `registra`, che la conta fra le `gia_presenti`. Le due situazioni si
+    somigliano — nessuna riga nuova — ma sono diverse, e un contatore che le
+    mescolasse non direbbe piu' se il freno ha frenato qualcosa.
+
+    Nel dubbio si scrive. Un registro che perde una riga perde un pronostico,
+    e quello non si recupera; un registro con una riga di troppo si legge lo
+    stesso.
+    """
+    if soglia <= 0:
+        return False
+    try:
+        precedente = store.ultimo_per_partita(fixture_id, mode)
+        if precedente is None:
+            return False
+        if version_id is not None and precedente["model_version_id"] == version_id:
+            return False
+        vecchi = {
+            r["selection"]: r["probability"]
+            for r in store.mercati(int(precedente["id"]))
+            if r["market"] == "1x2"
+        }
+    except (sqlite3.Error, KeyError, TypeError, ValueError):
+        return False
+    nuovi = _1x2(prob)
+    if not vecchi or set(vecchi) != set(nuovi):
+        return False
+    return all(abs(nuovi[s] - vecchi[s]) < soglia for s in nuovi)
+
+
 def registra_partite(
     store: PredictionStore,
     model: FittedModel,
@@ -825,17 +908,39 @@ def registra_partite(
     nome_squadra,
     mode: str = MODE_SECCO,
     now: datetime | None = None,
+    orizzonte_giorni: int | None = GIORNI_DI_REGISTRO,
+    soglia_movimento: float = SOGLIA_MOVIMENTO,
 ) -> dict[str, int]:
     """Registra il pronostico di ogni partita in programma. Non solleva mai.
 
     E' pensata per essere chiamata dal web, dove un problema del registro non
     deve impedire di mostrare la pagina: cio' che non si e' potuto salvare
     viene contato e messo a log, non propagato.
+
+    Due freni, e sono diversi. L'``orizzonte`` decide *quali* partite meritano
+    un pronostico oggi; la ``soglia`` decide se quello di oggi ha qualcosa da
+    dire in piu' di quello di ieri. Ognuno dei due ha il suo contatore
+    nell'esito, perche' un freno che non si vede e' un freno di cui nessuno si
+    fida.
+
+    Passare ``orizzonte_giorni=None`` toglie il primo, ``soglia_movimento=0``
+    il secondo: servono ai test e a chi vuole il comportamento di prima.
     """
     version_id = store.versione_modello(model)
-    esito = {"nuovi": 0, "gia_presenti": 0, "senza_storia": 0, "gia_iniziate": 0}
+    esito = {
+        "nuovi": 0, "gia_presenti": 0, "senza_storia": 0, "gia_iniziate": 0,
+        "oltre_orizzonte": 0, "fermi": 0,
+    }
+    limite = (
+        (now or _adesso()) + timedelta(days=orizzonte_giorni)
+        if orizzonte_giorni is not None else None
+    )
 
     for f in fixtures:
+        if limite is not None and f.kickoff_utc > limite:
+            esito["oltre_orizzonte"] += 1
+            continue
+
         try:
             casa, ospite = nome_squadra(f.home_team_id), nome_squadra(f.away_team_id)
             lam, mu = model.expected_goals(casa, ospite)
@@ -843,6 +948,13 @@ def registra_partite(
         except KeyError:
             # Neopromossa senza storia: non si inventa un pronostico.
             esito["senza_storia"] += 1
+            continue
+
+        probabilita = derive_markets(matrice)
+        if pronostico_fermo(
+            store, f.api_id, mode, probabilita, soglia_movimento, version_id
+        ):
+            esito["fermi"] += 1
             continue
 
         try:
@@ -853,7 +965,7 @@ def registra_partite(
                 away_team_id=f.away_team_id,
                 model_version_id=version_id,
                 matrice=matrice,
-                probabilita=derive_markets(matrice),
+                probabilita=probabilita,
                 lambda_home=lam,
                 lambda_away=mu,
                 rho=model.rho,

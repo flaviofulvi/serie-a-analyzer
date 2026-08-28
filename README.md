@@ -92,10 +92,22 @@ La riserva e' la parte che conta davvero: senza, un backfill lanciato di sabato
 mattina lascia l'applicazione a secco la domenica alle 14:30, cioe' quando
 escono le formazioni ufficiali e i pronostici diventano interessanti.
 
-## La stagione in corso si raccoglie un giorno alla volta
+## La stagione in corso si raccoglie in due modi
 
-Il piano gratuito nega la stagione corrente **per stagione**, non per data. Una
-richiesta senza il parametro `league` passa:
+Il **calendario** — chi gioca contro chi, e quando — arriva intero in una
+richiesta: `/fixtures?league=135&season=2026`, 380 partite. E' cio' che permette
+al sito di mostrare la giornata vera e ai pronostici di essere scritti con
+giorni di anticipo invece che con ore.
+
+Ma e' anche l'unica richiesta della raccolta che passi dal filtro
+`league+season`, cioe' esattamente cio' che il piano gratuito chiude. Il giorno
+in cui la chiave tornasse gratuita quella richiesta risponderebbe **zero partite
+e nessun errore**, e la raccolta continuerebbe identica — perche' i **risultati**
+non sono mai passati di li'.
+
+I risultati infatti si leggono un giorno alla volta. Il piano gratuito nega la
+stagione corrente **per stagione**, non per data, e una richiesta senza il
+parametro `league` passa:
 
 ```
 /fixtures?league=135&season=2026   ->  bloccato
@@ -107,12 +119,19 @@ bloccati. Chiedendo la sola data la risposta arriva completa e **la Serie A si
 filtra in locale**, gratis.
 
 La finestra concessa e' di tre giorni — ieri, oggi, domani — e questo divide i
-dati in due categorie con proprieta' opposte:
+dati in tre categorie con proprieta' diverse:
 
 | | Come si legge | Se lo perdi |
 |---|---|---|
-| **Id delle partite** | solo entro la finestra di 3 giorni | **perso per sempre** |
+| **Risultati e stati** | solo entro la finestra di 3 giorni | **persi per sempre** |
+| Calendario | intero, 1 richiesta al giorno | si rilegge domani |
 | Formazioni, statistiche, eventi | dall'id della partita, senza scadenza | si recuperano con calma |
+
+Le due sorgenti scrivono nello stesso archivio, e questo e' l'unico punto del
+progetto in cui un risultato gia' raccolto potrebbe essere **cancellato**: il
+calendario passa da una cache di sei ore, quindi una lettura fatta la sera puo'
+essere la fotografia del pomeriggio. Da qui la regola in `upsert_fixtures`:
+*una partita non torna mai indietro*.
 
 Verificato: i dettagli di una partita giocata *ieri*, stagione in corso,
 arrivano completi. E' il motivo per cui `daily.py` separa nettamente le due
@@ -131,7 +150,9 @@ python scripts/daily_collect.py --solo-al-momento-giusto   # solo se serve adess
 Due sole esecuzioni hanno un orario fisso, e fanno due cose che nessuna partita
 puo' decidere: alle **08:00** si legge il calendario (gli id vivono solo nella
 finestra di tre giorni, e persi sono persi) e alle **23:45** si chiude la
-giornata.
+giornata. Il calendario di stagione viaggia con loro senza bisogno di un
+orologio suo: lo chiedono tutte e quattro le raccolte, e la cache — un giorno
+di validita' — fa in modo che a pagarlo sia solo la prima.
 
 Tutto il resto e' agganciato alle partite, perche' quote e indisponibili
 valgono quanto sono **vicini al fischio d'inizio**: le quote dopo il via non
@@ -570,7 +591,7 @@ src/serie_a_analyzer/
     views.py         dal dominio a cio' che i template disegnano
     templates/       hub, scheda partita, registro, giocatori
     static/          foglio di stile
-tests/               636 test
+tests/               651 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata

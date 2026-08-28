@@ -215,7 +215,10 @@ def test_si_registrano_solo_le_partite_pronosticabili(store):
         now=ADESSO,
     )
 
-    assert esito == {"nuovi": 1, "gia_presenti": 0, "senza_storia": 1, "gia_iniziate": 1}
+    assert esito == {
+        "nuovi": 1, "gia_presenti": 0, "senza_storia": 1, "gia_iniziate": 1,
+        "oltre_orizzonte": 0, "fermi": 0,
+    }
     assert store.conteggi()["pronostici"] == 1
 
 
@@ -230,6 +233,129 @@ def test_registrare_due_volte_di_fila_non_aggiunge_nulla(store):
     assert esito["nuovi"] == 0
     assert esito["gia_presenti"] == 1
     assert store.conteggi()["pronostici"] == 1
+
+
+# ---- i due freni: quali partite, e quando vale la pena riscriverle ----------
+
+
+def _modello_appena_diverso() -> FittedModel:
+    """Un'altra versione del modello che pronostica quasi identico.
+
+    E' il caso vero: fra due ristime a poche ore di distanza l'impronta cambia
+    — e' arrivato un risultato — ma su una partita lontana da quel risultato
+    l'1X2 si sposta di frazioni di punto.
+    """
+    m = _modello()
+    return replace(m, attack={**m.attack, "Inter": m.attack["Inter"] + 1e-6})
+
+
+def test_una_partita_oltre_l_orizzonte_non_si_registra(store):
+    """Il calendario porta 380 partite: quella di maggio non e' un pronostico.
+
+    Senza questo freno ogni ristima ne scriverebbe 370, e le ristime in una
+    stagione sono ~380. I pronostici non si cancellano.
+    """
+    modello = _modello()
+    nomi = {505: "Inter", 503: "Torino"}
+
+    esito = registra_partite(
+        store, modello,
+        [
+            PartitaFinta(1, ADESSO + timedelta(days=2), 505, 503),
+            PartitaFinta(2, ADESSO + timedelta(days=270), 503, 505),
+        ],
+        nomi.get, now=ADESSO,
+    )
+
+    assert esito["nuovi"] == 1
+    assert esito["oltre_orizzonte"] == 1
+    assert store.conteggi()["pronostici"] == 1
+
+
+def test_la_partita_lontana_si_registra_quando_rientra_nell_orizzonte(store):
+    """Il freno rimanda, non cancella."""
+    modello = _modello()
+    nomi = {505: "Inter", 503: "Torino"}
+    lontana = [PartitaFinta(2, ADESSO + timedelta(days=30), 505, 503)]
+
+    registra_partite(store, modello, lontana, nomi.get, now=ADESSO)
+    assert store.conteggi()["pronostici"] == 0
+
+    vigilia = ADESSO + timedelta(days=28)
+    esito = registra_partite(store, modello, lontana, nomi.get, now=vigilia)
+
+    assert esito["nuovi"] == 1
+    assert store.ultimo_per_partita(2) is not None
+
+
+def test_due_ristime_ravvicinate_non_scrivono_due_righe_uguali(store):
+    """Modello diverso, pronostico fermo: nessuna riga.
+
+    E' la regola di `vale_la_pena` in data/pesi.py. Una riga identica alla
+    precedente non e' inutile, e' dannosa: dira' per sempre che li' il modello
+    aveva cambiato idea.
+    """
+    partite = [PartitaFinta(1, FISCHIO, 505, 503)]
+    nomi = {505: "Inter", 503: "Torino"}
+
+    registra_partite(store, _modello(), partite, nomi.get, now=ADESSO)
+    esito = registra_partite(
+        store, _modello_appena_diverso(), partite, nomi.get, now=ADESSO,
+    )
+
+    assert esito["nuovi"] == 0
+    assert esito["fermi"] == 1
+    assert store.conteggi()["pronostici"] == 1
+
+
+def test_un_pronostico_che_si_muove_davvero_viene_scritto(store):
+    """Il freno non deve zittire il caso per cui il registro esiste."""
+    partite = [PartitaFinta(1, FISCHIO, 505, 503)]
+    nomi = {505: "Inter", 503: "Torino"}
+
+    registra_partite(store, _modello(), partite, nomi.get, now=ADESSO)
+    esito = registra_partite(store, _modello(base=0.5), partite, nomi.get, now=ADESSO)
+
+    assert esito["nuovi"] == 1
+    assert esito["fermi"] == 0
+    assert len(store.storico(1)) == 2
+
+
+def test_lo_stesso_modello_conta_come_gia_presente_non_come_fermo(store):
+    """Due situazioni che si somigliano e non sono la stessa.
+
+    'Fermo' vuol dire che il modello e' cambiato e il pronostico no; 'gia
+    presente' che il modello non e' cambiato affatto. Mescolarle renderebbe il
+    contatore muto proprio su cio' che dovrebbe misurare.
+    """
+    partite = [PartitaFinta(1, FISCHIO, 505, 503)]
+    nomi = {505: "Inter", 503: "Torino"}
+
+    registra_partite(store, _modello(), partite, nomi.get, now=ADESSO)
+    esito = registra_partite(store, _modello(), partite, nomi.get, now=ADESSO)
+
+    assert esito == {
+        "nuovi": 0, "gia_presenti": 1, "senza_storia": 0, "gia_iniziate": 0,
+        "oltre_orizzonte": 0, "fermi": 0,
+    }
+
+
+def test_i_due_freni_si_possono_togliere(store):
+    """Servono ai test e a chi vuole il comportamento di prima."""
+    modello = _modello()
+    nomi = {505: "Inter", 503: "Torino"}
+    lontana = [PartitaFinta(2, ADESSO + timedelta(days=270), 505, 503)]
+
+    esito = registra_partite(
+        store, modello, lontana, nomi.get, now=ADESSO, orizzonte_giorni=None,
+    )
+    assert esito["nuovi"] == 1
+
+    esito = registra_partite(
+        store, _modello_appena_diverso(), lontana, nomi.get, now=ADESSO,
+        orizzonte_giorni=None, soglia_movimento=0,
+    )
+    assert esito["nuovi"] == 1
 
 
 def test_la_compressione_dei_gol_cambia_la_versione_del_modello(store):

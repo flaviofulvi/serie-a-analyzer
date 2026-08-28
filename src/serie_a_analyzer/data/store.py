@@ -1,8 +1,10 @@
 """Archivio locale della stagione in corso e diario della raccolta.
 
-Sul piano gratuito la stagione in corso e' leggibile solo un giorno alla volta,
-dentro una finestra di tre giorni: ieri, oggi, domani. Fuori da quella finestra
-non si torna indietro.
+I **risultati** della stagione in corso sono leggibili solo un giorno alla
+volta, dentro una finestra di tre giorni: ieri, oggi, domani. Fuori da quella
+finestra non si torna indietro. (Il **calendario** e' un'altra cosa e arriva
+intero: vedi `collect_season_calendar` in data/daily.py. Ma il calendario dice
+chi gioca contro chi, non com'e' finita.)
 
 La conseguenza e' il fatto centrale attorno a cui gira questo modulo:
 
@@ -16,16 +18,26 @@ giorno. Da qui due scelte:
   Un errore nel parsing si corregge e si rilegge; un dato mai salvato no.
 * `DayJournal` tiene il registro di cosa e' stato raccolto e quando, cosi' un
   buco si vede subito invece di scoprirlo a fine stagione.
+
+E da qui anche il parametro `mai_regredire` di `upsert_fixtures`: da quando le
+sorgenti che scrivono qui sono due, una delle due puo' essere piu' vecchia
+dell'archivio, e sovrascrivere significherebbe cancellare un risultato che
+nessuno potrebbe piu' riportare indietro.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+from .parsers import parse_status
+
+logger = logging.getLogger(__name__)
 
 # Stati in cui una partita non cambiera' piu': raccolti questi, il giorno e'
 # chiuso e non va piu' richiesto.
@@ -50,6 +62,20 @@ MAX_TABELLINO_ATTEMPTS = 12
 # definitivo ha sempre qualcuno arrivato in fondo; una fotografia scattata al
 # 64' ha tutti e ventidue i titolari fermi sullo stesso numero.
 MINUTI_DI_UNA_PARTITA_INTERA = 90
+
+
+def _stato(raw: dict[str, Any]) -> str:
+    """Lo stato di una partita grezza, letto come lo legge tutto il resto.
+
+    Mai confrontando le stringhe dell'API: sono una ventina di codici e
+    `parse_status` e' l'unico posto che sa ridurli ai cinque dello schema.
+    """
+    return parse_status((raw.get("fixture") or {}).get("status"))
+
+
+def _regredisce(vecchio: dict[str, Any], nuovo: dict[str, Any]) -> bool:
+    """La versione in arrivo sa MENO di quella in archivio?"""
+    return _stato(vecchio) in FINAL_STATUSES and _stato(nuovo) not in FINAL_STATUSES
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -192,10 +218,33 @@ class SeasonStore:
     def load_fixtures(self) -> dict[str, dict[str, Any]]:
         return _read_json(self._fixtures_path, {})
 
-    def upsert_fixtures(self, raw_fixtures: Iterable[dict[str, Any]]) -> tuple[int, int]:
-        """Inserisce o aggiorna partite. Restituisce ``(nuove, aggiornate)``."""
+    def upsert_fixtures(
+        self,
+        raw_fixtures: Iterable[dict[str, Any]],
+        mai_regredire: bool = False,
+    ) -> tuple[int, int]:
+        """Inserisce o aggiorna partite. Restituisce ``(nuove, aggiornate)``.
+
+        Con ``mai_regredire`` una partita gia' conclusa in archivio non viene
+        sostituita da una versione in cui conclusa non e'. Serve alle sorgenti
+        che non sono le piu' fresche.
+
+        La raccolta giornaliera lo e' sempre, e infatti il default non cambia:
+        legge una finestra di tre giorni con un TTL di pochi minuti ed e'
+        l'unica che vede una partita cambiare stato durante il pomeriggio. Il
+        calendario di stagione no — passa da una cache di sei ore, quindi una
+        lettura fatta alle 22:00 puo' servire la fotografia delle 16:00, in cui
+        le partite delle 18:30 e delle 20:45 erano ancora da giocare e senza
+        gol. Sovrascrivendo, quei risultati sparirebbero: e questa cartella e'
+        l'unica copia esistente della stagione in corso, i giorni passati
+        l'API non li rida' piu'.
+
+        La regola e' quella gia' scritta in data/dataset.py per la lettura —
+        vince la raccolta giornaliera — applicata qui in scrittura:
+        **una partita non torna mai indietro.**
+        """
         archivio = self.load_fixtures()
-        nuove = aggiornate = 0
+        nuove = aggiornate = saltate = 0
         for raw in raw_fixtures:
             fid = (raw.get("fixture") or {}).get("id")
             if fid is None:
@@ -204,14 +253,23 @@ class SeasonStore:
             if chiave in archivio:
                 # Si sovrascrive solo se qualcosa e' cambiato: evita di
                 # riscrivere l'intero archivio a ogni passaggio a vuoto.
-                if archivio[chiave] != raw:
-                    archivio[chiave] = raw
-                    aggiornate += 1
+                if archivio[chiave] == raw:
+                    continue
+                if mai_regredire and _regredisce(archivio[chiave], raw):
+                    saltate += 1
+                    continue
+                archivio[chiave] = raw
+                aggiornate += 1
             else:
                 archivio[chiave] = raw
                 nuove += 1
         if nuove or aggiornate:
             _write_json(self._fixtures_path, archivio)
+        if saltate:
+            logger.info(
+                "%d partite gia' concluse non sono state sovrascritte da una "
+                "lettura piu' vecchia", saltate,
+            )
         return nuove, aggiornate
 
     def fixture_ids(self) -> list[int]:

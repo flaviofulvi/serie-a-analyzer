@@ -24,6 +24,12 @@ TTL_FOREVER = None                  # stagioni concluse: non cambiano piu'
 TTL_LINEUPS = 5 * 60               # formazioni: escono ~30 min prima, evolvono
 TTL_LIVE = 2 * 60                  # partite in corso
 TTL_UPCOMING_FIXTURES = 6 * 60 * 60  # calendario prossima giornata
+# Il calendario di TUTTA la stagione. Un giorno, e non sei ore, perche'
+# cambia con settimane di preavviso — recuperi e anticipi — e perche' e' la
+# cache a fare da freno: le quattro raccolte quotidiane chiedono tutte il
+# calendario, e solo la prima paga una richiesta. Non serve un orologio
+# dentro lo script per dire "una volta al giorno".
+TTL_CALENDARIO_STAGIONE = 24 * 60 * 60
 TTL_ODDS = 30 * 60
 # Indisponibili di una partita ancora da giocare: la lista si muove con le
 # conferenze stampa e le rifiniture. Per una partita gia' conclusa non cambia

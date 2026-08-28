@@ -103,9 +103,27 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   la domenica alle 14:30.
 - `cache.py` — risposte grezze su disco (`data/cache/`); TTL per endpoint, una
   stagione conclusa non scade mai.
-- `daily.py` — la stagione in corso si raccoglie con `/fixtures?date=...`
+- `daily.py` — la stagione in corso si raccoglie in **due modi diversi**, e la
+  differenza è la sola cosa da ricordare. Il **calendario** — chi gioca contro
+  chi, e quando — arriva intero in **una richiesta**
+  (`collect_season_calendar`, `/fixtures?league=&season=`): non è deperibile,
+  cambia con settimane di preavviso, e da quando c'è il sito mostra la giornata
+  vera invece di un vuoto e i pronostici si registrano con giorni di anticipo
+  invece che con ore. Gli **stati** — una partita che comincia, un risultato
+  che arriva — no: si leggono con `/fixtures?date=...`
   (senza `league`, altrimenti l'API pretende `season` e blocca), finestra di
-  **tre giorni**. Separa deliberatamente due cose: gli **id delle partite**,
+  **tre giorni**.
+  Il calendario è l'unica richiesta della raccolta che passi dal filtro
+  `league+season`, cioè esattamente ciò che il piano gratuito chiude: il giorno
+  del downgrade smetterà di rispondere — con **zero partite e nessun errore**,
+  non con un guasto — e tutto il resto continuerà identico, perché è così che
+  si è sempre lavorato. Quante volte chiederlo non lo decide un orologio ma il
+  TTL di **un giorno** (`TTL_CALENDARIO_STAGIONE`): le quattro raccolte
+  quotidiane lo chiedono tutte, la prima lo paga e le altre lo leggono dalla
+  cache. Fuori dalle raccolte piene non entra mai — le corse a ridosso del via
+  valgono quanto sono vicine al fischio, e infilarci dentro una cosa senza
+  fretta è il modo di far saltare quella che ce l'ha.
+  La finestra separa deliberatamente due cose: gli **id delle partite**,
   leggibili solo entro la finestra e **persi per sempre** se mancati, e i
   dettagli (formazioni, eventi, statistiche), recuperabili in qualsiasi momento
   dall'id via `backfill_details`. La raccolta deve sempre catturare gli id
@@ -144,7 +162,16 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   ore** dopo il fischio: riduce quante volte succede, a ripescarli resta
   `needs_detail`.
 - `store.py` — archivio della stagione corrente + `DayJournal` dei giorni
-  raccolti. Un giorno viene chiuso — cioè non richiesto più — solo se è
+  raccolti. Da quando le sorgenti che ci scrivono sono **due**,
+  `upsert_fixtures` ha un `mai_regredire`: una partita già conclusa in archivio
+  non viene sostituita da una versione in cui conclusa non è. Serve perché il
+  calendario di stagione passa da una cache di sei ore e può quindi essere più
+  vecchio dell'archivio — una lettura del pomeriggio riscriverebbe come «da
+  giocare» le partite della sera, e questa cartella è l'unica copia esistente.
+  È la regola già scritta in `dataset.py` per la lettura (vince la raccolta
+  giornaliera) applicata in scrittura: **una partita non torna mai indietro**.
+  Il default non cambia, ed è voluto: la finestra di tre giorni è sempre la più
+  fresca, ed è il chiamante nuovo che ha bisogno della protezione. Un giorno viene chiuso — cioè non richiesto più — solo se è
   **passato** *e* aveva tutte le partite in stato definitivo. Oggi e domani non
   si chiudono mai, per quanto completi sembrino: un giorno ancora da giocare
   risulta "tutto definitivo" anche solo perché è vuoto, e il calendario della
@@ -218,6 +245,22 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   scrive **una riga per partita e versione del modello** — l'impronta dei
   parametri stimati dice se il modello è cambiato, così ricaricare l'hub non
   moltiplica righe identiche.
+  A queste se ne sono aggiunte due, nate col calendario di stagione: si
+  registra solo ciò che si gioca entro **otto giorni** (`GIORNI_DI_REGISTRO`) e
+  solo se l'1X2 si è mosso di almeno mezzo punto percentuale
+  (`SOGLIA_MOVIMENTO`). Prima non servivano, perché «le partite in programma»
+  erano quelle che la finestra di tre giorni riusciva a vedere: una decina. Ora
+  sono 370, e le ristime in una stagione sono ~380 — senza i due freni farebbe
+  decine di migliaia di righe, per una partita di maggio ri-pronosticata
+  trecento volte. Il primo freno è sul *quando*: un pronostico di maggio scritto
+  in agosto non è informazione, il modello non ha ancora visto le partite che
+  glielo faranno cambiare. Il secondo è la regola di `vale_la_pena` in
+  `pesi.py`: una riga identica alla precedente non è inutile, è dannosa —
+  dirà per sempre che lì il modello aveva cambiato idea. Ognuno dei due ha il
+  suo contatore nell'esito (`oltre_orizzonte`, `fermi`) perché un freno che non
+  si vede è un freno di cui nessuno si fida, e «fermo» non si confonde con
+  «già presente»: il primo vuol dire che il modello è cambiato e il pronostico
+  no, il secondo che il modello non è cambiato affatto.
 - `outcomes.py` — il confronto fra pronostico e realtà: a partita conclusa
   ogni esito registrato prima del fischio d'inizio diventa `hit` + contributo
   al Brier. Gli esiti si scrivono **una volta sola** (`insert or ignore`): un

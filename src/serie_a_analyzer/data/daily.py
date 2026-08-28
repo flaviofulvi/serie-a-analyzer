@@ -1,11 +1,22 @@
 """Raccolta giornaliera della stagione in corso.
 
-Il piano gratuito di API-Football espone la stagione in corso solo attraverso
-una finestra scorrevole di tre giorni — ieri, oggi, domani — e solo se la
-richiesta **non** filtra per lega (aggiungendo ``league`` l'API pretende anche
-``season``, che per la stagione corrente e' bloccata).
+Si raccolgono due cose diverse, e la differenza e' tutta qui:
 
-Da qui il funzionamento di questo modulo:
+* il **calendario** — chi gioca contro chi, e quando — che arriva intero in una
+  richiesta (`collect_season_calendar`) e non e' deperibile: cambia con
+  settimane di preavviso, per recuperi e anticipi;
+* gli **stati** — una partita che comincia, un risultato che arriva, un
+  tabellino che si consolida — che si leggono un giorno alla volta dentro una
+  finestra di tre giorni, e fuori da quella non si recuperano piu'.
+
+Il calendario intero pero' si paga: e' l'unica richiesta di questo modulo che
+passa dal filtro ``league+season``, cioe' proprio cio' che il piano gratuito
+blocca. La finestra di tre giorni no — chiede la sola data, senza ``league``,
+ed e' il modo in cui la stagione in corso si e' sempre letta anche senza
+pagare. Se un giorno il calendario smettesse di rispondere, tutto il resto
+continuerebbe identico.
+
+Da qui il funzionamento della raccolta giorno per giorno:
 
     per ognuno dei tre giorni della finestra
         se il giorno e' passato ed era gia' completo -> non si spende nulla
@@ -38,8 +49,9 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from .budget import BudgetExhausted, Priority
-from .cache import TTL_FOREVER, TTL_LIVE
+from .cache import TTL_CALENDARIO_STAGIONE, TTL_FOREVER, TTL_LIVE
 from .client import SERIE_A_LEAGUE_ID, ApiFootballClient, ApiFootballError
+from .ingest import current_season
 from .parsers import parse_status
 from .store import FINAL_STATUSES, DayJournal, SeasonStore
 
@@ -446,6 +458,86 @@ def backfill_details(
 
     logger.info("recupero dettagli: %d partite in sospeso", len(in_sospeso))
     return collect_details_for(client, store, in_sospeso, max_requests=max_requests)
+
+
+@dataclass
+class CalendarReport:
+    """Esito dello scaricamento del calendario di stagione."""
+
+    n_serie_a: int = 0
+    new_fixtures: int = 0
+    updated_fixtures: int = 0
+    requests_spent: int = 0
+    error: str | None = None
+
+
+def collect_season_calendar(
+    client: ApiFootballClient,
+    store: SeasonStore,
+    league_id: int = SERIE_A_LEAGUE_ID,
+    season: int | None = None,
+    today: date | None = None,
+    ttl: int | None = TTL_CALENDARIO_STAGIONE,
+) -> CalendarReport:
+    """Tutto il campionato in una richiesta: chi gioca contro chi, e quando.
+
+    E' l'altra meta' della raccolta, e fa un lavoro che la finestra di tre
+    giorni non puo' fare. La finestra vede gli **stati**: una partita che
+    comincia, un risultato che arriva, un tabellino che si consolida. Questa
+    vede il **calendario**, cioe' le 380 partite di maggio comprese, e serve
+    perche' un pronostico scritto con ore di anticipo e uno scritto con giorni
+    di anticipo non sono la stessa cosa.
+
+    Non sostituisce `collect_window` e non ne fa le veci: gli stati continuano
+    ad arrivare da li'.
+
+    Due cose che sembrano dettagli:
+
+    * la stagione si chiede a `current_season()` e non si scrive a mano. Il
+      rollover e' a luglio: un anno scritto a mano diventerebbe muto il luglio
+      successivo, e in silenzio;
+    * si scrive con `mai_regredire=True`. Questa risposta passa da una cache di
+      sei ore e puo' quindi essere piu' vecchia dell'archivio: senza quella
+      guardia, una lettura del pomeriggio riscriverebbe come "da giocare" le
+      partite della sera. E' l'unico punto della raccolta in cui si potrebbe
+      perdere un risultato.
+
+    Il filtro sulla lega resta anche avendo chiesto la sola Serie A: costa
+    niente ed e' la stessa difesa di `collect_day`.
+
+    Quante volte chiamarla non lo decide un orologio ma il `ttl`: un giorno,
+    quindi le quattro raccolte quotidiane la chiedono tutte e solo la prima
+    paga una richiesta. Lo stesso vale il giorno in cui il piano tornasse
+    gratuito e il filtro `league+season` si richiudesse: la risposta sarebbe
+    **vuota e non un errore**, quindi finirebbe in cache come le altre e
+    costerebbe una richiesta al giorno, non quattro. Zero partite qui non
+    vuol dire che il campionato sia finito: vuol dire che questa strada non
+    e' piu' aperta, e la finestra di tre giorni continua da sola.
+    """
+    anno = season if season is not None else current_season(today)
+    report = CalendarReport()
+    prima = client.budget.used
+
+    try:
+        tutte = client.fixtures(season=anno, league=league_id, ttl=ttl)
+    except (ApiFootballError, BudgetExhausted) as exc:
+        report.error = str(exc)
+        report.requests_spent = client.budget.used - prima
+        logger.error("calendario %s non scaricato — %s", anno, exc)
+        return report
+
+    serie_a = [raw for raw in tutte if _is_serie_a(raw, league_id)]
+    report.n_serie_a = len(serie_a)
+    report.new_fixtures, report.updated_fixtures = store.upsert_fixtures(
+        serie_a, mai_regredire=True
+    )
+    report.requests_spent = client.budget.used - prima
+    logger.info(
+        "calendario %s: %d partite, %d nuove, %d aggiornate (%d richieste)",
+        anno, report.n_serie_a, report.new_fixtures, report.updated_fixtures,
+        report.requests_spent,
+    )
+    return report
 
 
 def collect_window(

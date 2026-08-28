@@ -23,6 +23,7 @@ from serie_a_analyzer.data.client import API_SPORTS_BASE_URL, ApiFootballClient
 from serie_a_analyzer.data.daily import (
     backfill_details,
     collect_day,
+    collect_season_calendar,
     collect_window,
     dettagli_possono_aspettare,
     DURATA_MOMENTO_DOPO,
@@ -63,6 +64,9 @@ def mondo():
     """Cosa risponde l'API finta, per giorno e per endpoint di dettaglio."""
     return {
         "per_giorno": {},
+        # Il calendario di stagione: stessa rotta, ma chiesta per `season`
+        # invece che per `date`.
+        "stagione": [],
         "dettagli": {},
         "chiamate": [],
         # Se valorizzato, ogni chiamata risponde con questo errore.
@@ -94,6 +98,8 @@ def client(tmp_path, mondo):
             return httpx.Response(200, json={"errors": mondo["errore"], "response": []})
         if percorso.endswith("/fixtures"):
             giorno = request.url.params.get("date")
+            if giorno is None:
+                return httpx.Response(200, json=_wrap(mondo["stagione"]))
             return httpx.Response(200, json=_wrap(mondo["per_giorno"].get(giorno, [])))
         # /fixtures/lineups, /fixtures/players, /fixtures/events
         kind = percorso.rsplit("/", 1)[-1]
@@ -128,6 +134,80 @@ def test_la_finestra_parte_dal_giorno_piu_vecchio():
     """Ieri per primo: domani sara' fuori finestra, oggi no."""
     giorni = window_days(date(2026, 8, 22))
     assert giorni == sorted(giorni)
+
+
+# ---- il calendario di tutta la stagione ------------------------------------
+
+
+def test_il_calendario_porta_la_stagione_in_una_richiesta(client, store, mondo):
+    """Cio' che la finestra di tre giorni non puo' vedere: maggio."""
+    mondo["stagione"] = [
+        _fixture(1, giorno="2026-08-22"),
+        _fixture(2, giorno="2027-05-30", status="NS"),
+        _fixture(3, league=39, giorno="2027-05-30"),   # Premier League
+    ]
+
+    report = collect_season_calendar(client, store, season=2026)
+
+    assert report.n_serie_a == 2
+    assert report.requests_spent == 1
+    assert sorted(store.fixture_ids()) == [1, 2]
+
+
+def test_il_calendario_non_cancella_un_risultato_gia_raccolto(client, store, mondo):
+    """Il punto pericoloso, provato dall'esterno.
+
+    La risposta passa da una cache di sei ore: quella letta la sera puo'
+    essere la fotografia del pomeriggio, in cui la partita delle 18:30 non era
+    ancora cominciata. L'archivio della stagione in corso e' l'unica copia che
+    esiste.
+    """
+    store.upsert_fixtures([_fixture(1, status="FT")])
+    mondo["stagione"] = [_fixture(1, status="NS")]
+
+    report = collect_season_calendar(client, store, season=2026)
+
+    assert (report.new_fixtures, report.updated_fixtures) == (0, 0)
+    salvata = store.load_fixtures()["1"]
+    assert salvata["fixture"]["status"]["short"] == "FT"
+    assert salvata["goals"] == {"home": 2, "away": 0}
+
+
+def test_il_calendario_una_volta_al_giorno_lo_decide_la_cache(client, store, mondo):
+    """Le quattro raccolte quotidiane lo chiedono tutte, una sola lo paga."""
+    mondo["stagione"] = [_fixture(1)]
+
+    collect_season_calendar(client, store, season=2026)
+    secondo = collect_season_calendar(client, store, season=2026)
+
+    assert secondo.requests_spent == 0
+    assert secondo.n_serie_a == 1
+
+
+def test_una_risposta_vuota_non_e_un_guasto(client, store, mondo):
+    """Il giorno del ritorno al piano gratuito: zero partite, nessun errore.
+
+    Non deve cancellare niente ne' sembrare un guasto: la finestra di tre
+    giorni continua da sola, ed e' cosi' che si e' sempre lavorato.
+    """
+    store.upsert_fixtures([_fixture(1, status="FT")])
+    mondo["stagione"] = []
+
+    report = collect_season_calendar(client, store, season=2026)
+
+    assert report.error is None
+    assert report.n_serie_a == 0
+    assert store.fixture_ids() == [1]
+
+
+def test_un_errore_dell_api_non_solleva(client, store, mondo):
+    """Il calendario e' la cosa meno urgente: se non risponde si riprova domani."""
+    mondo["errore"] = {"plan": "Free plans do not have access to this season"}
+
+    report = collect_season_calendar(client, store, season=2026)
+
+    assert report.error is not None
+    assert report.n_serie_a == 0
 
 
 # ---- filtro della lega -----------------------------------------------------

@@ -68,6 +68,58 @@ def test_una_partita_che_finisce_viene_aggiornata(store):
     assert store.load_fixtures()["1"]["goals"] == {"home": 2, "away": 1}
 
 
+def test_una_partita_conclusa_non_torna_indietro(store):
+    """Il punto in cui si potrebbe PERDERE un risultato gia' raccolto.
+
+    Il calendario di stagione passa da una cache di sei ore: una lettura fatta
+    la sera puo' servire la fotografia del pomeriggio, in cui le partite delle
+    18:30 erano ancora da giocare. Senza questa guardia quei risultati
+    sparirebbero dall'unica copia che esiste.
+    """
+    store.upsert_fixtures([_fixture(1, status="FT", home=2, away=1)])
+    nuove, aggiornate = store.upsert_fixtures(
+        [_fixture(1, status="NS", home=None, away=None)], mai_regredire=True
+    )
+
+    assert (nuove, aggiornate) == (0, 0)
+    assert store.load_fixtures()["1"]["goals"] == {"home": 2, "away": 1}
+
+
+def test_la_guardia_non_blocca_una_partita_che_avanza(store):
+    """Non torna indietro non vuol dire non si muove."""
+    store.upsert_fixtures([_fixture(1, status="NS", home=None, away=None)])
+    nuove, aggiornate = store.upsert_fixtures(
+        [_fixture(1, status="FT", home=2, away=1)], mai_regredire=True
+    )
+
+    assert (nuove, aggiornate) == (0, 1)
+    assert store.load_fixtures()["1"]["goals"] == {"home": 2, "away": 1}
+
+
+def test_senza_la_guardia_la_raccolta_giornaliera_sovrascrive_come_sempre(store):
+    """Il default non cambia: la finestra di tre giorni e' sempre la piu' fresca.
+
+    Se un giorno l'API dicesse che una partita conclusa e' stata rinviata,
+    quella e' una notizia e va scritta.
+    """
+    store.upsert_fixtures([_fixture(1, status="FT", home=2, away=1)])
+    nuove, aggiornate = store.upsert_fixtures([_fixture(1, status="PST", home=None, away=None)])
+
+    assert (nuove, aggiornate) == (0, 1)
+    assert store.load_fixtures()["1"]["fixture"]["status"]["short"] == "PST"
+
+
+def test_una_partita_annullata_non_torna_indietro(store):
+    """'cancelled' e' definitivo quanto 'finished', e la guardia lo sa."""
+    store.upsert_fixtures([_fixture(1, status="CANC", home=None, away=None)])
+    nuove, aggiornate = store.upsert_fixtures(
+        [_fixture(1, status="NS", home=None, away=None)], mai_regredire=True
+    )
+
+    assert (nuove, aggiornate) == (0, 0)
+    assert store.load_fixtures()["1"]["fixture"]["status"]["short"] == "CANC"
+
+
 def test_partita_senza_id_viene_ignorata(store):
     store.upsert_fixtures([{"fixture": {}, "league": {"id": 135}}])
     assert store.fixture_ids() == []

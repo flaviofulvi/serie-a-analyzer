@@ -37,6 +37,7 @@ from serie_a_analyzer.data.daily import (
     MINUTI_PRIMA_DEL_VIA,
     ORE_DI_MARGINE_PER_I_DETTAGLI,
     backfill_details,
+    collect_season_calendar,
     collect_window,
     dettagli_possono_aspettare,
     momento_utile,
@@ -226,6 +227,12 @@ def main() -> int:
         help="tetto di richieste da spendere in dettagli (default: nessuno)",
     )
     parser.add_argument(
+        "--no-calendario",
+        action="store_true",
+        help="salta il calendario di stagione (1 richiesta al giorno, il "
+             "resto delle volte arriva dalla cache)",
+    )
+    parser.add_argument(
         "--no-quote",
         action="store_true",
         help="salta le quote dei bookmaker",
@@ -282,6 +289,12 @@ def main() -> int:
                 "Zero richieste spese."
             )
             return 0
+        # Il calendario non entra mai nelle corse a ridosso del via, in
+        # nessuno dei due momenti. Quelle valgono quanto sono vicine al
+        # fischio, e infilarci dentro una cosa che non ha nessuna fretta —
+        # il calendario cambia con settimane di preavviso — e' il modo di far
+        # saltare quella che la fretta ce l'ha davvero.
+        args.no_calendario = True
         if momento == "vigilia":
             # I dettagli non hanno fretta — dall'id si leggono quando si
             # vuole — e qui ruberebbero il posto alle quote, che dopo il
@@ -331,6 +344,21 @@ def main() -> int:
         max_detail_requests=args.max_detail_requests,
     )
 
+    # --- il calendario di tutta la stagione ----------------------------------
+    #
+    # Sta qui e non piu' in basso perche' e' la stessa cosa che fa la finestra:
+    # catturare gli id delle partite. Che questi non scadano — a differenza di
+    # quelli letti giorno per giorno — non lo rende meno importante: e' l'unico
+    # modo di sapere con settimane di anticipo chi gioca contro chi, e quindi
+    # di scrivere un pronostico prima delle ultime ore.
+    #
+    # Sta pero' DOPO la finestra, che e' l'unica cosa davvero irrecuperabile.
+    calendario = None
+    if not args.no_calendario:
+        calendario = collect_season_calendar(
+            client, store, league_id=settings.league_id,
+        )
+
     separatore("Esito per giorno")
     print(f"{'giorno':<14}{'Serie A':>9}{'definitive':>12}{'nuove':>8}{'agg.':>7}{'rich.':>7}  stato")
     print("-" * 72)
@@ -349,6 +377,27 @@ def main() -> int:
             stato = "aperto, si ricontrolla"
         print(f"{r.day.isoformat():<14}{r.n_serie_a:>9}{r.n_final:>12}"
               f"{r.new_fixtures:>8}{r.updated_fixtures:>7}{r.requests_spent:>7}  {stato}")
+
+    if calendario is not None:
+        separatore("Calendario della stagione")
+        if calendario.error:
+            print(f"Non scaricato:      {calendario.error}")
+        elif calendario.n_serie_a == 0:
+            print("Nessuna partita:    il filtro league+season non risponde piu'.")
+            print("                    Non e' un guasto e non manca niente: la "
+                  "finestra")
+            print("                    di tre giorni continua da sola, come ha "
+                  "sempre fatto.")
+            print("                    Si puo' togliere la richiesta con "
+                  "--no-calendario.")
+        else:
+            print(f"Partite in cartellone: {calendario.n_serie_a}")
+            print(f"Nuove:                 {calendario.new_fixtures}")
+            print(f"Aggiornate:            {calendario.updated_fixtures}")
+            print(
+                f"Richieste spese:       {calendario.requests_spent}"
+                + ("  (dalla cache: gia' letto oggi)" if not calendario.requests_spent else "")
+            )
 
     dettagli: dict[str, int] = {}
     for r in reports:

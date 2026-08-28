@@ -206,6 +206,11 @@ class Engine:
         Un problema del registro non deve impedire di mostrare le pagine: la
         pagina senza storico e' un disservizio, la pagina che non si apre e'
         un guasto.
+
+        Quali partite e quando lo decidono i due freni di `registra_partite`,
+        e da quando l'archivio contiene il calendario intero non sono un
+        dettaglio: senza, ogni ristima scriverebbe 370 pronostici invece di
+        una decina, e i pronostici non si cancellano.
         """
         try:
             esito = registra_partite(
@@ -214,8 +219,11 @@ class Engine:
         except Exception as exc:  # il registro non deve mai far cadere il web
             logger.warning("storico dei pronostici non aggiornato: %s", exc)
             return
-        if esito["nuovi"]:
-            logger.info("pronostici registrati: %d nuovi", esito["nuovi"])
+        if esito["nuovi"] or esito["fermi"]:
+            logger.info(
+                "pronostici: %d nuovi, %d fermi, %d oltre l'orizzonte",
+                esito["nuovi"], esito["fermi"], esito["oltre_orizzonte"],
+            )
 
     def _risolvi_esiti(self, dataset: Dataset) -> None:
         """Confronta con la realta' i pronostici delle partite ormai concluse.
