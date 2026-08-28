@@ -202,6 +202,26 @@ def _adesso() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def istante(testo: str | None) -> datetime | None:
+    """Il momento scritto in una riga di registro, o ``None`` se illeggibile.
+
+    Sta qui, accanto a chi quelle stringhe le scrive, e non in chi le legge:
+    di posti che rileggono un `created_at` ce n'e' piu' d'uno — il motore del
+    sito, l'elenco dei pronostici — e due parsing diversi dello stesso campo
+    finirebbero prima o poi per non essere piu' lo stesso parsing.
+
+    Non solleva: un timestamp illeggibile e' una riga vecchia o scritta a
+    mano, e vale "non lo so". Il pronostico resta valido, e' solo il suo
+    orario a non essere leggibile.
+    """
+    if not testo:
+        return None
+    try:
+        return datetime.fromisoformat(testo)
+    except ValueError:
+        return None
+
+
 def _impronta(model: FittedModel, name: str, version: str) -> str:
     """Identifica una stima. Stessi dati e stesso codice: stessa impronta.
 
@@ -432,6 +452,45 @@ class PredictionStore:
                 )
             ]
 
+    def mercati_con_esito(
+        self, market: str, mode: str | None = None
+    ) -> list[dict]:
+        """Le righe di un mercato, con accanto l'esito quando gia' c'e'.
+
+        E' la stessa materia di `esiti_risolti`, presa dall'altro capo. Li' si
+        parte dagli **esiti**, e un pronostico non ancora verificato non
+        esiste; qui si parte dai **pronostici**, cosi' le partite ancora da
+        giocare restano in elenco con l'esito vuoto.
+
+        La differenza non e' tecnica: una misura deve guardare solo cio' che
+        si e' gia' potuto misurare, altrimenti mente; un registro deve
+        mostrare anche le promesse ancora aperte, altrimenti non e' un
+        registro. Da qui il `left join` invece del `join`.
+        """
+        condizioni = ["pm.market = ?"]
+        parametri: list = [market]
+        if mode is not None:
+            condizioni.append("p.mode = ?")
+            parametri.append(mode)
+
+        with self._connessione() as conn:
+            return [
+                dict(r) for r in conn.execute(
+                    "select p.id as prediction_id, p.fixture_id, p.mode, "
+                    "       p.created_at, p.lambda_home, p.lambda_away, "
+                    "       v.version, pm.market, pm.selection, pm.probability, "
+                    "       po.hit, po.brier "
+                    "from predictions p "
+                    "join model_versions v on v.id = p.model_version_id "
+                    "join prediction_markets pm on pm.prediction_id = p.id "
+                    "left join prediction_outcomes po "
+                    "  on po.prediction_market_id = pm.id "
+                    "where " + " and ".join(condizioni) + " "
+                    "order by p.created_at desc, p.id desc",
+                    parametri,
+                )
+            ]
+
     def ultimi(self, limit: int = 20) -> list[dict]:
         with self._connessione() as conn:
             return [
@@ -501,17 +560,51 @@ class PredictionStore:
         market: str | None = None,
         selection: str | None = None,
         mode: str | None = None,
+        tutte_le_versioni: bool = False,
     ) -> list[dict]:
         """Gli esiti gia' confrontati con la realta', pronti per le metriche.
 
-        ``mode`` non e' un filtro come gli altri due, ed e' il motivo per cui
-        la colonna viaggia **sempre** insieme alla riga anche quando non si
-        filtra. Una partita puo' avere due pronostici — quello secco e quello
-        rifatto con le formazioni ufficiali (`data/ufficiali.py`) — e sono due
-        risposte diverse alla stessa domanda, non due osservazioni della
-        stessa cosa. Sommarle in un'unica media conterebbe ogni partita due
-        volte e mediarebbe fra loro proprio i due numeri che il progetto vuole
-        confrontare: chi legge deve sapere quale sta guardando.
+        **Un pronostico per partita**, e non e' un dettaglio di comodo: e' la
+        differenza fra misurare dieci partite e credere di averne misurate
+        trentaquattro. Il registro scrive una riga per ogni versione del
+        modello (`unique (fixture_id, model_version_id, mode)`), quindi una
+        partita vista con qualche giorno di anticipo ne accumula quante sono
+        le ristime che la precedono — Genoa-Lecce del 22 agosto 2026 ne ha
+        cinque, scritte fra le 10:13 e le 21:22 dello stesso giorno. Sono
+        cinque tentativi sulla **stessa** domanda, non cinque osservazioni:
+        mediarli insieme conta quella partita cinque volte, e ci mette dentro
+        anche la prima stima acerba (2.76 gol attesi contro gli 1.60 su cui il
+        modello si e' poi assestato) col peso di quelle mature.
+
+        Il danno non e' l'imprecisione ma il **silenzio**: gonfia `n`, e sopra
+        `n` sta la soglia che decide se una misura vale abbastanza da meritare
+        un verdetto (`SOGLIA_SIGNIFICATIVITA`). Con dieci partite in archivio
+        il sito dichiarava «meglio della baseline» su ogni mercato, perche' i
+        conti erano saliti sopra trenta moltiplicando le stesse dieci partite.
+        E peserebbe di piu' le partite annunciate con piu' anticipo, che sono
+        quelle ri-pronosticate piu' volte — un campione storto senza che
+        niente lo dica.
+
+        La riga che sopravvive e' **l'ultima**, con lo stesso ordinamento di
+        `ultimo_per_partita`, per due ragioni che coincidono: dopo il fischio
+        d'inizio il registro non accetta scritture, quindi l'ultima riga *e'*
+        per costruzione l'ultima precedente al via; ed e' anche quella che le
+        pagine mostrano e quella che il confronto con le quote mette contro la
+        chiusura. Si misura cio' che si e' mostrato.
+
+        Il taglio e' per **(partita, modo)** e non per partita: il pronostico
+        secco e quello rifatto con le formazioni ufficiali devono restare
+        tutti e due, perche' `confronto_fra_modi` esiste per metterli a
+        confronto. Vale per loro la regola gemella, ed e' il motivo per cui la
+        colonna ``mode`` viaggia **sempre** insieme alla riga anche quando non
+        si filtra: sono due risposte diverse alla stessa domanda, non due
+        osservazioni della stessa cosa, e chi legge deve sapere quale sta
+        guardando.
+
+        ``tutte_le_versioni`` riapre la porta a chi vuole davvero ogni riga —
+        serve a guardare *come* il modello ha cambiato idea, non a misurarlo.
+        Il default sta dalla parte sicura apposta: questo difetto e' nato
+        proprio perche' la cosa giusta andava chiesta invece di essere data.
         """
         condizioni, parametri = [], []
         if market is not None:
@@ -523,6 +616,16 @@ class PredictionStore:
         if mode is not None:
             condizioni.append("p.mode = ?")
             parametri.append(mode)
+        if not tutte_le_versioni:
+            # L'ultima riga scritta su quella partita in quel modo. Correlata
+            # e non raggruppata: e' letteralmente la query di
+            # `ultimo_per_partita`, e tenerle identiche e' cio' che garantisce
+            # che la misura guardi la stessa riga della pagina.
+            condizioni.append(
+                "p.id = (select p2.id from predictions p2 "
+                "        where p2.fixture_id = p.fixture_id and p2.mode = p.mode "
+                "        order by p2.created_at desc, p2.id desc limit 1)"
+            )
         dove = (" where " + " and ".join(condizioni)) if condizioni else ""
 
         with self._connessione() as conn:
@@ -693,6 +796,14 @@ class PredictionStore:
                 return int(conn.execute(f"select count(*) from {tabella}").fetchone()[0])
             return {
                 "pronostici": quanti("predictions"),
+                # Le partite sono meno dei pronostici: il modello viene
+                # ristimato piu' volte prima del via e ogni ristima scrive
+                # una riga. Le misure ne guardano una per partita, quindi
+                # senza questo numero il registro e le tabelle sembrano
+                # raccontare due archivi diversi.
+                "partite_pronosticate": int(conn.execute(
+                    "select count(distinct fixture_id) from predictions"
+                ).fetchone()[0]),
                 "versioni_modello": quanti("model_versions"),
                 "mercati": quanti("prediction_markets"),
                 "esiti_risolti": quanti("prediction_outcomes"),

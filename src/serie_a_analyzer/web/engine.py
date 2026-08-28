@@ -35,13 +35,15 @@ from ..data.outcomes import (
     MODO_PREDEFINITO,
     accuratezza_per_mercato,
     brier_1x2_multiclasse,
+    calibrazione,
     confronto_col_mercato,
     confronto_fra_modi,
+    elenco_pronostici,
     risolvi_pronostici,
 )
 from ..data.panchine import Panchine, costruisci_panchine
 from ..data.players import ArchivioGiocatori, costruisci_archivio
-from ..data.predictions import MODE_SECCO, registra_partite
+from ..data.predictions import MODE_SECCO, istante, registra_partite
 from ..data.importato import firma_importato
 from ..data.store import SeasonStore, StoreUnito
 from ..data.storico import firma_storico
@@ -94,16 +96,6 @@ class Congelato:
     quando: datetime | None
 
 
-def _istante(testo: str | None) -> datetime | None:
-    """La data di un pronostico, o ``None`` se il registro non la sa dire."""
-    if not testo:
-        return None
-    try:
-        return datetime.fromisoformat(testo)
-    except ValueError:
-        return None
-
-
 class Engine:
     """Punto unico di accesso a dati e pronostici per le pagine web."""
 
@@ -141,6 +133,13 @@ class Engine:
         roba delle sole pagine dei giocatori, che hanno un'impronta loro;
         adesso una formazione che arriva puo' cambiare la stima, e una stima
         che non se ne accorge sarebbe ferma all'allenatore di prima.
+
+        Si rilegge **a ogni richiesta**, e la tentazione di tenerla in caldo
+        qualche secondo va scartata: farebbe ristimare il modello in ritardo su
+        un risultato appena arrivato, che e' proprio la cosa che qualcuno puo'
+        stare aspettando con la pagina aperta. Costa poco perche' e' fatta di
+        `stat` — dettagli compresi, che sono la parte grossa e per questo in
+        `data/store.py` si leggono con `os.scandir`.
         """
         path = Path(self.store.root) / "fixtures.json"
         corrente = (path.stat().st_mtime, path.stat().st_size) if path.exists() else (0.0, 0)
@@ -260,6 +259,50 @@ class Engine:
             logger.warning("accuratezza non calcolabile: %s", exc)
             return {"mercati": [], "uno_x_due": None, "mercato": None, "modo": mode}
 
+    def calibrazione(
+        self, market: str = "1x2", n_bin: int = 5, mode: str = MODO_PREDEFINITO
+    ) -> list[dict]:
+        """Quando il modello dice il 30%, succede il 30% delle volte?
+
+        E' la seconda lettura degli stessi esiti che `accuratezza` riassume in
+        un Brier, e dice una cosa che quel numero non dice: si puo' avere un
+        buon Brier ed essere sistematicamente troppo sicuri di se'. Per questo
+        sta accanto e non al posto dell'altra.
+
+        Il mercato e' l'1X2 perche' e' quello in cui il modello sa davvero
+        qualcosa, e le sue tre probabilita' coprono una gamma larga: su
+        Over/Under, dopo la compressione, il modello dichiara quasi sempre la
+        media di campionato e le fasce si accalcherebbero tutte in una.
+
+        Il modo resta quello predefinito, il secco, per la ragione di sempre:
+        due modi di dichiarare la fiducia mescolati nella stessa fascia
+        direbbero che e' ben tarato un sistema che non esiste.
+        """
+        try:
+            return calibrazione(
+                self.pronostici, market=market, n_bin=n_bin, mode=mode
+            )
+        except Exception as exc:  # come l'accuratezza: mai far cadere una pagina
+            logger.warning("calibrazione non calcolabile: %s", exc)
+            return []
+
+    def registro(self, market: str = "1x2") -> list[dict]:
+        """Tutti i pronostici scritti, con accanto com'e' andata.
+
+        A differenza di `accuratezza` non e' una misura e non filtra per modo:
+        e' il registro, e un registro mostra tutto cio' che contiene — le
+        partite ancora da giocare comprese, che sono la parte in cui la
+        promessa di immutabilita' e' ancora aperta.
+
+        Non passa dallo snapshot: le righe di registro sono immutabili per
+        costruzione e non hanno niente da spartire col modello caldo.
+        """
+        try:
+            return elenco_pronostici(self.pronostici, market=market)
+        except Exception as exc:  # il registro non deve mai far cadere il web
+            logger.warning("registro dei pronostici non leggibile: %s", exc)
+            return []
+
     def confronto_modi(self) -> dict | None:
         """I due tipi di pronostico a confronto, sulle partite che hanno entrambi.
 
@@ -334,7 +377,7 @@ class Engine:
             prob=derive_markets(matrice),
             matrice=matrice,
             gol_attesi=(float(riga["lambda_home"]), float(riga["lambda_away"])),
-            quando=_istante(riga["created_at"]),
+            quando=istante(riga["created_at"]),
         )
 
     def affidabilita(

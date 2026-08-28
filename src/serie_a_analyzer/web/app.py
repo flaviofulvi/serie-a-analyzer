@@ -33,6 +33,7 @@ from .views import (
     riga_giocatore,
     riga_partita,
     righe_accuratezza,
+    righe_calibrazione,
     righe_classifica,
     righe_affidabilita,
     righe_confronto_modi,
@@ -40,6 +41,8 @@ from .views import (
     righe_confronto_mercato,
     righe_gol,
     righe_prestazioni,
+    righe_registro,
+    verdetto_calibrazione,
 )
 
 logger = logging.getLogger(__name__)
@@ -138,6 +141,11 @@ def hub(request: Request):
 
     accuratezza = motore.accuratezza()
     confronto_modi = motore.confronto_modi()
+    # La seconda lettura degli stessi esiti: non "quanto vale il modello" ma
+    # "la fiducia che dichiara e' meritata". Sta accanto all'accuratezza e non
+    # al suo posto, perche' un buon Brier convive benissimo con l'essere
+    # sistematicamente troppo sicuri di se'.
+    fasce = motore.calibrazione()
 
     # La classifica vera, quella a punti. Sempre di UNA stagione: sommando
     # quelle in archivio verrebbe fuori una squadra con trecento punti.
@@ -160,6 +168,8 @@ def hub(request: Request):
         "confronto_modi": righe_confronto_modi(confronto_modi),
         "confronto_modi_totale": (confronto_modi or {}).get("totale"),
         "confronto_modi_partite": (confronto_modi or {}).get("partite", 0),
+        "calibrazione": righe_calibrazione(fasce),
+        "calibrazione_verdetto": verdetto_calibrazione(fasce),
         "salute": motore.health(),
         "modello": snap.model,
     })
@@ -295,6 +305,45 @@ def partita(request: Request, fixture_id: int):
             }
             for s in scontri
         ],
+        "salute": motore.health(),
+    })
+
+
+@app.get("/pronostici", response_class=HTMLResponse)
+def pronostici(request: Request):
+    """Il registro: cosa era stato detto, quando, e com'e' andata.
+
+    E' la pagina che rende visibile la promessa del progetto — un pronostico
+    registrato non si aggiorna e non si cancella — e per questo mostra anche
+    le partite **ancora da giocare**: quelle sono la meta' della promessa in
+    cui la risposta non c'e' ancora.
+
+    Tutto viene dal registro, anche prima del fischio d'inizio, ed e' l'unica
+    pagina del sito in cui e' cosi'. L'hub su una partita da giocare mostra il
+    modello caldo, che nel frattempo puo' aver visto altre giornate; qui si
+    guarda cosa fu **scritto**, che e' una domanda diversa e la pagina lo
+    dichiara.
+    """
+    motore = engine()
+    snap = motore.snapshot()
+
+    elenco = motore.registro()
+    righe = righe_registro(elenco, snap.dataset.by_id, snap.dataset.name)
+    return templates.TemplateResponse(request, "pronostici.html", {
+        "righe": righe,
+        # I conti sono sul registro intero, non sulle righe mostrate: dire
+        # "34 pronostici" guardandone 200 su 1520 sarebbe falso.
+        "totale": len(elenco),
+        "verificati": sum(1 for v in elenco if v["risolto"]),
+        # La colonna del tipo compare solo se di tipi ce n'e' piu' d'uno.
+        # Finche' le formazioni ufficiali sono spente direbbe "secco" per
+        # tutte le righe, che e' una colonna di rumore.
+        "modi": sorted({v["mode"] for v in elenco}),
+        # Una partita puo' comparire piu' volte, e va spiegato dove si vede:
+        # o perche' il modello ha cambiato idea prima del fischio d'inizio, o
+        # perche' esistono i due tipi di pronostico. Se non succede, dirlo
+        # sarebbe una risposta a una domanda che nessuno si e' fatto.
+        "ripetute": len({r.fixture_id for r in righe}) < len(righe),
         "salute": motore.health(),
     })
 

@@ -90,6 +90,16 @@ def main() -> int:
     conteggi = store.conteggi()
     print(f"\nStorico: {conteggi['pronostici']} pronostici, "
           f"{conteggi['esiti_risolti']} esiti gia' confrontati col risultato.")
+    # Il registro conserva un pronostico per ogni versione del modello,
+    # quindi quasi sempre piu' d'uno per partita. Le tabelle qui sotto ne
+    # contano uno solo — l'ultimo prima del via — e senza questa riga i due
+    # numeri sembrerebbero in disaccordo.
+    partite = conteggi["partite_pronosticate"]
+    if partite and partite < conteggi["pronostici"]:
+        print(f"Sono {partite} partite: prima del via il modello viene ristimato"
+              " piu' volte, e ogni ristima scrive una riga nuova.")
+        print("Le misure guardano l'ultima di ogni partita, cioe' quella che il"
+              " sito mostra.")
 
     per_mercato = accuratezza_per_mercato(store, mode=args.modo)
     if not per_mercato:

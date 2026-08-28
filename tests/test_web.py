@@ -20,7 +20,14 @@ from serie_a_analyzer.config import Settings
 from serie_a_analyzer.data.predictions import MODE_SECCO, MODE_UFFICIALE, registra_partite
 from serie_a_analyzer.web import app as app_module
 from serie_a_analyzer.web.engine import Engine
-from serie_a_analyzer.web.views import confronto_ufficiale
+from serie_a_analyzer.web.views import (
+    MINIMO_PER_FASCIA,
+    confronto_ufficiale,
+    distanza_breve,
+    righe_calibrazione,
+    righe_registro,
+    verdetto_calibrazione,
+)
 
 SQUADRE = {
     1: "Inter", 2: "Milan", 3: "Juventus",
@@ -1331,3 +1338,295 @@ def test_quando_le_formazioni_confermano_la_pagina_lo_dice(motore, monkeypatch):
 
     assert "Il pronostico rifatto" in pagina
     assert "hanno <b>confermato</b>" in pagina
+
+
+# ---- la calibrazione in pagina ----------------------------------------------
+#
+# La seconda lettura degli stessi esiti che l'accuratezza riassume in un
+# Brier. Quello che va difeso qui non e' il calcolo — sta in data/outcomes.py e
+# ha i suoi test — ma le due cose che in pagina si possono raccontare male:
+# quando una fascia ha troppo pochi esiti per dire qualcosa, e cosa significa
+# "in media sbaglia di tanto".
+
+
+def _fasce(*coppie):
+    """Fasce finte: (n, previsto, reale)."""
+    return [
+        {"fascia": f"fascia {i}", "n": n, "previsto": previsto, "reale": reale}
+        for i, (n, previsto, reale) in enumerate(coppie)
+    ]
+
+
+def test_una_fascia_con_pochi_esiti_viene_dichiarata_tale():
+    """Con otto pronostici al 30%, due in piu' o in meno cambiano tutto."""
+    righe = righe_calibrazione(_fasce(
+        (MINIMO_PER_FASCIA * 5, 0.30, 0.28),
+        (MINIMO_PER_FASCIA - 1, 0.70, 1.00),
+    ))
+
+    assert righe[0]["abbastanza"] is True
+    assert righe[0]["tono"] == "ok"
+    assert righe[1]["abbastanza"] is False
+    assert righe[1]["tono"] == "attesa"
+    # La riga povera resta in elenco: farla sparire nasconderebbe che il
+    # modello in quella fascia ci e' andato, e quante volte.
+    assert len(righe) == 2
+
+
+def test_il_segno_dello_scarto_dice_troppa_sicurezza():
+    """Negativo = il modello prometteva piu' di quanto la realta' ha mantenuto."""
+    troppo_sicuro, prudente = righe_calibrazione(_fasce(
+        (50, 0.60, 0.40),
+        (50, 0.40, 0.60),
+    ))
+
+    assert troppo_sicuro["scarto"] < 0
+    assert prudente["scarto"] > 0
+
+
+def test_lo_scarto_medio_e_una_distanza_e_non_un_saldo():
+    """Sull'1X2 la media col segno vale zero quasi per costruzione.
+
+    Le tre probabilita' di una partita sommano a uno e un esito solo si
+    avvera: cio' che una fascia promette di troppo, un'altra lo promette di
+    meno. Un riassunto col segno direbbe "in media ci prende" di un modello
+    scalibrato in tutte e due le direzioni.
+    """
+    fasce = _fasce((50, 0.60, 0.40), (50, 0.40, 0.60))
+
+    saldo = sum((f["reale"] - f["previsto"]) * f["n"] for f in fasce)
+    verdetto = verdetto_calibrazione(fasce)
+
+    assert saldo == pytest.approx(0.0), "premessa del test"
+    assert verdetto["scarto_medio"] == pytest.approx(0.20)
+    assert verdetto["n"] == 100
+
+
+def test_senza_fasce_non_c_e_verdetto():
+    assert verdetto_calibrazione([]) is None
+
+
+def test_l_hub_mostra_la_calibrazione_solo_quando_c_e_qualcosa(motore, monkeypatch):
+    """Una tabella vuota si leggerebbe come 'e' scalibrato', che e' diverso."""
+    motore.snapshot()
+    monkeypatch.setattr(app_module, "_engine", motore)
+    client = TestClient(app_module.app)
+
+    assert "succede il 30% delle volte" not in client.get("/").text
+
+    motore.store.upsert_fixtures([_raw(9001, 1, 6, ADESSO + timedelta(days=2), gol=(2, 0))])
+    motore.snapshot(force=True)
+    pagina = client.get("/").text
+
+    assert "succede il 30% delle volte" in pagina
+    # Tre esiti soli: il numero non vale ancora, e la pagina deve dirlo.
+    assert "troppo pochi" in pagina or "troppi pochi dati" in pagina
+
+
+# ---- il registro dei pronostici ---------------------------------------------
+
+
+@pytest.mark.parametrize("minuti, atteso", [
+    (30, "30 min"),
+    (89, "89 min"),
+    (90, "1 h"),
+    (60 * 47, "47 h"),
+    (60 * 48, "2 g"),
+    (60 * 24 * 9, "9 g"),
+])
+def test_l_anticipo_si_legge_a_colpo_d_occhio(minuti, atteso):
+    assert distanza_breve(timedelta(minutes=minuti)) == atteso
+
+
+def test_un_pronostico_scritto_dopo_il_via_non_ha_anticipo():
+    """Il registro non lo permette: se capita e' un dato che non torna.
+
+    Mostrarlo come "-3 h" gli darebbe l'aria di un numero normale.
+    """
+    assert distanza_breve(timedelta(hours=-3)) is None
+
+
+def _voce_registro(fixture_id, mode=MODE_SECCO, scritto=None, risolto=True):
+    return {
+        "id": fixture_id,
+        "fixture_id": fixture_id,
+        "mode": mode,
+        "scritto_il": scritto or (ADESSO - timedelta(days=3)),
+        "versione": "0.1.0",
+        "gol_attesi": (1.5, 1.0),
+        "selezioni": {
+            "home": {"probabilita": 0.5, "hit": True, "brier": 0.25},
+            "draw": {"probabilita": 0.3, "hit": False, "brier": 0.09},
+            "away": {"probabilita": 0.2, "hit": False, "brier": 0.04},
+        },
+        "risolto": risolto,
+        "brier": 0.38 if risolto else None,
+        "riuscite": ["home"] if risolto else [],
+    }
+
+
+def test_il_registro_mette_in_cima_le_partite_ancora_da_giocare(motore):
+    """E' la meta' della promessa in cui la risposta non c'e' ancora.
+
+    Ordinare per calcio d'inizio invece che per quando la riga fu scritta e'
+    cio' che distingue questa pagina da una tabella di risultati.
+    """
+    snap = motore.snapshot()
+    passata = next(f for f in snap.dataset.finished)
+    futura = next(f for f in snap.dataset.upcoming())
+
+    righe = righe_registro(
+        [_voce_registro(passata.api_id), _voce_registro(futura.api_id, risolto=False)],
+        snap.dataset.by_id,
+        snap.dataset.name,
+    )
+
+    assert [r.fixture_id for r in righe] == [futura.api_id, passata.api_id]
+    assert righe[0].stato == "attesa"
+    assert righe[0].conclusa is False
+    assert righe[1].stato == "chiuso"
+    assert righe[1].risultato
+
+
+def test_una_partita_finita_senza_esito_scritto_e_un_terzo_stato(motore):
+    """Fra il risultato e la ristima successiva c'e' un momento di mezzo.
+
+    Dirlo "in attesa" come una partita da giocare sarebbe falso, e dirlo
+    "chiuso" senza punteggio sembrerebbe un guasto: si risolve da solo.
+    """
+    snap = motore.snapshot()
+    passata = next(f for f in snap.dataset.finished)
+
+    riga = righe_registro(
+        [_voce_registro(passata.api_id, risolto=False)],
+        snap.dataset.by_id, snap.dataset.name,
+    )[0]
+
+    assert riga.stato == "aperto"
+    assert riga.conclusa is True
+    assert riga.brier is None
+
+
+def test_un_pronostico_senza_partita_in_archivio_resta_in_elenco(motore):
+    """Il pronostico e' immutabile, l'archivio delle partite no.
+
+    Farlo sparire cancellerebbe dalla pagina una promessa che era stata data.
+    """
+    snap = motore.snapshot()
+
+    riga = righe_registro(
+        [_voce_registro(999999)], snap.dataset.by_id, snap.dataset.name
+    )[0]
+
+    assert riga.fixture_id == 999999
+    assert riga.in_archivio is False
+    assert riga.ospite == "", "senza partita non si inventano le squadre"
+    assert riga.prob_casa == 0.5, "le probabilita' sono cio' che il registro sa"
+
+
+def test_la_probabilita_sull_accaduto_e_quella_dell_esito_vero(motore):
+    snap = motore.snapshot()
+    passata = next(f for f in snap.dataset.finished)
+
+    riga = righe_registro(
+        [_voce_registro(passata.api_id)], snap.dataset.by_id, snap.dataset.name
+    )[0]
+
+    atteso = {"1": riga.prob_casa, "X": riga.prob_pari, "2": riga.prob_ospite}
+    assert riga.probabilita_sull_accaduto == atteso[riga.esito_reale]
+
+
+def test_il_registro_si_ferma_al_limite_ma_dalla_parte_giusta(motore):
+    """Troncare l'elenco deve togliere le righe vecchie, non quelle nuove."""
+    snap = motore.snapshot()
+    tutte = list(snap.dataset.finished)[:5]
+
+    righe = righe_registro(
+        [_voce_registro(f.api_id) for f in tutte],
+        snap.dataset.by_id, snap.dataset.name,
+        limite=2,
+    )
+
+    piu_recenti = sorted(tutte, key=lambda f: f.kickoff_utc, reverse=True)[:2]
+    assert [r.fixture_id for r in righe] == [f.api_id for f in piu_recenti]
+
+
+def test_la_pagina_del_registro_elenca_i_pronostici(client, motore):
+    motore.snapshot()
+
+    r = client.get("/pronostici")
+
+    assert r.status_code == 200
+    assert "Il registro" in r.text
+    # Le due partite in programma sono gia' state congelate dallo snapshot.
+    assert "da giocare" in r.text
+    assert "/partita/9001" in r.text
+
+
+def test_la_colonna_del_tipo_compare_solo_con_due_modi(client, motore):
+    """Finche' le formazioni ufficiali sono spente direbbe 'secco' e basta."""
+    motore.snapshot()
+    assert "<th>Tipo</th>" not in client.get("/pronostici").text
+
+    snap = motore.snapshot()
+    registra_partite(
+        motore.pronostici, snap.model, snap.dataset.upcoming(), snap.dataset.name,
+        mode=MODE_UFFICIALE,
+    )
+
+    pagina = client.get("/pronostici").text
+    assert "<th>Tipo</th>" in pagina
+    assert "formazioni" in pagina
+
+
+def test_il_registro_vuoto_lo_dice_invece_di_mostrare_una_tabella(tmp_path, monkeypatch):
+    """Su un archivio senza partite future nessuno ha ancora detto niente.
+
+    E' la situazione di chi accende il sistema oggi: la pagina deve spiegarla
+    invece di mostrare una tabella con zero righe.
+    """
+    settings = Settings(
+        api_key="k", api_provider="apisports", daily_request_limit=100,
+        api_min_interval_seconds=0.0,
+        cache_dir=tmp_path / "c", budget_file=tmp_path / "b.json",
+        store_dir=tmp_path / "s", storico_dir=tmp_path / "st",
+        importato_dir=tmp_path / "imp",
+        journal_file=tmp_path / "j.json",
+        predictions_db=tmp_path / "pronostici.db",
+        database_url=None, league_id=135, seasons=(),
+    )
+    monkeypatch.setattr(app_module, "_engine", Engine(settings))
+
+    r = TestClient(app_module.app).get("/pronostici")
+
+    assert r.status_code == 200
+    assert "Il registro e' vuoto" in r.text
+
+
+def test_se_il_modello_cambia_idea_nasce_una_riga_nuova(client, motore):
+    """Il pronostico vecchio non si aggiorna: se ne aggiunge un altro.
+
+    Ed e' anche il motivo per cui questa pagina mostra sempre e solo il
+    registro, partite future comprese: l'hub direbbe cosa pensa il modello di
+    adesso, qui si vede cosa fu **scritto**, riga per riga, comprese le volte
+    in cui il modello ha cambiato idea prima del fischio d'inizio.
+    """
+    motore.snapshot()
+    prima = [v for v in motore.registro() if v["fixture_id"] == 9001]
+    assert len(prima) == 1
+    congelata = prima[0]["selezioni"]["home"]["probabilita"]
+
+    # Arriva un risultato nuovo e il modello viene ristimato.
+    motore.store.upsert_fixtures(
+        [_raw(9500, 1, 6, ADESSO - timedelta(hours=6), gol=(5, 0))]
+    )
+    motore.snapshot(force=True)
+
+    dopo = [v for v in motore.registro() if v["fixture_id"] == 9001]
+    assert len(dopo) == 2
+    assert any(
+        v["selezioni"]["home"]["probabilita"] == congelata for v in dopo
+    ), "la riga di prima deve essere ancora li', identica"
+
+    pagina = client.get("/pronostici").text
+    assert pagina.count('href="/partita/9001"') == 2, "in pagina si vedono tutt'e due"

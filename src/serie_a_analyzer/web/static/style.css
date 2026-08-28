@@ -814,6 +814,54 @@ th.colonna-muro { text-align: left; }
    riempimento stesso: stesso inchiostro della barra che descrive. */
 .chiave em.dati { background: var(--inchiostro); }
 
+/* ---- il calibro: promesso contro mantenuto ----------------------------- */
+
+/* La quarta forma, e l'unica che mette a confronto una promessa con quello
+   che poi e' successo. Stessa pista di sempre, ma su scala ASSOLUTA: qui i
+   due numeri sono percentuali dello stesso tipo, e la distanza fra la tacca
+   e la fine della barra e' letteralmente lo scarto di cui si sta parlando.
+   Nel muro la tacca sta invece sempre al 70%, perche' li' i Brier di mercati
+   diversi non sarebbero confrontabili fra loro.
+   Il rosso sta da una parte sola, ed e' voluto: promettere meno di quanto si
+   mantiene e' prudenza, promettere di piu' e' il difetto che il Brier da
+   solo non fa vedere. */
+.calibro { display: block; min-width: 9rem; }
+.calibro .pista { height: .625rem; overflow: visible; }
+.calibro .riempi { background: var(--inchiostro); }
+.calibro .tacca {
+  position: absolute;
+  top: -.25rem;
+  bottom: -.25rem;
+  width: 2px;
+  background: var(--inchiostro);
+}
+.calibro-scarto {
+  display: block;
+  font-family: var(--dati);
+  font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
+  margin-top: .5rem;
+  color: var(--inchiostro);
+}
+.calibro.sicuro .calibro-scarto { color: var(--allarme); }
+/* Pochi esiti in fascia: lo stesso grigio dell'attesa che si vede accanto ai
+   Brier ancora poveri. Non un allarme, un "non ancora". */
+.calibro.attesa .riempi { background: var(--ics); }
+.calibro.attesa .tacca { background: var(--riga-forte); }
+.calibro.attesa .calibro-scarto { color: var(--fioco); }
+.calibro-scarto .fioco { margin-left: .375rem; }
+
+/* La seconda riga di una cella: il contorno di un dato, non un dato suo.
+   Nel registro dice quando un pronostico fu scritto, sotto la data della
+   partita a cui si riferisce. */
+.sotto-riga {
+  display: block;
+  font-family: var(--dati);
+  font-size: .6875rem;
+  color: var(--fioco);
+  margin-top: .25rem;
+}
+
 /* ---- la barra della sostanza ------------------------------------------- */
 
 /* Quanto una forza stimata viene dai dati della squadra e quanto dalla media

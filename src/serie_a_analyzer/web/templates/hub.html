@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% from "forme.html" import trittico, muro, punteggio %}
+{% from "forme.html" import trittico, muro, punteggio, calibro %}
 
 {% block contenuto %}
 
@@ -251,6 +251,90 @@
           <b>{{ "%.4f"|format(accuratezza_1x2.baseline_caso) }}</b> di chi tira a caso.
         {% endif %}
       </p>
+    </div>
+  </section>
+{% endif %}
+
+{% if calibrazione %}
+  {# La seconda lettura degli stessi esiti misurati qui sopra. Sta attaccata
+     all'accuratezza perche' risponde alla domanda che quel Brier lascia
+     aperta: si puo' avere un buon punteggio ed essere sistematicamente
+     troppo sicuri di se'. #}
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">La fiducia dichiarata</p>
+      <h2>Quando dico 30%, succede il 30% delle volte?</h2>
+      <p class="spiega">
+        E' la domanda piu' facile da capire e la piu' difficile da superare.
+        I pronostici sull'<b>esito finale</b> vengono divisi in fasce secondo
+        la percentuale dichiarata, e per ogni fascia si guarda quante volte
+        quell'esito e' poi successo davvero.
+      </p>
+      <p class="spiega">
+        La <b>tacca</b> e' quello che il modello dichiarava, la <b>barra</b>
+        quello che e' accaduto. Uno scarto <b>negativo</b> vuol dire che il
+        modello prometteva piu' di quanto la realta' abbia mantenuto: e'
+        troppa sicurezza, ed e' il difetto che il Brier da solo non fa vedere.
+      </p>
+      <p class="spiega">
+        Si guarda <b>fascia per fascia</b>, mai la media: sull'esito finale le
+        tre percentuali di una partita sommano a uno e un esito solo si
+        avvera, quindi quello che una fascia promette di troppo un'altra lo
+        promette di meno, e il saldo torna a zero da solo senza dire niente.
+      </p>
+    </div>
+
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th>Fascia dichiarata</th>
+              <th class="destra">Esiti</th>
+              <th class="destra">Accaduto</th>
+              <th class="colonna-muro">Promesso e mantenuto</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in calibrazione %}
+              <tr>
+                <td class="forte mono">{{ f.fascia }}</td>
+                <td class="destra mono fioco">{{ f.n }}</td>
+                <td class="destra mono forte">{{ (f.reale*100)|round|int }}%</td>
+                <td class="colonna-muro">{{ calibro(f) }}</td>
+                <td>
+                  {% if not f.abbastanza %}
+                    <span class="verdetto attesa">troppi pochi dati</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="chiave">
+        <i></i> la tacca e' quanto il modello dichiarava &middot; la barra e'
+        quanto e' successo
+      </p>
+
+      {% if calibrazione_verdetto %}
+        <p class="nota">
+          In media il modello sbaglia di
+          <b>{{ "%.0f"|format(calibrazione_verdetto.scarto_medio * 100) }}
+          punti</b> percentuali su {{ calibrazione_verdetto.n }} esiti.
+          {% if not calibrazione_verdetto.abbastanza %}
+            Sono <b>troppo pochi</b> perche' il numero valga: con poche partite
+            per fascia lo scarto e' quasi tutto rumore, e all'inizio della
+            stagione e' normale che sia cosi'.
+          {% elif calibrazione_verdetto.fasce_povere %}
+            {{ calibrazione_verdetto.fasce_povere }} fasce su
+            {{ calibrazione|length }} hanno ancora pochi esiti dentro: quelle
+            righe ballano da sole.
+          {% endif %}
+        </p>
+      {% endif %}
     </div>
   </section>
 {% endif %}

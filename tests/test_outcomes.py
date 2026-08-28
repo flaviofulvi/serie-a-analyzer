@@ -22,6 +22,7 @@ from serie_a_analyzer.data.outcomes import (
     brier_1x2_multiclasse,
     calibrazione,
     confronto_fra_modi,
+    elenco_pronostici,
     esito_verificato,
     risolvi_partita,
     risolvi_pronostici,
@@ -479,3 +480,199 @@ def test_il_segno_dello_scarto_dice_chi_ha_fatto_meglio(store):
     atteso = totale["brier_secondo"] - totale["brier_primo"]
     assert totale["scarto"] == pytest.approx(atteso)
     assert totale["il_secondo_e_migliore"] is (totale["scarto"] < 0)
+
+
+# ---- una partita ri-pronosticata non conta piu' volte ------------------------
+#
+# Il difetto gemello di quello qui sopra, e piu' insidioso perche' non aspetta
+# nessuna accensione: succede gia'. Il registro scrive una riga per ogni
+# versione del modello, quindi una partita vista con qualche giorno di anticipo
+# ne accumula quante sono le ristime che la precedono — il 22 agosto 2026
+# Genoa-Lecce ne aveva cinque, scritte tutte nello stesso giorno. Sono cinque
+# tentativi sulla stessa domanda, non cinque osservazioni: mediarli conta la
+# partita cinque volte e ci mette dentro anche la prima stima acerba col peso
+# di quelle mature.
+#
+# Il danno vero e' che gonfia `n`, e sopra `n` sta la soglia che decide se una
+# misura merita un verdetto: con dieci partite in archivio il sito dichiarava
+# "meglio della baseline" su ogni mercato.
+
+
+def _due_versioni(store, fixture_id, casa=2, ospite=1, primo_base=1.60):
+    """La stessa partita pronosticata due volte prima del via, poi risolta.
+
+    Il primo pronostico esce da un modello volutamente storto (`base` alto
+    significa una valanga di gol attesi), il secondo da quello assestato: e'
+    la situazione vera del 22 agosto, dove la prima stima della giornata
+    dichiarava 2.76 gol attesi in casa e l'ultima 1.60.
+
+    I due `now` sono diversi perche' e' `created_at` a dire quale sia
+    l'ultima, ed e' l'ordinamento che conta.
+    """
+    _pronostica(store, fixture_id=fixture_id, modello=_modello(base=primo_base))
+    ultimo = _pronostica(store, fixture_id=fixture_id, modello=_modello())
+    risolvi_partita(store, fixture_id, casa, ospite, now=DOPO)
+    return ultimo
+
+
+def test_gli_esiti_tengono_una_riga_sola_per_partita(store):
+    """E dev'essere quella che le pagine mostrano, non una qualsiasi."""
+    _due_versioni(store, fixture_id=1)
+
+    righe = store.esiti_risolti(market="1x2")
+    assert len({r["prediction_id"] for r in righe}) == 1
+    assert len(righe) == 3, "i tre esiti dell'1X2, una volta sola"
+
+    # La riga tenuta e' la stessa che `_riga` in web/app.py mette in pagina:
+    # si misura cio' che si e' mostrato, altrimenti sono due sistemi diversi.
+    atteso = store.ultimo_per_partita(1)["id"]
+    assert {r["prediction_id"] for r in righe} == {atteso}
+
+
+def test_ri_pronosticare_non_gonfia_i_conti(store):
+    """Due versioni non devono valere due partite in nessuna misura."""
+    for fixture_id in (1, 2, 3):
+        _due_versioni(store, fixture_id=fixture_id)
+
+    per_mercato = {v["mercato"]: v for v in accuratezza_per_mercato(store)}
+    assert per_mercato["1x2"]["n"] == 9, "tre partite per tre selezioni, non sei"
+    assert brier_1x2_multiclasse(store)["n_partite"] == 3
+
+    fasce = calibrazione(store, market="1x2", selection="home")
+    assert sum(f["n"] for f in fasce) == 3
+
+    per_selezione = {
+        (v["mercato"], v["selezione"]): v for v in accuratezza_per_selezione(store)
+    }
+    assert per_selezione[("1x2", "home")]["n"] == 3
+
+
+def test_la_stima_acerba_non_pesa_sulla_media(store):
+    """Il punto sostanziale, non il conteggio.
+
+    Un pronostico buttato via prima del fischio d'inizio non deve lasciare
+    traccia nel voto finale: il modello che si giudica e' quello che ha detto
+    l'ultima parola. Qui il primo pronostico e' vistosamente storto, e il
+    Brier deve venire identico a quello di una partita pronosticata **una
+    volta sola** col modello buono.
+    """
+    _due_versioni(store, fixture_id=1)
+
+    solo_buono = PredictionStore(path=store.path.parent / "confronto.db")
+    _pronostica(solo_buono, fixture_id=1)
+    risolvi_partita(solo_buono, 1, 2, 1, now=DOPO)
+
+    assert brier_1x2_multiclasse(store)["brier"] == pytest.approx(
+        brier_1x2_multiclasse(solo_buono)["brier"]
+    )
+
+
+def test_chi_vuole_tutte_le_versioni_puo_ancora_chiederle(store):
+    """Il taglio e' il default, non un muro: serve a misurare, non a nascondere.
+
+    Guardare *come* il modello ha cambiato idea avvicinandosi alla partita e'
+    una domanda legittima — e' il motivo per cui il registro conserva tutte le
+    righe. Semplicemente non e' una misura.
+    """
+    _due_versioni(store, fixture_id=1)
+
+    tutte = store.esiti_risolti(market="1x2", tutte_le_versioni=True)
+    assert len({r["prediction_id"] for r in tutte}) == 2
+    assert len(tutte) == 6
+
+
+def test_il_taglio_non_confonde_i_due_modi(store):
+    """Una riga per partita **e per modo**, mai una per partita e basta.
+
+    Se il taglio guardasse il solo `fixture_id`, l'ultimo pronostico scritto
+    cancellerebbe l'altro modo e `confronto_fra_modi` — che esiste per
+    metterli a confronto — non troverebbe piu' niente da confrontare.
+    """
+    _pronostica(store, fixture_id=1, modello=_modello(base=1.60))
+    _pronostica(store, fixture_id=1)
+    _pronostica(store, fixture_id=1, modello=_modello(base=0.35), mode=MODE_UFFICIALE)
+    risolvi_partita(store, 1, 2, 1, now=DOPO)
+
+    righe = store.esiti_risolti(market="1x2")
+    assert {r["mode"] for r in righe} == {MODE_SECCO, MODE_UFFICIALE}
+    # Due modi, tre selezioni: sei righe. La versione scartata e' solo quella
+    # vecchia del secco.
+    assert len(righe) == 6
+    assert len({r["prediction_id"] for r in righe}) == 2
+
+
+# ---- il registro, riga per riga ---------------------------------------------
+#
+# Non e' una misura e per questo va provato a parte: le misure devono saltare
+# cio' che non si e' ancora potuto misurare, il registro deve mostrarlo. Le due
+# regole si assomigliano abbastanza da poter essere scambiate per sbaglio.
+
+
+def test_l_elenco_mostra_anche_i_pronostici_non_ancora_verificati(store):
+    """Una partita da giocare non e' misurabile, ma e' registrata: si vede.
+
+    E' la differenza fra questa funzione e `esiti_risolti`, ed e' anche la
+    ragione per cui la pagina esiste: la promessa "non lo cambiero' piu'" e'
+    interessante soprattutto **prima** che si sappia come e' andata.
+    """
+    _pronostica(store, fixture_id=1)
+    _pronostica(store, fixture_id=2)
+    risolvi_partita(store, 1, 2, 1, now=DOPO)
+
+    elenco = {v["fixture_id"]: v for v in elenco_pronostici(store)}
+
+    assert set(elenco) == {1, 2}
+    assert elenco[1]["risolto"] is True
+    assert elenco[2]["risolto"] is False
+    assert elenco[2]["brier"] is None, "senza esito non esiste un punteggio"
+    assert elenco[2]["riuscite"] == []
+    # Le probabilita' ci sono comunque: sono cio' che il pronostico dice.
+    assert set(elenco[2]["selezioni"]) == {"home", "draw", "away"}
+
+
+def test_il_brier_di_riga_e_la_somma_dei_tre_esiti(store):
+    """La stessa forma del backtest: 0 perfetto, 0.667 tirando a caso."""
+    _pronostica(store, fixture_id=1)
+    risolvi_partita(store, 1, 2, 1, now=DOPO)
+
+    voce = elenco_pronostici(store)[0]
+
+    atteso = sum(
+        r["brier"] for r in store.esiti_risolti(market="1x2")
+        if r["fixture_id"] == 1
+    )
+    assert voce["brier"] == pytest.approx(atteso)
+    assert 0.0 <= voce["brier"] <= 2.0
+    assert voce["riuscite"] == ["home"], "la casa ha vinto 2-1"
+
+
+def test_l_elenco_non_mescola_i_due_modi_ma_li_mostra_tutti_e_due(store):
+    """Qui i due tipi convivono, ed e' l'opposto di cio' che fanno le misure.
+
+    Una media che li sommasse conterebbe due volte la stessa partita; un
+    elenco che ne nascondesse uno nasconderebbe proprio la riga che il lavoro
+    delle formazioni ufficiali esiste per produrre.
+    """
+    _due_modi(store, fixture_id=1)
+
+    elenco = elenco_pronostici(store)
+
+    assert len(elenco) == 2
+    assert {v["mode"] for v in elenco} == {MODE_SECCO, MODE_UFFICIALE}
+    assert {v["fixture_id"] for v in elenco} == {1}
+    # Nessuno dei due punteggi e' la media dell'altro: sono due righe intere.
+    assert all(v["brier"] is not None for v in elenco)
+
+
+def test_l_elenco_sa_dire_quando_e_stato_scritto(store):
+    """Serve alla pagina per dire di quanto ha preceduto il fischio d'inizio."""
+    _pronostica(store, fixture_id=1)
+
+    voce = elenco_pronostici(store)[0]
+
+    assert voce["scritto_il"] == ADESSO
+    assert voce["scritto_il"] < FISCHIO
+
+
+def test_un_elenco_vuoto_non_e_un_guasto(store):
+    assert elenco_pronostici(store) == []

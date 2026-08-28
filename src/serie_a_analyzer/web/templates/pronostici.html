@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% from "forme.html" import punteggio %}
+
+{% block titolo %}Registro dei pronostici &middot; Serie A Analyzer{% endblock %}
+
+{% block contenuto %}
+
+<section class="apertura">
+  <p class="occhiello">Il registro</p>
+  {% if totale %}
+    <h1>{{ totale }} pronostic{{ "o" if totale == 1 else "i" }},
+        {{ verificati }} gia' verificat{{ "o" if verificati == 1 else "i" }}</h1>
+    <p class="sommario">
+      Un pronostico registrato <b>non si aggiorna e non si cancella</b>: il
+      database lo impedisce. Questa pagina e' quella promessa messa in fila
+      &mdash; cosa era stato detto, quando, e com'e' andata a finire.
+    </p>
+  {% else %}
+    <h1>Il registro e' vuoto</h1>
+    <p class="sommario">
+      I pronostici si scrivono da soli quando il modello viene stimato su una
+      partita <b>ancora da giocare</b>. Su una gia' cominciata il registro
+      rifiuta di scrivere, ed e' la regola che rende sensato tutto il resto.
+    </p>
+  {% endif %}
+</section>
+
+{% if righe %}
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Cosa avevo detto</p>
+      <h2>Uno per riga</h2>
+      <p class="spiega">
+        In cima ci sono le partite <b>ancora da giocare</b>: il pronostico e'
+        gia' scritto e non cambiera' piu'. E' li' che questa pagina non
+        somiglia a una tabella di risultati.
+      </p>
+      <p class="spiega">
+        Le percentuali sono quelle <b>di allora</b>, riprese dal registro tale
+        e quale. Sull'hub una partita da giocare mostra invece il modello di
+        adesso, che nel frattempo puo' aver visto altre giornate: se i due
+        numeri non coincidono, la differenza e' il tempo passato.
+      </p>
+      <p class="spiega">
+        La casella colorata e' l'esito <b>accaduto davvero</b>, e dice quanta
+        fiducia il modello ci aveva messo.
+      </p>
+      <p class="spiega">
+        Il giudizio e' il <b>Brier</b> della singola partita, sommato sui tre
+        esiti come nel backtest: <b>0</b> se il modello aveva dato il 100% a
+        cio' che e' successo, <b>0.667</b> se aveva detto un terzo a testa,
+        <b>2</b> nel caso peggiore. Non c'e' una colonna "azzeccato": su un
+        pronostico probabilistico e' proprio la domanda sbagliata, ed e' il
+        motivo per cui il Brier esiste.
+      </p>
+      {% if ripetute %}
+        <p class="spiega">
+          Una partita puo' comparire <b>piu' di una volta</b>, e non e' un
+          errore: se il modello cambia idea prima del fischio d'inizio la riga
+          vecchia non si tocca, se ne aggiunge una nuova.
+          {% if modi|length > 1 %}
+            Lo stesso vale per il pronostico rifatto quando escono le
+            formazioni ufficiali: e' una riga a parte e non sostituisce
+            l'altra, e la colonna "tipo" dice quale e' quale.
+          {% endif %}
+        </p>
+      {% endif %}
+      {% if totale > righe|length %}
+        <p class="spiega">
+          In elenco le <b>{{ righe|length }}</b> partite piu' recenti, su
+          {{ totale }} pronostici in archivio.
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+        <table class="tabella">
+          <thead>
+            <tr>
+              <th>Quando</th>
+              <th>Partita</th>
+              {% if modi|length > 1 %}<th>Tipo</th>{% endif %}
+              <th class="destra">1</th>
+              <th class="destra">X</th>
+              <th class="destra">2</th>
+              <th class="destra">Risultato</th>
+              <th class="destra">Brier</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in righe %}
+              <tr>
+                <td class="fioco">
+                  {{ r.quando }}
+                  {% if r.anticipo %}
+                    <span class="sotto-riga">scritto {{ r.anticipo }} prima</span>
+                  {% elif r.scritto %}
+                    <span class="sotto-riga">scritto il {{ r.scritto }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if r.in_archivio %}
+                    <a href="/partita/{{ r.fixture_id }}">{{ r.casa }} &middot; {{ r.ospite }}</a>
+                  {% else %}
+                    {# Pronostico senza partita in archivio: resta un pronostico
+                       dato, e si mostra per quel che e'. #}
+                    <span class="fioco">{{ r.casa }}</span>
+                  {% endif %}
+                </td>
+                {% if modi|length > 1 %}
+                  <td class="fioco">{{ "secco" if r.modo == "secco" else "formazioni" }}</td>
+                {% endif %}
+                <td class="destra mono {{ 'evidenzia tinta-1' if r.esito_reale == '1' }}">{{ (r.prob_casa*100)|round|int }}%</td>
+                <td class="destra mono {{ 'evidenzia tinta-X' if r.esito_reale == 'X' }}">{{ (r.prob_pari*100)|round|int }}%</td>
+                <td class="destra mono {{ 'evidenzia tinta-2' if r.esito_reale == '2' }}">{{ (r.prob_ospite*100)|round|int }}%</td>
+                <td class="destra">
+                  {% if r.conclusa %}
+                    {{ punteggio(r.risultato, r.esito_reale, r.margine) }}
+                  {% elif r.in_archivio %}
+                    <span class="fioco">da giocare</span>
+                  {% else %}
+                    {# Partita non piu' in archivio: non si sa nemmeno se sia
+                       stata giocata, e dire "da giocare" sarebbe inventarlo. #}
+                    <span class="fioco">&mdash;</span>
+                  {% endif %}
+                </td>
+                <td class="destra mono">
+                  {% if r.stato == "chiuso" %}
+                    <b>{{ "%.3f"|format(r.brier) }}</b>
+                  {% elif r.stato == "aperto" %}
+                    {# Giocata ma non ancora confrontata: succede fra il
+                       risultato e la ristima successiva, e si risolve da sola. #}
+                    <span class="verdetto attesa">da confrontare</span>
+                  {% else %}
+                    <span class="fioco">&mdash;</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="chiave">
+        Brier piu' basso = meglio &middot; 0.667 e' quanto vale tirare a caso
+        &middot; la casella tinta e' l'esito accaduto
+      </p>
+
+      <p class="nota">
+        I numeri qui sopra sono <b>singole partite</b>, e una partita per volta
+        non dice niente sul modello: un pronostico dato al 30% che si avvera
+        non e' un errore. Il conto che conta e' la media, ed e'
+        <a href="/">sull'hub</a>, accanto alla sua baseline.
+      </p>
+    </div>
+  </section>
+{% else %}
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Come si riempie</p>
+      <h2>Da dove arrivano</h2>
+      <p class="spiega">
+        Ogni volta che il modello viene ristimato, le partite in programma
+        ricevono il loro pronostico e quello resta scritto. Nessuno lo
+        riscrive: se il modello cambia idea, nasce una riga nuova.
+      </p>
+    </div>
+    <div class="corpo">
+      <div class="riquadro-vuoto">
+        <h2>Nessun pronostico in archivio</h2>
+        <p>
+          Succedera' da solo appena in archivio ci sara' una partita ancora da
+          giocare: il calendario si legge con una finestra di tre giorni, e le
+          partite compaiono al massimo un giorno prima del calcio d'inizio.
+        </p>
+        <p>
+          Ultimo giorno raccolto:
+          <strong>{{ salute.ultimo_giorno_raccolto or "nessuno" }}</strong>.
+        </p>
+      </div>
+    </div>
+  </section>
+{% endif %}
+
+{% endblock %}

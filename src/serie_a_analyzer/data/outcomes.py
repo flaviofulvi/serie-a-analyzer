@@ -15,6 +15,17 @@ chi dicesse sempre la frequenza media di quell'esito, senza guardare le
 squadre. Un mercato che non batte la propria baseline non sta aggiungendo
 niente, e va detto invece che nascosto.
 
+**Una partita, un pronostico.** Ogni misura di questo modulo parte da
+`esiti_risolti`, che tiene una riga sola per partita — l'ultima scritta prima
+del fischio d'inizio, cioe' quella che le pagine mostrano. Il registro invece
+le conserva tutte, una per versione del modello, e fa bene: avvicinandosi alla
+partita il modello cambia idea e quel cambiamento e' leggibile. Ma sono
+tentativi sulla stessa domanda, non osservazioni diverse, e mediarli insieme
+conta quella partita tante volte quante sono le ristime che l'hanno preceduta.
+Il danno non e' la media un po' storta: e' che gonfia `n`, e sopra `n` sta
+`SOGLIA_SIGNIFICATIVITA`, cioe' la decisione se un numero meriti un verdetto o
+un "troppi pochi dati". Il perche' per esteso sta in `esiti_risolti`.
+
 Un esito e' un fatto osservato, non una previsione: a differenza dei
 pronostici puo' essere scritto dopo. Si scrive pero' **una volta sola**
 (`insert or ignore`): ripassare sulle stesse partite non ricalcola nulla e non
@@ -32,7 +43,7 @@ from math import log
 from typing import Any, Callable, Iterable
 
 from .odds import consenso_per_partita
-from .predictions import MODE_SECCO, MODE_UFFICIALE, PredictionStore
+from .predictions import MODE_SECCO, MODE_UFFICIALE, PredictionStore, istante
 
 logger = logging.getLogger(__name__)
 
@@ -330,20 +341,30 @@ def brier_1x2_multiclasse(
     per partita, come nel backtest, cosi' i due valori si possono guardare
     insieme.
 
-    Qui il filtro su ``mode`` fa piu' che tenere pulita una media: senza,
-    ``n_partite`` conterebbe i **pronostici** e non le partite, e una sola
-    partita con tutti e due i pronostici ne varrebbe due.
+    Il conteggio si raggruppa per **partita** e non per pronostico, ed e' una
+    differenza che si vede solo quando le due cose divergono — cioe' sempre,
+    finche' `esiti_risolti` non ha imparato a tenere una riga sola per partita.
+    Sommare i tre esiti di ogni *pronostico* dava a Genoa-Lecce cinque voci in
+    una media che si chiama "per partita", e la pagina leggeva «su 34 partite»
+    con dieci partite in archivio. La chiave qui e' quindi il ``fixture_id``:
+    cosi' il numero e' giusto **per costruzione** e non perche' qualcun altro
+    ha filtrato bene prima di arrivare qui.
+
+    Sul ``mode`` vale la stessa aritmetica per un'altra ragione: una partita
+    puo' avere il pronostico secco e quello con le formazioni ufficiali, e
+    sono due risposte alla stessa domanda. Senza il filtro finirebbero
+    sommate nella stessa chiave, che e' peggio del doppio conteggio.
     """
-    per_pronostico: dict[int, float] = {}
+    per_partita: dict[int, float] = {}
     for riga in store.esiti_risolti(market="1x2", mode=mode):
-        per_pronostico[riga["prediction_id"]] = (
-            per_pronostico.get(riga["prediction_id"], 0.0) + riga["brier"]
+        per_partita[riga["fixture_id"]] = (
+            per_partita.get(riga["fixture_id"], 0.0) + riga["brier"]
         )
-    if not per_pronostico:
+    if not per_partita:
         return None
     return {
-        "n_partite": len(per_pronostico),
-        "brier": sum(per_pronostico.values()) / len(per_pronostico),
+        "n_partite": len(per_partita),
+        "brier": sum(per_partita.values()) / len(per_partita),
         # Riferimento fisso: 1/3 a testa, cioe' non sapere nulla.
         "baseline_caso": 2 / 3,
     }
@@ -523,6 +544,69 @@ def calibrazione(
             "reale": sum(1 for r in gruppo if r["hit"]) / len(gruppo),
         })
     return righe
+
+
+# ---- il registro, riga per riga ----------------------------------------------
+
+
+def elenco_pronostici(
+    store: PredictionStore, market: str = "1x2", mode: str | None = None
+) -> list[dict]:
+    """Ogni pronostico registrato, con accanto com'e' andata.
+
+    E' l'unica cosa di questo modulo che **non e' una misura**, ed e' il
+    motivo per cui ci sta lo stesso: mette il pronostico e la realta' uno
+    accanto all'altra, che e' il mestiere del modulo. Cambia cosa succede
+    quando la realta' non c'e' ancora — una misura salta quella riga, un
+    registro la mostra con l'esito vuoto. Un pronostico in attesa e'
+    esattamente cio' che il progetto promette di non poter piu' cambiare, e
+    nasconderlo fino al fischio finale toglierebbe di mezzo la meta' della
+    promessa.
+
+    Il ``brier`` e' la **somma sui tre esiti**, cioe' la stessa forma del
+    backtest: 0 se perfetto, 0.667 tirando a caso. Ha senso finche' il
+    mercato e' esaustivo — l'1X2 lo e' — e resta ``None`` finche' non sono
+    risolte tutte le selezioni di quel pronostico: sommarne due su tre darebbe
+    un punteggio ottimo per il motivo sbagliato.
+
+    ``mode`` e' ``None`` di default, al contrario di ogni misura del modulo, e
+    non e' una dimenticanza. Elencare i due tipi di pronostico non li mescola:
+    nessuna media li fonde in un numero solo, restano due righe, e vederle una
+    sotto l'altra sulla stessa partita e' precisamente il punto.
+    """
+    per_pronostico: dict[int, dict] = {}
+    for riga in store.mercati_con_esito(market, mode=mode):
+        voce = per_pronostico.setdefault(riga["prediction_id"], {
+            "id": riga["prediction_id"],
+            "fixture_id": riga["fixture_id"],
+            "mode": riga["mode"],
+            "scritto_il": istante(riga["created_at"]),
+            "versione": riga["version"],
+            "gol_attesi": (riga["lambda_home"], riga["lambda_away"]),
+            "selezioni": {},
+        })
+        voce["selezioni"][riga["selection"]] = {
+            "probabilita": riga["probability"],
+            "hit": None if riga["hit"] is None else bool(riga["hit"]),
+            "brier": riga["brier"],
+        }
+
+    elenco = []
+    for voce in per_pronostico.values():
+        selezioni = list(voce["selezioni"].values())
+        risolto = bool(selezioni) and all(s["hit"] is not None for s in selezioni)
+        elenco.append({
+            **voce,
+            "risolto": risolto,
+            "brier": sum(s["brier"] for s in selezioni) if risolto else None,
+            # Quali selezioni si sono verificate, secondo il registro stesso e
+            # non secondo il calendario. Su un mercato esaustivo e' una sola;
+            # se un domani questa funzione venisse chiamata su Over/Under, di
+            # righe vere ce ne sarebbero tante quante le linee — e chi legge
+            # deve vederle tutte invece di ricevere la prima capitata.
+            "riuscite": [n for n, s in voce["selezioni"].items() if s["hit"]],
+        })
+    return elenco
 
 
 def adesso() -> datetime:

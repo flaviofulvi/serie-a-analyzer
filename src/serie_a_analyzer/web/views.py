@@ -8,10 +8,11 @@ dove metterle.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from ..data.indisponibili import ASSENTE, traduci_motivo
+from ..data.outcomes import SOGLIA_SIGNIFICATIVITA
 from ..data.panchine import Panchine
 from ..data.parsers import FixtureRecord
 from ..model.dixon_coles import TeamEvidence
@@ -36,6 +37,26 @@ def formatta_data(quando: datetime) -> str:
 def formatta_giorno(quando: datetime) -> str:
     locale = ora_italiana(quando)
     return f"{locale.day} {_MESI[locale.month - 1]} {locale.year}"
+
+
+def distanza_breve(quanto: timedelta) -> str | None:
+    """"3 g", "18 h", "25 min": quanto tempo, alla scala grossa.
+
+    Serve a dire di quanto un pronostico ha preceduto il fischio d'inizio, ed
+    e' il genere di numero che va letto a colpo d'occhio e mai al secondo.
+    Un tempo negativo restituisce ``None``: il registro non accetta pronostici
+    su partite gia' cominciate, quindi non e' un caso da formattare ma un
+    dato che non torna, e va mostrato come assente invece che come "-3 h".
+    """
+    minuti = int(quanto.total_seconds() // 60)
+    if minuti < 0:
+        return None
+    if minuti < 90:
+        return f"{minuti} min"
+    ore = minuti // 60
+    if ore < 48:
+        return f"{ore} h"
+    return f"{ore // 24} g"
 
 
 def esito_gol(gol_casa: int, gol_ospite: int) -> str:
@@ -600,6 +621,63 @@ def righe_confronto_mercato(accuratezza: dict) -> list[dict]:
     return righe
 
 
+# Sotto questi esiti in una fascia, la frequenza reale e' un tiro di dadi:
+# con otto pronostici al 30% ne bastano due in piu' o in meno per passare dal
+# 12% al 50%. La riga si mostra lo stesso — sparirla nasconderebbe che quella
+# fascia esiste — ma dichiarata come non ancora leggibile.
+MINIMO_PER_FASCIA = 10
+
+
+def righe_calibrazione(fasce: list[dict]) -> list[dict]:
+    """Le fasce di calibrazione pronte da disegnare.
+
+    Ogni riga dice due numeri e la loro distanza: quanto il modello dichiarava
+    (``previsto``) e quante volte e' poi successo (``reale``). Lo ``scarto``
+    ha un verso che conta piu' del suo valore assoluto: **negativo** vuol dire
+    che il modello prometteva piu' di quanto la realta' abbia mantenuto, cioe'
+    troppa sicurezza, ed e' il difetto che il Brier da solo non fa vedere.
+    """
+    righe = []
+    for f in fasce:
+        abbastanza = f["n"] >= MINIMO_PER_FASCIA
+        righe.append({
+            "fascia": f["fascia"],
+            "n": f["n"],
+            "previsto": f["previsto"],
+            "reale": f["reale"],
+            "scarto": f["reale"] - f["previsto"],
+            "abbastanza": abbastanza,
+            "tono": "ok" if abbastanza else "attesa",
+        })
+    return righe
+
+
+def verdetto_calibrazione(fasce: list[dict]) -> dict | None:
+    """Il riassunto onesto delle fasce: quanto sbaglia in media, e se conta.
+
+    Lo scarto medio si prende in **valore assoluto**, e non e' un dettaglio.
+    Sull'1X2 la media con segno vale zero quasi per costruzione: le tre
+    probabilita' di una partita sommano a uno e un esito solo si avvera,
+    quindi cio' che una fascia promette di troppo un'altra lo promette di
+    meno. Un "in media ci prende" sarebbe vero e non direbbe niente: la
+    calibrazione si legge fascia per fascia, e il numero che la riassume deve
+    essere una distanza, non un saldo.
+    """
+    if not fasce:
+        return None
+    n = sum(f["n"] for f in fasce)
+    return {
+        "n": n,
+        "scarto_medio": sum(
+            abs(f["reale"] - f["previsto"]) * f["n"] for f in fasce
+        ) / n,
+        # La stessa soglia dell'accuratezza, e per la stessa ragione: sotto,
+        # il numero e' rumore che ha l'aria di una misura.
+        "abbastanza": n >= SOGLIA_SIGNIFICATIVITA,
+        "fasce_povere": sum(1 for f in fasce if f["n"] < MINIMO_PER_FASCIA),
+    }
+
+
 def righe_classifica(
     classifica: list, forze: list[tuple] | None = None
 ) -> list[dict]:
@@ -686,6 +764,152 @@ def righe_confronto_modi(confronto: dict | None) -> list[dict]:
             "tono": tono,
         })
     return righe
+
+
+# ---- il registro dei pronostici ----------------------------------------------
+#
+# La pagina che rende visibile la promessa del progetto: i pronostici sono
+# immutabili e si giudicano dopo. Le righe arrivano dal registro — sempre e
+# solo da li', anche per le partite che devono ancora cominciare — e il
+# contesto (chi giocava, com'e' finita) dal dataset, come per le prestazioni
+# dei giocatori qui sotto.
+
+# Quante righe mostrare al massimo. Una stagione ne produce 380, e il giorno
+# in cui l'archivio ne conterra' quattro nessuno vuole una pagina da 1520
+# righe: si mostrano le piu' recenti e si dichiara quante sono in tutto.
+LIMITE_REGISTRO = 200
+
+
+@dataclass(frozen=True)
+class RigaRegistro:
+    """Un pronostico com'e' rimasto scritto, e com'e' andata a finire."""
+
+    fixture_id: int
+    casa: str
+    ospite: str
+    quando: str
+    giornata: int | None
+    modo: str
+    scritto: str | None
+    anticipo: str | None
+    prob_casa: float
+    prob_pari: float
+    prob_ospite: float
+    conclusa: bool
+    gol_casa: int | None
+    gol_ospite: int | None
+    brier: float | None
+    # La partita esiste ancora nell'archivio? Se no, di lei non si sa nemmeno
+    # se sia stata giocata, e "da giocare" sarebbe un'affermazione inventata.
+    in_archivio: bool
+    # A che punto e' il giro: "attesa" (si deve ancora giocare), "aperto"
+    # (giocata, esito non ancora scritto nel registro) o "chiuso".
+    stato: str
+
+    @property
+    def risultato(self) -> str:
+        if not self.conclusa or self.gol_casa is None:
+            return ""
+        return f"{self.gol_casa}-{self.gol_ospite}"
+
+    @property
+    def esito_reale(self) -> str | None:
+        if not self.conclusa or self.gol_casa is None:
+            return None
+        return esito_gol(self.gol_casa, self.gol_ospite)
+
+    @property
+    def margine(self) -> float:
+        if not self.conclusa or self.gol_casa is None:
+            return 0.0
+        return margine_gol(self.gol_casa, self.gol_ospite)
+
+    @property
+    def esito_previsto(self) -> str:
+        trio = {"1": self.prob_casa, "X": self.prob_pari, "2": self.prob_ospite}
+        return max(trio, key=trio.get)
+
+    @property
+    def probabilita_sull_accaduto(self) -> float | None:
+        """Quanta fiducia il modello aveva messo su cio' che poi e' successo.
+
+        E' l'unico numero che si puo' leggere su una riga sola senza sbagliare
+        mestiere: dire "azzeccato" o "sbagliato" su un pronostico
+        probabilistico e' proprio l'errore che il Brier esiste per evitare.
+        """
+        reale = self.esito_reale
+        if reale is None:
+            return None
+        return {"1": self.prob_casa, "X": self.prob_pari, "2": self.prob_ospite}[reale]
+
+
+def riga_registro(
+    voce: dict, fixture: FixtureRecord | None, nome
+) -> RigaRegistro:
+    """Una riga di registro piu' la partita a cui si riferisce.
+
+    ``fixture`` puo' mancare: un pronostico e' immutabile e l'archivio delle
+    partite no — una stagione potrebbe non essere piu' in linea. In quel caso
+    si mostra cio' che il registro sa (le probabilita', quando furono scritte)
+    e si tace il resto, invece di far sparire la riga: un pronostico
+    dimenticato dal dataset resta un pronostico dato.
+    """
+    prob = {
+        selezione: voce["selezioni"].get(selezione, {}).get("probabilita", 0.0)
+        for selezione in ("home", "draw", "away")
+    }
+    scritto = voce["scritto_il"]
+    anticipo = (
+        distanza_breve(fixture.kickoff_utc - scritto)
+        if fixture is not None and scritto is not None else None
+    )
+    conclusa = bool(fixture and fixture.is_finished)
+    return RigaRegistro(
+        fixture_id=voce["fixture_id"],
+        casa=nome(fixture.home_team_id) if fixture else f"partita {voce['fixture_id']}",
+        ospite=nome(fixture.away_team_id) if fixture else "",
+        quando=formatta_data(fixture.kickoff_utc) if fixture else "",
+        giornata=fixture.matchday if fixture else None,
+        modo=voce["mode"],
+        scritto=formatta_data(scritto) if scritto else None,
+        anticipo=anticipo,
+        prob_casa=prob["home"],
+        prob_pari=prob["draw"],
+        prob_ospite=prob["away"],
+        conclusa=conclusa,
+        gol_casa=fixture.home_goals if conclusa else None,
+        gol_ospite=fixture.away_goals if conclusa else None,
+        brier=voce["brier"],
+        in_archivio=fixture is not None,
+        stato=("chiuso" if voce["risolto"] else ("aperto" if conclusa else "attesa")),
+    )
+
+
+def righe_registro(
+    elenco: list[dict],
+    per_id: dict[int, FixtureRecord],
+    nome,
+    limite: int = LIMITE_REGISTRO,
+) -> list[RigaRegistro]:
+    """Il registro in ordine di partita, dalla piu' recente.
+
+    L'ordine e' il **calcio d'inizio** e non il momento in cui la riga fu
+    scritta, cosi' le partite ancora da giocare stanno in cima: sono quelle su
+    cui la promessa e' ancora aperta, ed e' li' che questa pagina si distingue
+    da una tabella di risultati. Chi non ha piu' una partita in archivio viene
+    ordinato per quando fu scritto, che e' l'unico momento che gli resta.
+    """
+    def quando(voce: dict) -> datetime:
+        fixture = per_id.get(voce["fixture_id"])
+        if fixture is not None:
+            return fixture.kickoff_utc
+        return voce["scritto_il"] or datetime.min.replace(tzinfo=timezone.utc)
+
+    ordinato = sorted(elenco, key=quando, reverse=True)[:limite]
+    return [
+        riga_registro(voce, per_id.get(voce["fixture_id"]), nome)
+        for voce in ordinato
+    ]
 
 
 # ---- giocatori ---------------------------------------------------------------

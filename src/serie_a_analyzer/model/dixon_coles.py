@@ -42,10 +42,33 @@ from .markets import MatchProbabilities, derive_markets
 from .scoreline import DEFAULT_MAX_GOALS, scoreline_matrix
 
 # Emivita del decadimento temporale: una partita di 6 mesi fa pesa la meta' di
-# una di oggi. Valore di partenza ragionevole, da tarare col backtest.
+# una di oggi.
+#
+# **Misurato il 25 agosto 2026** (`backtest.py --cerca-emivita`, quattro
+# stagioni rigiocate una volta per valore, zero richieste). Il numero era nato
+# a occhio e resta 180 per una ragione precisa: la curva del Brier 1X2 e'
+# PIATTA da 120 giorni in su — 0.5982 a 120, 0.5968 a 180, 0.5962 a 365,
+# 0.5965 a 1825 — e il minimo cade in un punto diverso in ogni stagione (il
+# 2023 lo vuole a 120, il 2024 e il 2025 a 1825). Il valore vero non e'
+# determinato dai dati: scegliendo 365 sulle stagioni diverse da quella su cui
+# lo si misura il Brier PEGGIORA di 0.0005, cioe' l'ottimo sparisce appena lo
+# si sceglie senza aver visto la risposta.
+#
+# Quello che la misura dice davvero e' l'altro capo della griglia: sotto i due
+# mesi (0.6042 a 60 giorni) la memoria corta fa danno sul serio. Il modello
+# vuole ricordare quasi tutto, e i 180 giorni sono comodamente dentro la parte
+# piatta. Chi li tocca deve rifare la misura, non fidarsi di questa.
 DEFAULT_HALF_LIFE_DAYS = 180.0
 
 # Intensita' dello shrinkage verso la media della lega.
+#
+# **Misurato lo stesso giorno** (`backtest.py --cerca-shrinkage`), ed e' il
+# solo dei parametri provati ad avere un ottimo interno vero: 0.5987 senza
+# shrinkage, 0.5975 a 0.5, 0.5970 a 1, **0.5968 a 2**, 0.5978 a 4, 0.6017 a 8.
+# Il 2 e' il minimo, tre stagioni su quattro lo scelgono da sole, e la misura
+# onesta conferma. Sono i due estremi a dire perche': senza shrinkage il
+# modello crede sulla parola a chi ha giocato tre partite, con troppo tutte le
+# squadre somigliano alla media e le forze si schiacciano.
 DEFAULT_REGULARIZATION = 2.0
 
 # rho e' negativo nel calcio reale; i limiti tengono la correzione tau valida.

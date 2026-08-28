@@ -356,3 +356,48 @@ def test_il_diario_sopravvive_a_un_file_corrotto(tmp_path):
     assert j.collected_days() == []
     _registra(j, date(2026, 8, 22), fixtures=1, final=1)
     assert j.is_closed(date(2026, 8, 22), today=OGGI)
+
+
+# ---- l'impronta dei dettagli -------------------------------------------------
+#
+# Serve al sito, che tiene modello e schede giocatore in memoria e deve
+# accorgersi quando arriva un tabellino. Viene chiesta piu' volte per pagina, e
+# per questo e' scritta per essere economica (`os.scandir`, non `stat` per
+# cartella): la strada alternativa — tenersela in caldo qualche secondo —
+# ritarderebbe la ristima su un risultato appena arrivato.
+
+
+def test_un_dettaglio_nuovo_sposta_l_impronta(store):
+    vuota = store.details_signature()
+    store.save_detail(1, "players", [{"players": []}])
+
+    assert store.details_signature() != vuota
+
+
+def test_un_tabellino_riscritto_sposta_l_impronta(store):
+    """E' il caso che conta, e quello che invita all'ottimizzazione sbagliata.
+
+    Guardare la data della sola cartella `details` sarebbe piu' rapido e
+    perderebbe proprio questo: un tabellino provvisorio che viene richiesto di
+    nuovo e sostituito da quello vero non crea nessuna cartella, riscrive un
+    file dentro una che c'era gia'. Funziona perche' il salvataggio e'
+    atomico — file temporaneo e poi `replace` — e quel rename tocca la
+    cartella che lo contiene.
+
+    La data della cartella viene spostata indietro a mano: cosi' il test dice
+    che l'impronta si muove, e non che l'orologio ha abbastanza cifre.
+    """
+    import os
+
+    store.save_detail(1, "players", [{"minuti": 64}])
+    cartella = store.root / "details" / "1"
+    os.utime(cartella, (0, 0))
+    prima = store.details_signature()
+
+    store.save_detail(1, "players", [{"minuti": 95}])
+
+    assert store.details_signature() != prima
+
+
+def test_l_impronta_di_un_archivio_senza_dettagli_non_esplode(store):
+    assert store.details_signature() == (0, 0.0)

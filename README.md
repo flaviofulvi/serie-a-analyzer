@@ -287,13 +287,21 @@ piu' informato, non uno storico di accuratezza piu' lungo.
 python scripts/serve.py        # http://127.0.0.1:8000
 ```
 
-Due pagine, per ora:
+Le pagine:
 
 - **Hub** — le partite in programma con 1X2, Over 2.5, Gol/NoGol e risultato
   piu' probabile. Quando non c'e' niente in programma mostra gli ultimi
-  risultati e la tabella delle forze, invece di una pagina vuota.
+  risultati e la tabella delle forze, invece di una pagina vuota. Sotto le
+  partite: classifica, forze stimate e come stanno andando i pronostici —
+  accuratezza per mercato, calibrazione e confronto con le quote.
 - **Scheda partita** — tutti gli esiti derivati, la griglia completa dei
   risultati esatti e gli scontri diretti.
+- **Registro** (`/pronostici`) — cosa era stato detto, quando, e com'e' andata:
+  una riga per pronostico, quelle ancora da giocare in cima. E' la pagina che
+  rende visibile la promessa del progetto, cioe' che un pronostico registrato
+  non si aggiorna e non si cancella.
+- **Giocatori** (`/giocatori`, `/giocatore/<id>`, `/squadra/<id>`) — marcatori,
+  assist e voti di una stagione per volta, dai tabellini gia' sul disco.
 
 Il modello viene ristimato **solo quando l'archivio della raccolta giornaliera
 cambia**, non a ogni richiesta HTTP: stimarlo costa un paio di secondi e fra
@@ -451,7 +459,14 @@ Il backtest rigioca il passato con il modello di oggi. In esercizio vale una
 misura piu' severa: ogni pronostico viene **congelato prima** del fischio
 d'inizio e confrontato col risultato vero quando arriva. E' cio' che l'hub
 mostra sotto "Come stanno andando i pronostici" e che
-`scripts/accuratezza.py` stampa in dettaglio, calibrazione compresa.
+`scripts/accuratezza.py` stampa in dettaglio.
+
+Accanto, l'hub mostra la **calibrazione**: quando il modello dice il 30%,
+succede il 30% delle volte? E' la domanda che il Brier da solo non risponde —
+si puo' avere un buon punteggio ed essere sistematicamente troppo sicuri di
+se'. Si legge fascia per fascia e mai in media: sull'1X2 le tre probabilita'
+di una partita sommano a uno e un esito solo si avvera, quindi il saldo col
+segno torna a zero da solo senza dire niente.
 
 Accanto a ogni mercato sta la sua **baseline**: il punteggio di chi ripete
 sempre la frequenza media di quell'esito senza guardare le squadre. Si calcola
@@ -553,12 +568,14 @@ src/serie_a_analyzer/
     app.py           rotte FastAPI
     engine.py        dataset e modello tenuti caldi fra le richieste
     views.py         dal dominio a cio' che i template disegnano
-    templates/       hub e scheda partita
+    templates/       hub, scheda partita, registro, giocatori
     static/          foglio di stile
-tests/               591 test
+tests/               636 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata
+                         (--cerca-emivita, --cerca-shrinkage, --cerca-compressione,
+                          --cerca-allenatore: i parametri, misurati e non scelti a occhio)
   predict_next_round.py  i pronostici dell'hub, dal terminale (stesso motore)
   daily_collect.py       raccolta giornaliera (da schedulare)
   formazioni_ufficiali.py pronostico rifatto a ridosso del calcio d'inizio

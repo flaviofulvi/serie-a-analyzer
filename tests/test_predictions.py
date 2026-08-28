@@ -277,3 +277,46 @@ def test_l_affidabilita_non_cambia_la_versione_del_modello(store):
         },
     )
     assert store.versione_modello(nudo) == store.versione_modello(vestito)
+
+
+# ---- il registro visto dall'altro capo ---------------------------------------
+
+
+def test_i_mercati_con_esito_mostrano_anche_cio_che_non_e_stato_risolto(store):
+    """`esiti_risolti` parte dagli esiti, questa parte dai pronostici.
+
+    E' la differenza fra una misura e un registro, ed e' tutta nel `left
+    join`: una partita ancora da giocare non ha niente da misurare ma ha
+    eccome qualcosa da mostrare — il pronostico che nessuno potra' piu'
+    cambiare.
+    """
+    _registra(store, fixture_id=1)
+
+    righe = store.mercati_con_esito("1x2")
+
+    assert len(righe) == 3, "una riga per selezione dell'1X2"
+    assert {r["selection"] for r in righe} == {"home", "draw", "away"}
+    assert all(r["hit"] is None and r["brier"] is None for r in righe)
+    # Il contorno che la pagina usa per dire "detto prima": chi, quando, quale
+    # versione del modello.
+    assert all(r["created_at"] and r["version"] for r in righe)
+    assert all(r["fixture_id"] == 1 for r in righe)
+
+
+def test_i_mercati_con_esito_si_fermano_al_mercato_chiesto(store):
+    _registra(store, fixture_id=1)
+
+    assert {r["market"] for r in store.mercati_con_esito("btts")} == {"btts"}
+    assert store.mercati_con_esito("mercato-che-non-esiste") == []
+
+
+def test_i_mercati_con_esito_sanno_filtrare_per_modo(store):
+    _registra(store, fixture_id=1, mode=MODE_SECCO)
+    _registra(store, fixture_id=1, modello=_modello(base=0.35), mode=MODE_UFFICIALE)
+
+    tutti = store.mercati_con_esito("1x2")
+    solo_secco = store.mercati_con_esito("1x2", mode=MODE_SECCO)
+
+    assert len(tutti) == 6, "due pronostici sulla stessa partita, tre esiti l'uno"
+    assert len(solo_secco) == 3
+    assert {r["mode"] for r in solo_secco} == {MODE_SECCO}

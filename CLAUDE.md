@@ -22,6 +22,8 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\backtest.py            # walk-forward, legge dalla cache
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-compressione  # quanto comprimere i gol
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-allenatore    # quanto pesa il cambio di panchina
+.\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-emivita       # quanto in fretta invecchia una partita
+.\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-shrinkage     # quanto tirare verso la media di lega
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py       # raccolta giornaliera (spende budget)
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py --solo-al-momento-giusto # raccoglie solo se serve adesso
 .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py   # la raccolta e' sana? (non spende)
@@ -63,6 +65,22 @@ una costante scritta a mano invecchierebbe (2.43-2.61 gol nelle quattro
 stagioni che abbiamo).
 `model/simulation.py` genera campionati sintetici da forze note: è il modo in
 cui la stima viene validata nei test e nella demo.
+
+I due numeri che governano la stima — l'**emivita** del decadimento temporale
+e lo **shrinkage** verso la media di lega — non sono più scelti a occhio:
+`backtest.py --cerca-emivita` e `--cerca-shrinkage` li cercano col metodo del
+progetto (una griglia, ogni stagione rigiocata una volta per valore, il valore
+scelto sulle stagioni *diverse* da quella su cui lo si misura). Misurati il 25
+agosto 2026: **restano 180 giorni e 2.0**. Lo shrinkage è l'unico parametro
+del progetto con un ottimo interno vero (0.5968 a 2, peggio da entrambi i
+lati); l'emivita invece ha una curva piatta da 120 giorni in su, e l'ottimo
+apparente a 365 sparisce appena lo si sceglie senza aver visto la risposta —
+peggiora di 0.0005. Quello che la misura dice davvero è che **sotto i due mesi
+si fa danno** (0.6042 a 60 giorni): il modello vuole ricordare quasi tutto.
+Le tre ricerche che toccano la stima (allenatore, emivita, shrinkage) passano
+tutte da `cerca_nella_stima`, e il verdetto obbedisce alla **misura onesta**,
+non all'ottimo: un valore migliore sulle stagioni messe insieme ma perdente
+scelto sulle altre viene dichiarato rumore e non proposto.
 
 ### Lo strato dati esiste per un vincolo di budget
 
@@ -210,6 +228,29 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   noti. La **baseline si calcola per singola selezione e poi si media**: su
   Over/Under le linee 0.5 e 4.5 hanno frequenze opposte e mescolarle darebbe
   al modello un muro molto più basso di quello vero.
+  Ogni misura guarda anche **una partita per volta**, e questa e' la regola
+  gemella che per un anno e' mancata. Il registro scrive una riga per ogni
+  versione del modello, quindi una partita vista con qualche giorno di
+  anticipo ne accumula quante sono le ristime che la precedono — Genoa-Lecce
+  del 22 agosto 2026 ne aveva **cinque**, scritte fra le 10:13 e le 21:22
+  dello stesso giorno, e la prima dichiarava 2.76 gol attesi in casa contro
+  gli 1.60 su cui il modello si e' poi assestato. Sono cinque tentativi sulla
+  stessa domanda, non cinque osservazioni: mediarli conta quella partita
+  cinque volte e da' alla stima acerba il peso di quelle mature. Il taglio sta
+  in `esiti_risolti` (una riga per **partita e modo**, l'ultima prima del via,
+  con lo stesso ordinamento di `ultimo_per_partita`) e il default e' quello
+  sicuro apposta: il difetto e' nato perche' la cosa giusta andava chiesta
+  invece di essere data. Chi vuole tutte le righe passa da
+  `tutte_le_versioni=True`, che serve a guardare *come* il modello ha cambiato
+  idea — non e' una misura. Il danno non era la media un po' storta ma il
+  **silenzio**: gonfiando `n` faceva scavalcare `SOGLIA_SIGNIFICATIVITA`, e
+  con dieci partite in archivio il sito dichiarava «meglio della baseline» su
+  ogni mercato. Corretto il 25 agosto 2026; il conto vero e' che Gol/NoGol e
+  Porta inviolata tornano a dire «troppi pochi dati», e Gol/NoGol da vincente
+  diventa perdente contro la sua baseline. Il registro `/pronostici` continua
+  a mostrarle tutte, ed e' giusto: li' la domanda non e' quanto vale il
+  modello ma cosa fu scritto.
+
   Ogni misura guarda **un solo tipo di pronostico alla volta**
   (`MODO_PREDEFINITO`, cioè il secco). Non è un'opzione ma un vincolo: una
   partita può averne due — il secco e quello rifatto con le formazioni
@@ -424,6 +465,18 @@ roba delle sole pagine dei giocatori, che hanno un'impronta loro, e una stima
 che non se ne accorgesse resterebbe ferma all'allenatore di prima. Un lock
 protegge da stime duplicate su richieste concorrenti.
 
+L'impronta si rilegge **a ogni richiesta HTTP**, e la tentazione di tenerla in
+caldo qualche secondo va scartata: ritarderebbe la ristima su un risultato
+appena arrivato, cioè proprio la cosa che qualcuno può stare aspettando con la
+pagina aperta. Si paga rendendola economica, non vecchia: `details_signature`
+(`data/store.py`) legge le ~1530 cartelle dei dettagli con **`os.scandir`** e
+non con `iterdir()` più `stat()` — una chiamata di sistema per cartella contro
+dati che `scandir` si porta già dietro, misurati 30 ms contro 1 ms. Non si
+guarda invece la data della sola cartella `details`, che sarebbe ancora più
+rapida e perderebbe il caso che conta: un tabellino **riscritto** non crea
+nessuna cartella. Funziona perché il salvataggio è atomico (file temporaneo e
+`replace`), e quel rename tocca la cartella che lo contiene.
+
 Alla ristima — l'unico momento in cui i pronostici possono cambiare — l'engine
 fa due cose in fila: congela i pronostici delle partite in programma e risolve
 gli esiti di quelle ormai concluse. Entrambe protette da `try/except`: una
@@ -464,7 +517,8 @@ assenze diverse, e la seconda non si rimedia più. Vale per tutte le stagioni
 precedenti al registro, che infatti in pagina non hanno percentuali.
 
 `web/views.py` traduce il dominio in ciò che i template disegnano; `web/app.py`
-espone hub, scheda partita, `/giocatori` (marcatori, assist, voti),
+espone hub, scheda partita, `/pronostici` (il registro riga per riga),
+`/giocatori` (marcatori, assist, voti),
 `/giocatore/<id>`, `/squadra/<id>`, `/stato` (JSON: cosa sa il sistema, budget
 residuo, pronostici registrati, esiti risolti) e `/aggiorna` (forza la
 ricostruzione). La scheda partita mostra anche gol, formazioni e pagelle
@@ -502,8 +556,9 @@ due pronostici coincidono a meno di un punto percentuale la pagina dice che le
 formazioni hanno **confermato**: «non è cambiato niente» è un esito, non un
 vuoto.
 L'hub mostra, sotto le partite: accuratezza per mercato con la sua baseline,
-il confronto con le quote di chiusura e — quando esiste qualche partita
-pronosticata in entrambi i modi — il **verdetto sulle formazioni ufficiali**
+la **calibrazione**, il confronto con le quote di chiusura e — quando esiste
+qualche partita pronosticata in entrambi i modi — il **verdetto sulle
+formazioni ufficiali**
 (`confronto_fra_modi`, `Engine.confronto_modi`), cioè i due Brier a confronto
 sulle sole partite che hanno tutti e due. Tutte le sezioni compaiono solo
 quando c'è qualcosa di misurato, e dichiarano quando i dati non bastano: una
@@ -513,6 +568,35 @@ comportamento giusto — di pronostici ufficiali non ne esiste ancora nessuno.
 Sono state scritte e provate **prima** perché il giorno dell'accensione il
 lavoro partirebbe, scriverebbe nel registro, e sul sito non cambierebbe
 niente.
+
+La **calibrazione** (`calibrazione` in `data/outcomes.py`, `righe_calibrazione`
+e `verdetto_calibrazione` in `web/views.py`) è la seconda lettura degli stessi
+esiti che l'accuratezza riassume in un Brier, e sta accanto e non al posto di
+quella: si può avere un buon Brier ed essere sistematicamente troppo sicuri di
+sé. Tre regole in codice. Il mercato è l'**1X2**, perché è quello in cui il
+modello sa qualcosa e le sue tre probabilità coprono una gamma larga — su
+Over/Under, dopo la compressione, le fasce si accalcherebbero tutte in una. Il
+riassunto è lo scarto **in valore assoluto** e mai col segno: sull'1X2 le tre
+probabilità di una partita sommano a uno e un esito solo si avvera, quindi il
+saldo con segno vale zero *per costruzione* e direbbe «in media ci prende» di
+un modello scalibrato in tutte e due le direzioni. E una fascia con meno di
+`MINIMO_PER_FASCIA` esiti resta in tabella ma dichiarata: sparirla nasconderebbe
+che il modello in quella fascia ci è andato, e quante volte.
+
+`/pronostici` è il **registro riga per riga**: cosa era stato detto, quando, e
+com'è andata (`elenco_pronostici` in `data/outcomes.py`, `righe_registro` in
+`web/views.py`). È l'unica cosa di `outcomes.py` che non è una misura, e la
+differenza sta tutta in una parola: una misura salta ciò che non si è ancora
+potuto misurare, un registro deve mostrarlo — da qui il `left join` di
+`mercati_con_esito` e le partite **ancora da giocare in cima all'elenco**, che
+sono la metà della promessa in cui la risposta non c'è ancora. È anche l'unica
+pagina che legge dal registro *anche prima* del fischio d'inizio, al contrario
+della regola di `_riga`: qui la domanda non è «cosa penso adesso» ma «cosa fu
+scritto», e la pagina lo dichiara perché i due numeri possono divergere. Il
+giudizio di riga è il Brier della singola partita nella forma del backtest
+(somma sui tre esiti), e non esiste una colonna «azzeccato»: su un pronostico
+probabilistico è la domanda sbagliata. La colonna del **tipo** compare solo se
+di tipi ce n'è più d'uno, altrimenti direbbe «secco» su ogni riga.
 
 La scheda partita dichiara anche **su cosa poggia** il pronostico
 (`TeamEvidence` in `model/dixon_coles.py`, `righe_affidabilita` in

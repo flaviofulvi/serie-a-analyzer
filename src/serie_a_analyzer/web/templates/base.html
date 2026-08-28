@@ -42,6 +42,14 @@
           <a class="bottone" href="/giocatori">Giocatori</a>
         {% endif %}
 
+        {# Il registro sta fra le pagine da leggere e non fra gli attrezzi:
+           risponde in HTML e si guarda, non e' una diagnostica. #}
+        {% if percorso.startswith("/pronostici") %}
+          <span class="bottone attivo" aria-current="page">Registro</span>
+        {% else %}
+          <a class="bottone" href="/pronostici">Registro</a>
+        {% endif %}
+
         <span class="divisorio" aria-hidden="true"></span>
 
         <a class="bottone attrezzo" href="/stato">Stato</a>
