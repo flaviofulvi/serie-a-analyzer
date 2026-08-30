@@ -234,6 +234,36 @@ def test_nessun_titolare_nessun_rapporto():
     assert rapporto_produzione(pesi, []) is None
 
 
+def test_dieci_titolari_non_sono_una_squadra_piu_debole():
+    """Il caso del 29 agosto 2026: una distinta pubblicata a meta'.
+
+    Il denominatore somma undici giocatori. Un numeratore che ne somma dieci
+    non da' un rapporto piu' basso, da' un rapporto fra cose diverse — e
+    l'aspetto e' quello di una squadra a cui manca un nono della produzione,
+    abbastanza da far scattare `vale_la_pena`. La risposta giusta e' "non lo
+    so", che qui si scrive ``None``.
+    """
+    pesi = pesi_squadra(_archivio(), CASA)
+    dieci = list(pesi.formazione_tipo)[:-1]
+
+    assert rapporto_produzione(pesi, dieci) is None
+
+
+def test_una_formazione_a_dieci_non_sembra_meno_affidabile():
+    """Perche' il controllo sul numero serve: `affidabile` non lo vede.
+
+    Conta i giocatori **sconosciuti**, non quelli mancanti. Senza la regola
+    sopra, una distinta a dieci avrebbe l'aspetto di una completa: zero
+    sconosciuti, affidabile, e un rapporto sbagliato del 9%.
+    """
+    pesi = pesi_squadra(_archivio(), CASA)
+    dieci = list(pesi.formazione_tipo)[:-1]
+
+    finto = Rapporto(valore=0.91, noti=len(dieci), sconosciuti=0)
+    assert finto.affidabile
+    assert abs(finto.valore - 1.0) >= 0.02, "sarebbe bastato a scrivere una riga"
+
+
 # ---- l'aggiustamento ---------------------------------------------------------
 
 

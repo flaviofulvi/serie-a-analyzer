@@ -304,6 +304,7 @@ def main() -> int:
     print(f"Pronostici nuovi:     {esito['registrate']}")
     print(f"Gia' registrate:      {esito['gia_registrate']}")
     print(f"Formazioni non uscite:{esito['senza_formazioni']:>3}")
+    print(f"Formazioni a meta':   {esito['formazioni_a_meta']}")
     print(f"Senza pesi a suff.:   {esito['senza_pesi']}")
     print(f"Squadra senza storia: {esito['senza_modello']}")
     print(f"Gia' iniziate:        {esito['gia_iniziate']}")

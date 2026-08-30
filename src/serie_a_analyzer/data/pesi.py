@@ -307,9 +307,21 @@ def rapporto_produzione(
     Dargli zero direbbe che la squadra e' crollata, e non e' quello che si sa
     di lui: si sa che non si sa. Quanti sono viene contato e riportato, perche'
     un rapporto costruito per meta' su ipotesi va dichiarato.
+
+    I titolari devono essere **undici**, e chi ne passa un numero diverso si
+    sente rispondere "non lo so". Non e' pignoleria sui tipi: il denominatore
+    e' la produzione di undici giocatori (`produzione_tipo`), quindi un
+    numeratore che ne somma dieci non da' un rapporto piu' basso, da' un
+    rapporto fra cose diverse. Dieci undicesimi di una squadra qualunque fanno
+    ~0.91 — abbastanza da superare la soglia di `vale_la_pena` e da spostare i
+    gol attesi — e nessuno se ne accorgerebbe: `affidabile` conta i giocatori
+    **sconosciuti**, non quelli mancanti, quindi una formazione a dieci ha
+    esattamente l'aspetto di una completa. E' successo davvero il 29 agosto
+    2026, quando l'API ha servito distinte a meta' a quindici minuti dal via
+    (vedi `formazione_provvisoria` in data/store.py).
     """
     elenco = list(titolari)
-    if not elenco or pesi.produzione_tipo <= 0:
+    if len(elenco) != GIOCATORI_IN_CAMPO or pesi.produzione_tipo <= 0:
         return None
 
     neutro = pesi.produzione_media

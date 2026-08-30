@@ -273,6 +273,91 @@ def test_una_formazione_identica_alla_tipo_non_merita_una_riga(store, registro):
     assert esito["senza_pesi"] == 1
 
 
+# ---- la distinta a meta' non pronostica --------------------------------------
+
+
+def test_una_distinta_a_meta_non_scrive_niente(store, registro):
+    """Dieci titolari su undici, e nessuno se ne accorgerebbe.
+
+    E' il caso vero del 29 agosto 2026. La produzione in campo scenderebbe
+    della quota di chi manca — un undicesimo per un titolare qualunque — per
+    **pura aritmetica**, abbastanza da superare la soglia di `vale_la_pena`, e
+    il pronostico direbbe per sempre che il modello aveva visto mancare
+    qualcuno che invece giocava. I pronostici non si
+    cancellano: meglio un buco.
+    """
+    archivio = _archivio_pieno()
+    dieci_casa = [100 + i for i in range(GIOCATORI_IN_CAMPO - 1)]
+    tipo_ospite = [200 + i for i in range(GIOCATORI_IN_CAMPO)]
+    payload = [_blocco(CASA, "Inter", dieci_casa),
+               _blocco(OSPITE, "Torino", tipo_ospite)]
+
+    esito = pronostica_con_formazioni(
+        ClienteFinto(payload), store, registro,
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=archivio,
+        now=ADESSO,
+    )
+    assert esito["formazioni_a_meta"] == 1
+    assert esito["registrate"] == 0
+    assert registro.ultimo_per_partita(1, mode=MODE_UFFICIALE) is None
+    # Salvata pero' si': la raccolta del dopopartita la sostituira'.
+    assert store.has_detail(1, "lineups")
+
+
+def test_una_distinta_senza_panchina_non_scrive_niente(store, registro):
+    """Juventus-Parma: gli undici titolari giusti e nessun panchinaro.
+
+    Qui i titolari sono undici e i pesi sarebbero giusti, ma la distinta non
+    e' finita di uscire: chi manca dalla panchina puo' comparire da un momento
+    all'altro anche fra i titolari, ed e' successo nelle altre due partite
+    della stessa sera. Si aspetta il giro dopo.
+    """
+    tipo_casa = [100 + i for i in range(GIOCATORI_IN_CAMPO)]
+    tipo_ospite = [200 + i for i in range(GIOCATORI_IN_CAMPO)]
+    payload = [_blocco(CASA, "Inter", tipo_casa), _blocco(OSPITE, "Torino", tipo_ospite)]
+    for blocco in payload:
+        blocco.pop("substitutes")
+
+    esito = pronostica_con_formazioni(
+        ClienteFinto(payload), store, registro,
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+    )
+    assert esito["formazioni_a_meta"] == 1
+    assert esito["registrate"] == 0
+
+
+def test_al_giro_dopo_la_distinta_intera_si_pronostica(store, registro,
+                                                       formazioni_vere):
+    """Saltare non e' rinunciare: la finestra dei 75 minuti ha cinque giri.
+
+    Il primo trova dieci titolari e non scrive; il secondo trova la distinta
+    completa — con il bomber in panchina — e scrive.
+    """
+    dieci = [_blocco(CASA, "Inter", [100 + i for i in range(GIOCATORI_IN_CAMPO - 1)]),
+             _blocco(OSPITE, "Torino", [200 + i for i in range(GIOCATORI_IN_CAMPO)])]
+    argomenti = dict(
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+    )
+
+    primo = pronostica_con_formazioni(ClienteFinto(dieci), store, registro,
+                                      **argomenti)
+    assert primo["formazioni_a_meta"] == 1 and primo["registrate"] == 0
+
+    secondo = pronostica_con_formazioni(ClienteFinto(formazioni_vere), store,
+                                        registro, **argomenti)
+    assert secondo["formazioni_a_meta"] == 0
+    assert secondo["registrate"] == 1
+    assert registro.ultimo_per_partita(1, mode=MODE_UFFICIALE) is not None
+
+
 # ---- la macchina accesa ------------------------------------------------------
 
 

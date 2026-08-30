@@ -38,6 +38,23 @@ la partita risulterebbe "gia' tentata" e le formazioni vere, quelle di fine
 serata, non verrebbero piu' chieste. Si perderebbe un dato per aver guardato
 troppo presto.
 
+**Una formazione a meta' si salva e non si usa**, ed e' l'altra faccia della
+stessa trappola. L'API pubblica la distinta un pezzo per volta: il 29 agosto
+2026, a quindici minuti dal via, tre partite su quattro avevano dieci titolari
+o nessun panchinaro. Salvarla e' giusto — l'archivio sa che non e' l'ultima
+parola (`formazione_provvisoria` in data/store.py) e la fara' ri-chiedere dopo
+la partita — ma **pronosticarci sopra no**. Dieci titolari su undici fanno
+scendere la produzione in campo della quota del giocatore che manca — un
+undicesimo se e' un titolare qualunque, molto di piu' se e' quello bravo — per
+**pura aritmetica**, cioe' abbastanza da far scattare `vale_la_pena` e da
+spostare i gol attesi, e niente lo distinguerebbe da un'assenza vera: quella
+riga direbbe per sempre che il modello aveva visto mancare qualcuno che invece
+giocava. Si salta e si
+riprova al giro dopo — l'attivita' pianificata passa ogni quarto d'ora, e
+nella finestra dei 75 minuti ci sono cinque occasioni. Se la distinta non si
+completa in tempo quella partita resta col solo pronostico secco, che e'
+esattamente la regola qui sotto: meglio un buco.
+
 **Meglio un buco che una riga scritta dopo.** Se questa esecuzione salta —
 computer spento, budget finito, API muta — quella partita resta col solo
 pronostico secco. Va bene cosi': un pronostico registrato a partita iniziata
@@ -62,6 +79,7 @@ from .pesi import (
 )
 from .players import formazioni_partita
 from .predictions import MODE_UFFICIALE, PredizioneRifiutata
+from .store import formazione_provvisoria
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +152,7 @@ def pronostica_con_formazioni(
         "registrate": 0,
         "gia_registrate": 0,
         "senza_formazioni": 0,
+        "formazioni_a_meta": 0,
         "senza_pesi": 0,
         "senza_modello": 0,
         "gia_iniziate": 0,
@@ -154,6 +173,15 @@ def pronostica_con_formazioni(
         esito["letture"] += 1
         if not formazioni:
             esito["senza_formazioni"] += 1
+            continue
+
+        # La distinta e' uscita ma non e' finita: salvata si', usata no (vedi
+        # la seconda trappola in cima al modulo). Si giudica la busta appena
+        # scritta e non gli oggetti qui sopra, perche' la regola e' una sola e
+        # sta in `data/store.py`: e' la stessa che dopo la partita fara'
+        # ri-chiedere quel dettaglio.
+        if formazione_provvisoria(store.load_detail(f.api_id, "lineups")):
+            esito["formazioni_a_meta"] += 1
             continue
 
         per_squadra = {fo.team_id: fo for fo in formazioni}

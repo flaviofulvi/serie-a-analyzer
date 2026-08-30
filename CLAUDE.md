@@ -386,7 +386,13 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   niente e si restituisce `None`, che significa "non lo so" e non deve mai
   diventare 1.0, che significa "so che non cambia"; e un titolare sconosciuto
   all'archivio vale la produzione **media** di un titolare, non zero — non
-  sapere nulla di lui non è sapere che non vale niente. Il metodo **vede gli
+  sapere nulla di lui non è sapere che non vale niente. Terza regola, arrivata
+  il 30 agosto 2026: i titolari passati a `rapporto_produzione` devono essere
+  **undici**, altrimenti la risposta è `None`. Il denominatore è la produzione
+  di undici giocatori, quindi un numeratore che ne somma dieci non dà un
+  rapporto più basso, dà un rapporto fra cose diverse — e non lo segnala
+  nessuno, perché `affidabile` conta i giocatori *sconosciuti*, non quelli
+  mancanti: una distinta a dieci ha esattamente l'aspetto di una completa. Il metodo **vede gli
   attaccanti, non i difensori**, ed è un limite da dichiarare in pagina, non da
   compensare con un'ipotesi — i tiri **non** lo curano, misurano chi sta
   davanti esattamente come gol e assist. `FATTORE_PREDEFINITO` **non è calibrato**: dovrà
@@ -402,10 +408,19 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   sola e senza che nessuno debba accenderla. Una risposta di formazioni
   **vuota non si salva**: farebbe scattare `MAX_DETAIL_ATTEMPTS` e le
   formazioni vere, quelle di fine serata, non verrebbero più chieste. Una
-  **a metà** invece si salva, ed è l'altra metà della stessa regola: il
-  pronostico non ha un altro momento per nascere, e a sapere che quella non è
-  l'ultima parola ci pensa l'archivio (`formazione_provvisoria` in
-  `data/store.py`), che la rimette in coda per il dopopartita.
+  **a metà si salva e non si usa**, ed è l'altra faccia della stessa trappola:
+  l'archivio la vuole (`formazione_provvisoria` in `data/store.py` la rimette
+  in coda per il dopopartita), il pronostico no. Dieci titolari su undici
+  fanno scendere la produzione in campo della quota di chi manca — un
+  undicesimo per un titolare qualunque — per **pura aritmetica**: abbastanza
+  da far scattare `vale_la_pena` e da spostare i gol attesi, e
+  indistinguibile da un'assenza vera. Quella riga direbbe per sempre che il
+  modello aveva visto mancare qualcuno che invece giocava, e i pronostici non
+  si cancellano. Si salta, si conta (`formazioni_a_meta` nell'esito) e si
+  riprova al giro dopo: l'attività pianificata passa ogni quarto d'ora e nella
+  finestra dei 75 minuti ci sono cinque occasioni. Se non si completa in tempo
+  quella partita resta col solo pronostico secco — che è la regola di sempre:
+  meglio un buco che una riga scritta male.
 - `players.py` — le schede giocatore, ricavate **senza spendere richieste**:
   formazioni, tabellini ed eventi sono gia' su disco, pagati dalla raccolta
   giornaliera. Un dettaglio si legge sempre dalla busta (`load_detail`), e una
