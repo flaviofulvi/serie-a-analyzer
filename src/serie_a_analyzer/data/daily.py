@@ -384,9 +384,10 @@ def collect_details_for(
 
             # Se un dettaglio ce l'abbiamo gia' e lo stiamo richiedendo, e'
             # perche' quello che abbiamo non va (`needs_detail`): un tabellino
-            # fermo a partita in corso. La cache di quei dettagli non scade
-            # mai, quindi senza `force_refresh` la richiesta verrebbe servita
-            # dalla copia sbagliata — nessuna chiamata all'API, nessuna
+            # fermo a partita in corso, o una formazione letta prima del via
+            # mentre la distinta era ancora a meta'. La cache di quei dettagli
+            # non scade mai, quindi senza `force_refresh` la richiesta verrebbe
+            # servita dalla copia sbagliata — nessuna chiamata all'API, nessuna
             # correzione, e il contatore dei tentativi che sale fino al tetto
             # senza aver mai chiesto niente a nessuno.
             riprova = store.has_detail(fid, kind)

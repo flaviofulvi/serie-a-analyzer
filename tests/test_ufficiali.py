@@ -90,16 +90,20 @@ def _modello() -> FittedModel:
 
 
 def _blocco(team_id, nome, titolari):
+    def voce(pid):
+        return {"player": {"id": pid, "name": f"Giocatore {pid}", "number": None,
+                           "pos": "M", "grid": None}}
+
+    # La panchina non serve ai pesi — quelli guardano chi scende in campo — ma
+    # una distinta senza riserve l'archivio la considera arrivata a meta'
+    # (`formazione_provvisoria` in data/store.py), quindi una formazione
+    # "vera" senza panchina qui direbbe il contrario del suo nome.
     return {
         "team": {"id": team_id, "name": nome},
         "formation": "4-3-3",
         "coach": {"id": 99, "name": "Un Allenatore"},
-        "startXI": [
-            {"player": {"id": pid, "name": f"Giocatore {pid}", "number": None,
-                        "pos": "M", "grid": None}}
-            for pid in titolari
-        ],
-        "substitutes": [],
+        "startXI": [voce(pid) for pid in titolari],
+        "substitutes": [voce(team_id * 1000 + i) for i in range(12)],
     }
 
 
@@ -186,6 +190,31 @@ def test_una_formazione_vera_si_salva(store, formazioni_vere):
     formazioni = leggi_formazioni(ClienteFinto(formazioni_vere), store, 1)
     assert len(formazioni) == 2
     assert store.has_detail(1, "lineups")
+
+
+def test_una_formazione_letta_a_meta_si_salva_ma_resta_da_richiedere(store):
+    """Il 29 agosto 2026, e la ragione per cui le due meta' devono convivere.
+
+    A quindici minuti dal via l'API pubblica la distinta un pezzo per volta.
+    Salvarla e' giusto — il pronostico con le formazioni non ha altro momento
+    per nascere, e dopo il fischio non varrebbe piu' niente — ma l'archivio
+    deve sapere che quella non e' l'ultima parola: la raccolta del dopopartita
+    la richiede e la sostituisce con quella intera.
+    """
+    a_meta = [_blocco(CASA, "Inter", [101, 102, 103]),
+              _blocco(OSPITE, "Torino", [201, 202, 203])]
+
+    assert leggi_formazioni(ClienteFinto(a_meta), store, 1)
+    assert store.has_detail(1, "lineups")
+    assert store.needs_detail(1, "lineups")
+
+
+def test_una_formazione_intera_letta_prima_del_via_chiude_il_caso(
+    store, formazioni_vere
+):
+    """Il caso normale: la distinta esce intera e non si spende piu' niente."""
+    assert leggi_formazioni(ClienteFinto(formazioni_vere), store, 1)
+    assert not store.needs_detail(1, "lineups")
 
 
 def test_un_errore_dell_api_non_propaga(store):

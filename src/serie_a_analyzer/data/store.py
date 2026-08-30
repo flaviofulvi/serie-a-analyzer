@@ -58,10 +58,29 @@ MAX_DETAIL_ATTEMPTS = 3
 # tabellino di una partita giocata esiste, e vale la pena aspettarlo.
 MAX_TABELLINO_ATTEMPTS = 12
 
+# Quante volte riprovare una formazione arrivata a meta'. Piu' alto di
+# MAX_DETAIL_ATTEMPTS per la ragione dei tabellini — quella formazione esiste
+# di sicuro — ma piu' basso di MAX_TABELLINO_ATTEMPTS, e per due motivi suoi
+# che i tabellini non hanno. Il
+# contatore dei tentativi e' uno solo, e le letture *prima* del fischio
+# (`data/ufficiali.py`, fino a cinque per partita nella finestra dei 75
+# minuti) lo hanno gia' fatto salire: un tetto basso verrebbe consumato dalle
+# letture che il guasto lo hanno causato invece che da quelle che lo curano.
+# Dall'altra parte le formazioni si chiedono anche per una stagione intera
+# (`data/storico.py`, ~380 partite), e li' ogni tentativo in piu' si moltiplica
+# per il calendario. Otto lascia tre letture dopo la partita, cioe' la stessa
+# sera e la mattina dopo: se in quel tempo l'API non ha consolidato, non lo
+# fara'.
+MAX_FORMAZIONE_ATTEMPTS = 8
+
 # Sotto quanti minuti giocati un tabellino non e' finito. Un tabellino
 # definitivo ha sempre qualcuno arrivato in fondo; una fotografia scattata al
 # 64' ha tutti e ventidue i titolari fermi sullo stesso numero.
 MINUTI_DI_UNA_PARTITA_INTERA = 90
+
+# Quanti giocatori manda in campo una squadra. Una formazione che ne dichiara
+# meno non e' una formazione strana: e' una formazione ancora a meta'.
+TITOLARI_DI_UNA_FORMAZIONE = 11
 
 
 def _stato(raw: dict[str, Any]) -> str:
@@ -130,6 +149,54 @@ def tabellino_provvisorio(payload: Any) -> bool:
         # tocca a questa funzione decidere che farne.
         return False
     return max(giocati) < MINUTI_DI_UNA_PARTITA_INTERA
+
+
+def formazione_provvisoria(payload: Any) -> bool:
+    """Le formazioni di `/fixtures/lineups` sono arrivate a meta'?
+
+    Stessa forma del guasto dei tabellini, e stessa cura, ma un'altra causa.
+    Qui l'API non sbaglia: le formazioni **le pubblica un pezzo per volta**, e
+    siamo noi a guardarle presto per forza. `data/ufficiali.py` deve chiederle
+    prima del fischio d'inizio — dopo non servirebbero piu' a niente — e a
+    quindici minuti dal via capita di prendere una distinta ancora in
+    costruzione.
+
+    Il 29 agosto 2026 e' successo su tre partite su quattro, tutte lette a
+    quindici minuti dal via: Fiorentina-Frosinone con **dieci** titolari per
+    parte e nove panchinari viola invece di una dozzina, Monza-Udinese con
+    dieci titolari al Monza, e Juventus-Parma con undici titolari giusti e
+    **nessun panchinaro affatto**, per entrambe le squadre. Le formazioni
+    lette dopo la partita, nella stessa settimana, sono tutte intere.
+
+    Diventa un errore nostro un attimo dopo, ed e' il punto: `needs_detail`
+    considerava concluso qualunque dettaglio non vuoto, quindi quella distinta
+    a meta' era gia' quella definitiva — per sempre, anche se l'API mezz'ora
+    dopo aveva quella giusta.
+
+    I due segnali sono **meno di undici titolari** e **panchina vuota**, e
+    nessuno dei due ammette eccezioni: una squadra manda in campo undici
+    giocatori e in Serie A ne mette sempre qualcuno in panchina.
+
+    Una panchina **corta** invece non e' un segnale, e vale dichiarare perche':
+    il Monza in Inter-Monza del 22 agosto 2026 ne ha nove, e quella formazione
+    e' stata letta a partita finita — e' il dato vero. Una soglia sul numero di
+    riserve marcherebbe come rotta una distinta giusta, e la rimetterebbe in
+    coda a ogni raccolta fino al tetto dei tentativi.
+    """
+    if not payload:
+        # Vuota e' un'altra cosa e ha gia' la sua regola: MAX_DETAIL_ATTEMPTS.
+        return False
+    blocchi = [b for b in payload if isinstance(b, dict) and "startXI" in b]
+    if not blocchi:
+        # Nessun blocco dichiara una formazione: non e' una distinta a meta',
+        # e' un payload di forma inattesa. Non tocca a questa funzione
+        # decidere che farne.
+        return False
+    return any(
+        len(blocco.get("startXI") or []) < TITOLARI_DI_UNA_FORMAZIONE
+        or not (blocco.get("substitutes") or [])
+        for blocco in blocchi
+    )
 
 
 def tabellini_arresi(store, fixture_ids: Iterable[int]) -> list[int]:
@@ -310,12 +377,14 @@ class SeasonStore:
         prenderlo trovandolo vuoto: a quel punto il campionato semplicemente
         non lo copre.
 
-        C'e' un terzo caso, e sta qui in lettura per la stessa ragione di
-        `is_closed()`: un tabellino puo' esserci ed essere sbagliato, perche'
-        l'API a volte serve l'ultima lettura del feed live anche a partita
-        finita da un pezzo (vedi `tabellino_provvisorio`). Quello va richiesto
-        ancora. Metterlo nel dato scritto non basterebbe: le buste salvate
-        prima di questa regola resterebbero sbagliate per sempre.
+        C'e' un terzo caso, anzi due, e stanno qui in lettura per la stessa
+        ragione di `is_closed()`: un dettaglio puo' esserci ed essere
+        sbagliato. Un tabellino, quando l'API serve l'ultima lettura del feed
+        live anche a partita finita da un pezzo (`tabellino_provvisorio`); una
+        formazione, quando la si e' letta prima del via mentre la distinta era
+        ancora in costruzione (`formazione_provvisoria`). Entrambi vanno
+        richiesti ancora. Metterlo nel dato scritto non basterebbe: le buste
+        salvate prima di queste regole resterebbero sbagliate per sempre.
         """
         busta = self.detail_envelope(fixture_id, kind)
         if busta is None:
@@ -325,6 +394,8 @@ class SeasonStore:
         if payload:
             if kind == "players" and tabellino_provvisorio(payload):
                 return tentativi < MAX_TABELLINO_ATTEMPTS
+            if kind == "lineups" and formazione_provvisoria(payload):
+                return tentativi < MAX_FORMAZIONE_ATTEMPTS
             return False
         return tentativi < MAX_DETAIL_ATTEMPTS
 

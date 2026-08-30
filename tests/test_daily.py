@@ -466,6 +466,98 @@ def test_un_tabellino_completo_non_si_richiede_due_volte(client, store, journal,
     assert client.budget.used == speso
 
 
+# ---- formazioni lette prima che fossero finite -------------------------------
+
+
+def _formazioni(titolari=11, riserve=12):
+    """Un `/fixtures/lineups` con tanti titolari e tante riserve per parte."""
+    def voce(pid):
+        return {"player": {"id": pid, "name": f"Giocatore {pid}",
+                           "number": pid, "pos": "M", "grid": None}}
+
+    return [
+        {
+            "team": {"id": tid, "name": nome},
+            "formation": "4-3-3",
+            "coach": {"id": 1, "name": "Un Allenatore"},
+            "startXI": [voce(tid * 100 + i) for i in range(1, titolari + 1)],
+            "substitutes": [voce(tid * 1000 + i) for i in range(riserve)],
+        }
+        for tid, nome in ((505, "Inter"), (503, "Torino"))
+    ]
+
+
+def test_una_formazione_letta_a_meta_viene_richiesta_di_nuovo(
+    client, store, journal, mondo
+):
+    """Il guasto del 29 agosto 2026, in piccolo.
+
+    `data/ufficiali.py` legge le formazioni prima del fischio d'inizio, e
+    quindici minuti prima l'API a volte ha pubblicato mezza distinta. Se
+    l'archivio la considerasse chiusa, la scheda partita resterebbe con dieci
+    titolari e mezza panchina per sempre.
+    """
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    mondo["dettagli"][(1, "events")] = [{"dato": "events"}]
+    mondo["dettagli"][(1, "players")] = _tabellino(90)
+
+    # La lettura a ridosso del via: dieci titolari, panchina a meta'.
+    store.save_detail(1, "lineups", _formazioni(titolari=10, riserve=9))
+    mondo["dettagli"][(1, "lineups")] = _formazioni()
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+
+    blocchi = store.load_detail(1, "lineups")
+    assert [len(b["startXI"]) for b in blocchi] == [11, 11]
+    assert all(len(b["substitutes"]) == 12 for b in blocchi)
+
+
+def test_la_ri_richiesta_di_una_formazione_scavalca_la_cache(
+    client, store, journal, mondo
+):
+    """La cache dei dettagli non scade mai: senza scavalcarla non si guarisce.
+
+    La formazione a meta' e' stata scritta in cache dalla lettura prima del
+    via. Senza `force_refresh` la ri-richiesta verrebbe servita da quella
+    copia, il contatore dei tentativi salirebbe fino al tetto e all'API non
+    arriverebbe mai niente.
+    """
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    mondo["dettagli"][(1, "events")] = [{"dato": "events"}]
+    mondo["dettagli"][(1, "players")] = _tabellino(90)
+    mondo["dettagli"][(1, "lineups")] = _formazioni(titolari=10, riserve=9)
+
+    # Come farebbe `leggi_formazioni`: chiede all'API e salva cio' che trova.
+    store.save_detail(1, "lineups", client.lineups(1))
+    mondo["dettagli"][(1, "lineups")] = _formazioni()
+    mondo["chiamate"].clear()
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+
+    assert "/fixtures/lineups" in mondo["chiamate"], (
+        "la richiesta non e' arrivata all'API: servita dalla cache"
+    )
+    assert [len(b["startXI"]) for b in store.load_detail(1, "lineups")] == [11, 11]
+
+
+def test_una_formazione_intera_non_si_richiede_due_volte(
+    client, store, journal, mondo
+):
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    mondo["dettagli"][(1, "events")] = [{"dato": "events"}]
+    mondo["dettagli"][(1, "players")] = _tabellino(90)
+    mondo["dettagli"][(1, "lineups")] = _formazioni()
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+    speso = client.budget.used
+
+    assert backfill_details(client, store) == {}
+    assert client.budget.used == speso
+
+
 # ---- i dettagli del posticipo aspettano il mattino ---------------------------
 #
 # Deciso dopo la sera del 22 agosto 2026: i tabellini del posticipo delle 20:45

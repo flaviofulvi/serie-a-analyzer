@@ -195,6 +195,26 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   `force_refresh`, altrimenti verrebbe servita dalla copia sbagliata e il
   contatore dei tentativi salirebbe fino al tetto senza che una sola chiamata
   parta davvero.
+  La stessa forma una terza volta, il 30 agosto 2026, e stavolta la colpa non
+  e' dell'API: le **formazioni** si pubblicano un pezzo per volta, e
+  `data/ufficiali.py` deve per forza leggerle prima del fischio d'inizio —
+  dopo non servirebbero piu' a niente. A quindici minuti dal via capita di
+  prendere una distinta ancora in costruzione: il 29 agosto e' successo su
+  **tre partite su quattro**, con Fiorentina-Frosinone a dieci titolari per
+  parte e Juventus-Parma con la panchina proprio assente. La lettura
+  anticipata va fatta lo stesso e va salvata lo stesso; a non andare bene era
+  che quella fosse l'ultima parola. `formazione_provvisoria` la rimette in
+  coda, e la raccolta del dopopartita la sostituisce con quella intera.
+  I segnali sono **meno di undici titolari** e **panchina vuota**, e non c'e'
+  una soglia sul numero di riserve: il Monza in Inter-Monza del 22 agosto ne
+  ha nove in una distinta letta a partita finita, cioe' vera, e una soglia la
+  marcherebbe come rotta per sempre. Il tetto e' piu' basso di quello dei
+  tabellini (`MAX_FORMAZIONE_ATTEMPTS = 8`) e il perche' e' l'unica cosa
+  delicata: il contatore dei tentativi e' **uno solo**, e le letture prima del
+  via lo hanno gia' fatto salire — fino a cinque, nella finestra dei 75
+  minuti. Un tetto stretto verrebbe consumato dalle letture che il guasto lo
+  hanno causato invece che da quelle che lo curano; uno largo si
+  moltiplicherebbe per le ~380 partite di un riempimento storico.
 - `storico.py` — il riempimento di una stagione passata, per il giorno in cui
   si compra un piano superiore. Prima `/status` (l'unico endpoint che dice in
   chiaro che piano è attivo: una stagione non coperta non dà errore, dà zero
@@ -381,7 +401,11 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   È anche ciò che tiene la macchina spenta finché i tabellini non bastano, da
   sola e senza che nessuno debba accenderla. Una risposta di formazioni
   **vuota non si salva**: farebbe scattare `MAX_DETAIL_ATTEMPTS` e le
-  formazioni vere, quelle di fine serata, non verrebbero più chieste.
+  formazioni vere, quelle di fine serata, non verrebbero più chieste. Una
+  **a metà** invece si salva, ed è l'altra metà della stessa regola: il
+  pronostico non ha un altro momento per nascere, e a sapere che quella non è
+  l'ultima parola ci pensa l'archivio (`formazione_provvisoria` in
+  `data/store.py`), che la rimette in coda per il dopopartita.
 - `players.py` — le schede giocatore, ricavate **senza spendere richieste**:
   formazioni, tabellini ed eventi sono gia' su disco, pagati dalla raccolta
   giornaliera. Un dettaglio si legge sempre dalla busta (`load_detail`), e una

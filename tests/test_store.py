@@ -12,9 +12,11 @@ import pytest
 
 from serie_a_analyzer.data.store import (
     MAX_DETAIL_ATTEMPTS,
+    MAX_FORMAZIONE_ATTEMPTS,
     MAX_TABELLINO_ATTEMPTS,
     DayJournal,
     SeasonStore,
+    formazione_provvisoria,
     tabellini_arresi,
     tabellini_pronti,
     tabellino_provvisorio,
@@ -304,6 +306,139 @@ def test_la_regola_del_tabellino_vale_solo_per_i_tabellini(store):
     """
     for kind in ("lineups", "events"):
         store.save_detail(2, kind, _tabellino(64))
+        assert not store.needs_detail(2, kind), kind
+
+
+# ---- formazioni lette prima che fossero finite -------------------------------
+#
+# Fiorentina-Frosinone, Monza-Udinese e Juventus-Parma, 29 agosto 2026: lette
+# tutte e tre a quindici minuti dal via, perche' dopo il fischio non
+# servirebbero piu' a niente, e prese mentre l'API stava ancora pubblicando la
+# distinta. Il rischio non e' la lettura anticipata — e' obbligatoria — ma che
+# l'archivio la consideri definitiva.
+
+
+def _formazione(titolari: int = 11, riserve: int = 12, con_chiave: bool = True):
+    """Un blocco di `/fixtures/lineups` con tanti titolari e tante riserve."""
+    def voce(pid):
+        return {"player": {"id": pid, "name": f"Giocatore {pid}",
+                           "number": pid, "pos": "M", "grid": None}}
+
+    blocco = {
+        "team": {"id": 502, "name": "Fiorentina"},
+        "formation": "4-3-3",
+        "coach": {"id": 1, "name": "Un Allenatore"},
+        "startXI": [voce(i) for i in range(1, titolari + 1)],
+    }
+    if con_chiave:
+        blocco["substitutes"] = [voce(100 + i) for i in range(riserve)]
+    return blocco
+
+
+def _formazioni(*blocchi):
+    return list(blocchi) or [_formazione(), _formazione()]
+
+
+def test_una_formazione_con_dieci_titolari_e_provvisoria():
+    """Fiorentina-Frosinone: dieci per parte, quindici minuti prima del via."""
+    assert formazione_provvisoria(_formazioni(_formazione(titolari=10),
+                                              _formazione(titolari=10)))
+
+
+def test_basta_una_squadra_a_meta():
+    """Monza-Udinese: il Monza a dieci, l'Udinese gia' completa.
+
+    Il dettaglio e' uno solo per partita: o si richiede per tutte e due o non
+    si richiede per nessuna.
+    """
+    assert formazione_provvisoria(_formazioni(_formazione(titolari=10),
+                                              _formazione()))
+
+
+def test_una_formazione_senza_panchina_e_provvisoria():
+    """Juventus-Parma: undici titolari giusti e nessun panchinaro.
+
+    L'API non manda `substitutes` vuoto, non manda proprio la chiave: leggere
+    solo il numero di titolari lascerebbe passare questa.
+    """
+    assert formazione_provvisoria(_formazioni(_formazione(con_chiave=False),
+                                              _formazione(con_chiave=False)))
+    assert formazione_provvisoria(_formazioni(_formazione(riserve=0),
+                                              _formazione(riserve=0)))
+
+
+def test_una_formazione_intera_non_e_provvisoria():
+    assert not formazione_provvisoria(_formazioni())
+
+
+def test_una_panchina_corta_non_e_un_segnale():
+    """Il Monza in Inter-Monza del 22 agosto ne ha nove, ed e' il dato vero.
+
+    Quella formazione e' stata letta a partita finita. Una soglia sul numero
+    di riserve la marcherebbe come rotta e la rimetterebbe in coda a ogni
+    raccolta fino al tetto dei tentativi.
+    """
+    assert not formazione_provvisoria(_formazioni(_formazione(riserve=9),
+                                                  _formazione(riserve=12)))
+
+
+def test_una_formazione_vuota_non_e_provvisoria():
+    """Vuota ha gia' la sua regola, ed e' un'altra: MAX_DETAIL_ATTEMPTS."""
+    assert not formazione_provvisoria([])
+    assert not formazione_provvisoria(None)
+
+
+def test_un_payload_di_forma_inattesa_non_si_giudica():
+    """Nessun blocco dichiara una formazione: non tocca a questa funzione."""
+    assert not formazione_provvisoria([{"team": {"name": "Inter"}}])
+
+
+def test_una_formazione_provvisoria_va_richiesta_di_nuovo(store):
+    store.save_detail(1, "lineups", _formazioni(_formazione(titolari=10),
+                                                _formazione(titolari=10)))
+    assert store.has_detail(1, "lineups")
+    assert store.needs_detail(1, "lineups")
+
+    # Mezz'ora dopo l'API ha la distinta intera: il caso si chiude.
+    store.save_detail(1, "lineups", _formazioni())
+    assert not store.needs_detail(1, "lineups")
+
+
+def test_una_formazione_provvisoria_non_si_riprova_per_sempre(store):
+    """Un tetto serve: senza, una partita che l'API non consolida mai
+    costerebbe una richiesta a ogni raccolta, per sempre."""
+    for tentativo in range(1, MAX_FORMAZIONE_ATTEMPTS):
+        store.save_detail(1, "lineups", _formazioni(_formazione(riserve=0),
+                                                    _formazione(riserve=0)))
+        assert store.needs_detail(1, "lineups"), f"tentativo {tentativo}"
+
+    store.save_detail(1, "lineups", _formazioni(_formazione(riserve=0),
+                                                _formazione(riserve=0)))
+    assert not store.needs_detail(1, "lineups")
+
+
+def test_il_tetto_delle_formazioni_regge_le_letture_prima_del_via(store):
+    """Il contatore e' uno solo, e `data/ufficiali.py` lo usa gia'.
+
+    Nella finestra dei 75 minuti l'attivita' pianificata gira ogni quarto
+    d'ora: fino a cinque letture prima del fischio, tutte a distinta
+    incompleta. Se il tetto le contasse tutte, la raccolta del dopopartita —
+    l'unica che puo' guarire — troverebbe la partita gia' data per persa.
+    """
+    for _ in range(5):
+        store.save_detail(1, "lineups", _formazioni(_formazione(titolari=10),
+                                                    _formazione(titolari=10)))
+
+    assert store.needs_detail(1, "lineups"), (
+        "le letture prima del via hanno bruciato i tentativi che le curano"
+    )
+
+
+def test_la_regola_delle_formazioni_vale_solo_per_le_formazioni(store):
+    """Un tabellino e degli eventi non hanno titolari: non vanno toccati."""
+    for kind in ("players", "events"):
+        store.save_detail(2, kind, _formazioni(_formazione(titolari=10),
+                                               _formazione(titolari=10)))
         assert not store.needs_detail(2, kind), kind
 
 
