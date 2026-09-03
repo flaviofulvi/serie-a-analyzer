@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% from "forme.html" import punteggio, riga_risultato %}
+
+{% block titolo %}Giornata {{ numero }} {{ stagione }}/{{ (stagione + 1) % 100 }} &middot; Serie A Analyzer{% endblock %}
+
+{% block contenuto %}
+
+<section class="apertura">
+  <p class="occhiello">
+    Serie A &middot; stagione {{ stagione }}/{{ "%02d"|format((stagione + 1) % 100) }}
+  </p>
+  <h1>Giornata {{ numero }}</h1>
+  <p class="sommario">
+    {{ partite|length }} partit{{ "a" if partite|length == 1 else "e" }}.
+    {# La regola di sempre, detta dove serve: qui si guardano anche giornate
+       vecchissime, ed e' proprio li' che un ricalcolo sembrerebbe una
+       previsione azzeccata. #}
+    Sulle partite gia' cominciate le percentuali sono quelle
+    <b>congelate prima del fischio d'inizio</b>, riprese dal registro; su
+    quelle da giocare vengono dal modello di adesso.
+  </p>
+</section>
+
+<section class="blocco disteso">
+  <div class="lato">
+    <p class="occhiello">Sfogliare</p>
+    <h2>Le altre giornate</h2>
+    <p class="spiega">
+      Dove ci sono trattini il pronostico non fu registrato in tempo: prima
+      che questo programma esistesse nessuno lo scrisse, e adesso non c'e'
+      modo di rifarlo. Non e' un dato mancante, e' una domanda che nessuno
+      pose.
+    </p>
+  </div>
+
+  <div class="corpo">
+    <nav class="sfoglia" aria-label="Giornate">
+      {% for g in giornate %}
+        {% if g == numero %}
+          <span class="bottone giornata attivo" aria-current="page">{{ g }}</span>
+        {% else %}
+          <a class="bottone giornata{{ ' oggi' if g == corrente }}"
+             href="/giornata/{{ g }}?stagione={{ stagione }}">{{ g }}</a>
+        {% endif %}
+      {% endfor %}
+    </nav>
+
+    {% if stagioni|length > 1 %}
+      <nav class="sfoglia stagioni" aria-label="Stagioni">
+        <span class="voce">Stagione</span>
+        {% for s in stagioni %}
+          {% if s == stagione %}
+            <span class="bottone giornata attivo" aria-current="page">{{ s }}</span>
+          {% else %}
+            {# Sempre alla giornata 1: la stessa giornata di un'altra stagione
+               potrebbe non esistere, e un collegamento che porta a un 404 e'
+               peggio di uno che porta all'inizio. #}
+            <a class="bottone giornata" href="/giornata/1?stagione={{ s }}">{{ s }}</a>
+          {% endif %}
+        {% endfor %}
+      </nav>
+    {% endif %}
+
+    <div class="tabella-avvolgente">
+      <table class="tabella">
+        <thead>
+          <tr>
+            <th>Quando</th><th>Partita</th><th class="destra">Risultato</th>
+            <th class="destra">1</th><th class="destra">X</th><th class="destra">2</th>
+            <th class="destra">Esito</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in partite %}
+            {{ riga_risultato(p, punteggio) }}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="avanti-indietro" aria-label="Giornata precedente e successiva">
+      {% if precedente %}
+        <a class="bottone" href="/giornata/{{ precedente }}?stagione={{ stagione }}">
+          &larr; Giornata {{ precedente }}
+        </a>
+      {% else %}
+        <span></span>
+      {% endif %}
+      {% if successiva %}
+        <a class="bottone" href="/giornata/{{ successiva }}?stagione={{ stagione }}">
+          Giornata {{ successiva }} &rarr;
+        </a>
+      {% endif %}
+    </nav>
+  </div>
+</section>
+
+{% endblock %}

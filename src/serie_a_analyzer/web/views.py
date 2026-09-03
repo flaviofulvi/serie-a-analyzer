@@ -21,6 +21,7 @@ from ..model.markets import MatchProbabilities
 FUSO_ITALIA = ZoneInfo("Europe/Rome")
 
 _GIORNI = ("lunedi'", "martedi'", "mercoledi'", "giovedi'", "venerdi'", "sabato", "domenica")
+_GIORNI_BREVI = ("lun", "mar", "mer", "gio", "ven", "sab", "dom")
 _MESI = ("gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic")
 
 
@@ -32,6 +33,24 @@ def formatta_data(quando: datetime) -> str:
     """'sabato 22 ago, 18:30' — in ora italiana, non UTC."""
     locale = ora_italiana(quando)
     return f"{_GIORNI[locale.weekday()]} {locale.day} {_MESI[locale.month - 1]}, {locale:%H:%M}"
+
+
+def formatta_data_breve(quando: datetime) -> str:
+    """'sab 22' — la stessa data, per uno schermo da telefono.
+
+    Nasce da una misura fatta a 414px, che e' come il sito viene guardato
+    davvero: nella tabella degli ultimi risultati "domenica 23 ago, 20:45" si
+    mangiava il 40% della riga e spingeva fuori schermo le probabilita' 1-X-2
+    e il verdetto, cioe' il motivo per cui quella tabella esiste. Il problema
+    non era lo scorrimento ma quale colonna se lo meritasse.
+
+    L'ora sparisce e non e' una perdita: su una partita gia' giocata dice
+    poco, e chi la vuole la trova nella scheda partita. Il giorno della
+    settimana resta perche' e' quello che orienta ("ah, sabato"), il numero
+    perche' distingue due sabati.
+    """
+    locale = ora_italiana(quando)
+    return f"{_GIORNI_BREVI[locale.weekday()]} {locale.day}"
 
 
 def formatta_giorno(quando: datetime) -> str:
@@ -79,6 +98,22 @@ def margine_gol(gol_casa: int, gol_ospite: int) -> float:
     return min(abs(gol_casa - gol_ospite), 3) / 3
 
 
+# Da quanto in su un risultato esatto merita di essere nominato in pagina.
+#
+# Nasce da una domanda dell'utente — "il modello dice sempre 1-0 o 1-1, si
+# spinge mai oltre?" — e la risposta misurata e' che il piu' probabile vale
+# fra l'11.9% e il 16.5%, mentre i primi cinque insieme fanno circa il 53%.
+# Nominarne uno solo racconta quindi un ottavo della partita e nasconde che
+# spesso il secondo vale quasi quanto il primo. Al 10% si tiene chi e' davvero
+# in gara: sotto, i risultati diventano tanti e tutti equivalenti, e un elenco
+# lungo si legge come "il modello non sa", che e' il contrario di quello che
+# sta succedendo.
+#
+# Non e' una soglia sulla certezza ed e' bene che nessuno la legga cosi': due
+# risultati sopra il 10% non sono due pronostici, sono due celle vicine della
+# stessa matrice.
+SOGLIA_RISULTATO_PROBABILE = 0.10
+
 # Quanto ci ha preso il modello su una partita gia' giocata. Le parole restano
 # due, azzeccato e sbagliato: a distinguere il punteggio azzeccato dal solo
 # esito e' il colore della pastiglia, non un'etichetta diversa.
@@ -103,6 +138,13 @@ class RigaPartita:
     conclusa: bool
     gol_casa: int | None
     gol_ospite: int | None
+
+    # La stessa data in forma corta, per gli schermi stretti. Viaggia insieme
+    # a `quando` invece di sostituirla perche' le due servono a due larghezze
+    # diverse e la scelta la fa il CSS, non il server: una pagina che decide
+    # in base a un "sei da telefono?" indovinato lato server sbaglierebbe
+    # ogni volta che qualcuno gira lo schermo.
+    quando_breve: str = ""
 
     # Presenti solo se il modello conosce entrambe le squadre.
     prob: MatchProbabilities | None = None
@@ -168,10 +210,58 @@ class RigaPartita:
 
     @property
     def risultato_probabile(self) -> str:
+        """Il singolo punteggio piu' probabile.
+
+        Resta uno solo, e non e' una dimenticanza: da qui passa
+        ``risultato_azzeccato``, cioe' il verdetto sulle partite gia' giocate.
+        Quello misura una cosa precisa — il modello ha nominato il punteggio
+        giusto? — e una domanda con una risposta sola non puo' averne due.
+        Per le pagine c'e' ``risultati_probabili``, che e' un'altra cosa.
+        """
         if self.prob is None:
             return ""
         (casa, ospite), _ = self.prob.top_scorelines[0]
         return f"{casa}-{ospite}"
+
+    @property
+    def risultati_probabili(self) -> str:
+        """I punteggi sopra la soglia, dal piu' probabile: "1-0/2-0".
+
+        Serve a non far sembrare deciso un modello che deciso non e': su una
+        partita equilibrata il primo vale il 12% e il secondo l'11%, e
+        mostrarne uno solo suggerisce una certezza che quel numero non ha.
+
+        **Non e' mai vuoto.** Se nessun punteggio arriva alla soglia si torna
+        al piu' probabile da solo: uno spazio bianco si leggerebbe come "il
+        modello non sa dirlo", che sarebbe falso — la matrice c'e' ed e'
+        semplicemente piu' larga del solito. E' la regola di sempre, quella
+        per cui "non lo so" e "non ce n'e' abbastanza" non si scrivono uguale.
+
+        L'elenco arriva da ``top_scorelines``, che ne tiene cinque: sono
+        cinque punteggi sopra il 10%, cioe' meta' della partita in cinque
+        celle, e i gol attesi della Serie A non producono una matrice cosi'
+        stretta. Il tetto c'e' ma non morde.
+        """
+        if self.prob is None:
+            return ""
+        sopra = [
+            f"{casa}-{ospite}"
+            for (casa, ospite), p in self.prob.top_scorelines
+            if p > SOGLIA_RISULTATO_PROBABILE
+        ]
+        return "/".join(sopra) if sopra else self.risultato_probabile
+
+    @property
+    def piu_di_un_risultato_probabile(self) -> bool:
+        """Se l'etichetta va messa al plurale.
+
+        Il conto sta qui perche' i template non fanno calcoli; la parola sta
+        nel template perche' e' testo che si legge in pagina, e il testo si
+        cerca dove si scrive l'HTML. Passandola da qui verrebbe anche
+        escapata, e "Piu&#39; probabili" nel sorgente non lo troverebbe piu'
+        nessuno.
+        """
+        return "/" in self.risultati_probabili
 
     @property
     def risultato_azzeccato(self) -> bool | None:
@@ -223,6 +313,7 @@ def riga_partita(
         casa_id=fixture.home_team_id,
         ospite_id=fixture.away_team_id,
         quando=formatta_data(fixture.kickoff_utc),
+        quando_breve=formatta_data_breve(fixture.kickoff_utc),
         giornata=fixture.matchday,
         conclusa=fixture.is_finished,
         gol_casa=fixture.home_goals,
@@ -566,7 +657,10 @@ def righe_accuratezza(accuratezza: dict) -> list[dict]:
     Il verdetto e' la parte che conta: un Brier da solo non dice niente a chi
     legge. Accanto sta sempre il confronto con la baseline (dire ogni volta la
     frequenza media di quell'esito) e, quando i dati sono pochi, il fatto che
-    siano pochi. Nel backtest l'1X2 batte le baseline mentre Over 2.5 e
+    siano pochi — misurati in **partite**, non in esiti, perche' le dieci
+    linee Over/Under di una gara sono decise dallo stesso punteggio. Per
+    questo la riga mostra tutti e due i numeri: "200 esiti" accanto a "troppi
+    pochi dati" si leggerebbe come un guasto, "20 partite" no. Nel backtest l'1X2 batte le baseline mentre Over 2.5 e
     Gol/NoGol fanno leggermente peggio: nascondere lo stesso esito qui
     trasformerebbe un limite noto del modello in una bugia.
     """
@@ -582,6 +676,7 @@ def righe_accuratezza(accuratezza: dict) -> list[dict]:
         righe.append({
             "mercato": ETICHETTE_MERCATI.get(voce["mercato"], voce["mercato"]),
             "n": voce["n"],
+            "partite": voce["partite"],
             "brier": voce["brier"],
             "baseline": voce["baseline"],
             "tasso_reale": voce["tasso_reale"],
@@ -612,6 +707,7 @@ def righe_confronto_mercato(accuratezza: dict) -> list[dict]:
         righe.append({
             "mercato": ETICHETTE_MERCATI.get(voce["mercato"], voce["mercato"]),
             "n": voce["n"],
+            "partite": voce["partite"],
             "brier_modello": voce["brier_modello"],
             "brier_mercato": voce["brier_mercato"],
             "scarto": voce["scarto"],
@@ -757,6 +853,7 @@ def righe_confronto_modi(confronto: dict | None) -> list[dict]:
         righe.append({
             "mercato": ETICHETTE_MERCATI.get(voce["mercato"], voce["mercato"]),
             "n": voce["n"],
+            "partite": voce["partite"],
             "brier_secco": voce["brier_primo"],
             "brier_ufficiale": voce["brier_secondo"],
             "scarto": voce["scarto"],

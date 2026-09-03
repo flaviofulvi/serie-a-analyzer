@@ -73,7 +73,11 @@ progetto (una griglia, ogni stagione rigiocata una volta per valore, il valore
 scelto sulle stagioni *diverse* da quella su cui lo si misura). Misurati il 25
 agosto 2026: **restano 180 giorni e 2.0**. Lo shrinkage è l'unico parametro
 del progetto con un ottimo interno vero (0.5968 a 2, peggio da entrambi i
-lati); l'emivita invece ha una curva piatta da 120 giorni in su, e l'ottimo
+lati), ed è stato **rimisurato il 3 settembre 2026 con lo stesso esito** —
+non per un cambio di codice ma perché l'archivio è cresciuto da tre stagioni a
+quattro, e lo shrinkage *effettivo* dipende da quanta massa pesata c'è nel
+campione: il numero poteva significare qualcosa di diverso pur restando
+scritto uguale. Non è successo, e la nota resta valida per la prossima volta; l'emivita invece ha una curva piatta da 120 giorni in su, e l'ottimo
 apparente a 365 sparisce appena lo si sceglie senza aver visto la risposta —
 peggiora di 0.0005. Quello che la misura dice davvero è che **sotto i due mesi
 si fa danno** (0.6042 a 60 giorni): il modello vuole ricordare quasi tutto.
@@ -84,8 +88,36 @@ scelto sulle altre viene dichiarato rumore e non proposto.
 
 ### Lo strato dati esiste per un vincolo di budget
 
-Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
-2022-2024**. Da qui l'intera forma di `data/`:
+**Il piano è cambiato, la forma no, e capire perché è il modo giusto di
+leggere tutto questo capitolo.** `data/` è stato costruito contro il piano
+gratuito di API-Football: 100 richieste al giorno e solo le stagioni
+2022-2024. Dal 24 agosto 2026 è attivo un piano **Pro** — 7500 richieste al
+giorno, tutte le stagioni — e **scade il 24 settembre 2026**, per decisione
+dell'utente: si torna al gratuito.
+
+Quindi il vincolo è sospeso, non tolto, e niente qui va rilassato «perché
+adesso c'è spazio». Le tre forme che ne discendono — il contatore col budget a
+riserve, la cache che non scade, la finestra di tre giorni — restano giuste
+anche col Pro e tornano indispensabili fra tre settimane.
+
+Il giorno del downgrade servono **due righe** nel `.env`, e la seconda è
+quella che si dimentica:
+
+    DAILY_REQUEST_LIMIT=100
+    API_MIN_INTERVAL_SECONDS=7
+
+L'intervallo oggi è a 1 secondo perché il Pro concede 450 richieste al minuto;
+il gratuito ne concede dieci. Lasciarlo com'è fa prendere 429 alla raccolta —
+**e un 429 viene contato lo stesso**. Più `--no-calendario` nel wrapper della
+raccolta: il calendario di stagione è l'unica richiesta che passi dal filtro
+`league+season`, e sul gratuito risponderà zero partite senza errore.
+
+Cosa **non** smette di funzionare, così nessuno si spaventa: gli endpoint per
+singola partita rispondono anche sul gratuito, stagione in corso compresa. A
+sparire è solo il «a stagione intera» — e a stagione intera non serve più
+niente, perché le quattro stagioni sono in archivio complete.
+
+Da qui l'intera forma di `data/`:
 
 - `client.py` — unico punto d'accesso all'API; ogni metodo dichiara TTL e
   `Priority`. Non chiamare `httpx` direttamente da altrove. Qui vive anche il
@@ -95,8 +127,11 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   client per la stessa ragione del budget: è l'unico punto da cui passano
   tutte le richieste. Vale solo su quelle davvero spedite (una risposta dalla
   cache non aspetta), e si regola da `.env` con `API_MIN_INTERVAL_SECONDS` —
-  7 secondi di default, da abbassare il giorno di un piano a pagamento,
-  altrimenti un riempimento storico vorrebbe nove ore invece di venti minuti.
+  7 secondi di default, **oggi a 1** perché il Pro concede 450 richieste al
+  minuto invece di dieci. Va **rimesso a 7 il 24 settembre**, ed è la riga che
+  si dimentica: senza, la raccolta prende 429 su richieste che vengono contate
+  lo stesso. Con 7 secondi un riempimento storico vuole nove ore invece di
+  venti minuti, ed è il motivo per cui è stato abbassato.
 - `budget.py` — contatore persistente (`data/budget.json`) con **riserve per
   priorità**: `BACKFILL` si ferma prima di intaccare la quota di `CRITICAL`
   (formazioni ufficiali). Toccando le priorità si rischia di restare a secco
@@ -215,13 +250,18 @@ Il piano gratuito di API-Football dà 100 richieste/giorno **e solo le stagioni
   minuti. Un tetto stretto verrebbe consumato dalle letture che il guasto lo
   hanno causato invece che da quelle che lo curano; uno largo si
   moltiplicherebbe per le ~380 partite di un riempimento storico.
-- `storico.py` — il riempimento di una stagione passata, per il giorno in cui
-  si compra un piano superiore. Prima `/status` (l'unico endpoint che dice in
-  chiaro che piano è attivo: una stagione non coperta non dà errore, dà zero
-  partite), poi il calendario in **una** richiesta, poi i dettagli. Dentro il
-  triennio 2022-2024 funziona anche sul piano gratuito — il muro è il filtro
-  `league+season`, non gli endpoint per partita — ma a ~1140 richieste a
-  stagione serve `--max-richieste` e mesi di pazienza. Le partite
+- `storico.py` — il riempimento di una stagione passata. **Ha già fatto il suo
+  lavoro**: le stagioni 2022, 2023, 2024 e 2025 sono in archivio complete di
+  tabellini, formazioni, eventi e statistiche, comprate fra il 24 e il 25
+  agosto 2026. Resta perché il giorno di un altro piano si rifà, e perché il
+  perché delle sue scelte vale ancora. Prima `/status` (l'unico endpoint che
+  dice in chiaro che piano è attivo: una stagione non coperta non dà errore,
+  dà zero partite), poi il calendario in **una** richiesta, poi i dettagli.
+  Dentro il triennio 2022-2024 funziona anche sul piano gratuito — il muro è
+  il filtro `league+season`, non gli endpoint per partita: è così che i
+  tabellini si sarebbero potuti prendere gratis, a ~1140 richieste a stagione
+  e mesi di pazienza, ed è la ragione per cui vale la pena ricordare la
+  distinzione. Le partite
   finiscono in `data/storico/<anno>/`, un `SeasonStore` come quello della
   stagione in corso: non in cache, perché una cartella con un TTL è una
   garanzia troppo debole per un dato pagato. Il riempimento è **una coda
@@ -600,10 +640,52 @@ precedenti al registro, che infatti in pagina non hanno percentuali.
 
 `web/views.py` traduce il dominio in ciò che i template disegnano; `web/app.py`
 espone hub, scheda partita, `/pronostici` (il registro riga per riga),
+`/giornata/<n>?stagione=<anno>` e `/calendario`,
 `/giocatori` (marcatori, assist, voti),
 `/giocatore/<id>`, `/squadra/<id>`, `/stato` (JSON: cosa sa il sistema, budget
 residuo, pronostici registrati, esiti risolti) e `/aggiorna` (forza la
-ricostruzione). La scheda partita mostra anche gol, formazioni e pagelle
+ricostruzione).
+
+Due campi di `/stato` esistono per dichiarare un **guasto** e non un dato, e
+tutti e due compaiono come avviso in cima a ogni pagina quando scattano.
+`modello_convergente` dice se l'ottimizzatore ha raggiunto l'ottimo o ha
+sbattuto contro `max_iterations`: senza, un modello non convergente
+produrrebbe pagine con la faccia di sempre, contro la regola di non nascondere
+i limiti del modello. Le percentuali restano visibili anche allora, ed è
+voluto — nasconderle direbbe «non lo so» al posto di «lo so male».
+`registro_leggibile` distingue un registro **vuoto** da uno **illeggibile**:
+`_conteggi` restituisce `None` e non zero, perché «0 pronostici registrati»
+sarebbe un fatto osservato che nessuno ha osservato. È la stessa regola di
+`pesi.py`, dove `None` non deve mai diventare 1.0.
+
+Il foglio di stile viaggia con una versione (`style.css?v=<mtime>`,
+`versione_statici` in `web/app.py`), e non è un vezzo: senza `Cache-Control`
+esplicito i browser applicano una scadenza inventata da loro, e un CSS appena
+modificato può non essere richiesto affatto — è successo il 3 settembre 2026,
+con la pagina delle giornate arrivata all'utente senza i suoi stili mentre sul
+server erano giusti. Si rilegge a ogni pagina e non a un avvio solo, altrimenti
+un sito acceso per giorni tornerebbe a servire la versione vecchia dopo ogni
+ritocco.
+
+**I template si rileggono dal disco a ogni richiesta, il codice Python no.**
+Non è una scelta ma un fatto di Jinja, e va conosciuto perché ha morso: quel
+3 settembre un `base.html` che chiamava una funzione nuova è entrato subito in
+servizio nel processo acceso, che quella funzione non ce l'aveva, e ogni
+pagina HTML ha risposto 500 mentre `/stato` — che è JSON e non passa da un
+template — continuava a rispondere 200. Toccando un template servito da un
+sito acceso, il riavvio non è facoltativo.
+`/giornata` è ciò che rende sfogliabili le ~1900 partite in archivio, che
+prima si vedevano solo dieci per volta dall'hub o dalla scheda squadra; è
+quasi tutta codice che esisteva già, perché la regola di `_riga` (congelato
+dopo il via, modello caldo prima) vale identica su una giornata del 2023 — che
+infatti mostra i risultati e **trattini** al posto dei pronostici, perché
+allora nessuno li scrisse. `/calendario` non è una pagina ma un rimando alla
+giornata che si sta per giocare: chi ci arriva non deve sapere a che numero è
+arrivato il campionato. La riga di quelle tabelle è una macro condivisa con
+l'hub (`riga_risultato` in `forme.html`) e ha **tre** stati e non due: il
+terzo, «da giocare», non esisteva perché l'hub mostra solo partite concluse, e
+senza di esso una partita futura avrebbe una pastiglia vuota — che si legge
+come «sbagliato». La scheda partita mostra anche gol, formazioni e pagelle
 quando i dettagli ci sono, e dice quando non ci sono. Mostra inoltre gli
 **indisponibili**, che sono l'unica cosa che quella pagina sappia dire su una
 partita non ancora giocata — e dichiara che il pronostico **non ne tiene
@@ -728,80 +810,126 @@ raccolta.
 - Due misure diverse, da non confondere: il **backtest** rigioca il passato con
   il modello di oggi, l'**accuratezza** (`/`, `scripts/accuratezza.py`) usa solo
   pronostici congelati prima del fischio d'inizio. La seconda è la misura
-  onesta e all'inizio della stagione sarà povera; sotto i 30 esiti per mercato
-  l'interfaccia dichiara che il numero non vale ancora.
+  onesta e all'inizio della stagione sarà povera; sotto le 30 **partite** per
+  mercato l'interfaccia dichiara che il numero non vale ancora. Partite e non
+  esiti, dal 3 settembre 2026: le dieci linee Over/Under di una gara sono
+  decise dallo stesso punteggio, quindi «Over/Under, 200 esiti» su venti
+  partite contava dieci volte la sostanza vera e faceva scattare il verdetto
+  dove doveva restare «troppi pochi dati». È la gemella della regola di
+  `esiti_risolti`: quella toglie il doppio conteggio nel *tempo* (più ristime
+  della stessa gara), questa nello *spazio* (più mercati sulla stessa gara), e
+  ognuna da sola lascia in piedi l'altra. Le tabelle mostrano tutti e due i
+  numeri, perché «200 esiti» accanto a «troppi pochi dati» si legge come un
+  guasto.
 - **Il confronto che conta è con le quote**, non con le baseline: battere chi
   tira a caso non dimostra nulla, pareggiare col mercato è già un buon
   risultato. Il confronto usa solo gli esiti per cui esistono *entrambe* le
   cose, pronostico congelato e quota di consenso — misurare il modello su
   tutte le partite e il mercato su un sottoinsieme diverso darebbe un numero
   privo di significato.
-- La stagione 2025/26 era un buco fra lo storico e la raccolta giornaliera.
-  **È stata chiusa il 22 agosto 2026 importando un file di risultati** (380
-  partite, zero richieste): vedi `data/importato.py`. Dall'API resta
-  irrecuperabile sul piano gratuito, e non ci sono scorciatoie da cercare —
-  quella strada passa da `scripts/riempi_storico.py` e da un piano a pagamento.
-  Cosa manca ancora di quella stagione: i **tabellini**, che un file di
-  risultati non ha e non avrà mai. Quelli si comprano.
+- La stagione 2025/26 era un buco fra lo storico e la raccolta giornaliera, ed
+  è stata chiusa **due volte**. Prima il 22 agosto 2026 importando un file di
+  risultati (380 partite, zero richieste: `data/importato.py`), poi il 24
+  agosto ricomprandola col piano Pro, tabellini compresi
+  (`scripts/riempi_storico.py`). Le due cartelle **convivono** ed è corretto:
+  `dataset.py` prende quella stagione **solo dal dato pagato**, e la regola è
+  esplicita perché gli id sintetici dell'importazione non verrebbero
+  sovrascritti da quelli veri ma affiancati — il campionato risulterebbe
+  giocato due volte. Conseguenza da tenere a mente leggendo il piede di
+  pagina: le partite «da stagioni importate» oggi valgono **zero**, e non è un
+  guasto.
 - Servono `.env` con `API_FOOTBALL_KEY` solo per gli script sui dati veri; test
   e demo girano senza.
 
 ## Lavori futuri
 
-`DA_FARE.txt` (file locale, volutamente non tracciato) elenca i lavori
-concordati con l'utente, otto in tutto (l'ottavo nato il 22 agosto 2026): pronostici con le formazioni
-ufficiali (**predisposti e spenti**, vedi `data/pesi.py` e `data/ufficiali.py`:
-la macchina c'è tutta e non scrive niente finché i tabellini non bastano — non
-è un bug da sistemare, è la regola); schede giocatore (**fatte**, vedi
-`data/players.py`); infortuni e
-squalifiche (**metà fatti**: si raccolgono e si vedono, vedi
-`data/indisponibili.py`; entrare nel pronostico dipende dalle formazioni); il
-riempimento della stagione 2025/26 (**metà fatto**: i risultati sono entrati
-gratis da un file, vedi `data/importato.py`; i tabellini restano a pagamento,
-vedi `data/storico.py`); i tabellini delle stagioni 2022-2024, che oggi
-abbiamo solo come risultati; l'impatto dell'allenatore (**fatto e misurato
-piatto** il 25 agosto 2026, vedi `data/panchine.py`: la macchina c'è, il
-fattore è 1.00 cioè spento, perché dimenticare la gestione precedente peggiora
-i pronostici in tutte e quattro le stagioni); i mercati dei gol (**fatti** il 22 agosto
-2026 con la compressione dei totali, vedi `comprimi_totale` in
-`model/dixon_coles.py` e `backtest.py --cerca-compressione`); e il **modello
-a tiri**, che è l'unica strada rimasta per sapere davvero qualcosa sui gol —
-i tiri sono già dentro le buste `/fixtures/players` che la raccolta scarica,
-quindi non costano richieste, ma i tabellini non ci sono ancora.
+`DA_FARE.txt` e `DA_SISTEMARE.txt` (file locali, volutamente non tracciati)
+tengono l'elenco: il primo i **lavori concordati** con l'utente, il secondo i
+**difetti trovati leggendo il codice**. Se quei file non ci fossero, questa
+sezione è l'unica traccia che ne rimane.
 
-L'ordine suggerito sta in cima a `DA_FARE.txt`. Il pezzo che conta: i
-**tabellini 2022-2024** sono il collo di bottiglia — sbloccano formazioni,
-allenatore e tiri — e la decisione di rimandarli era stata presa quando
-sembravano servire solo alle pagine. Col modello a tiri sono diventati materia
-prima, e vanno avviati per primi perché sono l'unico lavoro che impiega mesi.
+**I numeri dei lavori non si riusano**: quelli chiusi lasciano il posto vuoto,
+così i riferimenti nei commenti del codice continuano a puntare alla cosa
+giusta. Al 3 settembre 2026 restano aperti il **6**, l'**1**, il **2** e il
+**5**, ed è anche l'ordine in cui conviene affrontarli.
 
-Su quest'ultimo elenco una correzione verificata il 22 agosto 2026: i
-**tabellini 2022-2024 non richiedono un piano a pagamento**. Il piano gratuito
-blocca il filtro `league+season`, non gli endpoint per singola partita, e
-quelle tre stagioni sono fra le concesse — `/fixtures/players`,
-`/fixtures/lineups` e `/fixtures/events` rispondono con il payload pieno. Il
-lavoro è quindi gratis ma lungo (~1140 richieste a stagione, ~2 mesi per i soli
-tabellini) e l'utente ha deciso di **rimandarlo al giorno del piano**, che lo
-fa in una giornata. Non proporlo come lavoro gratuito senza ricordare i tempi.
+**6 — il vantaggio di casa.** L'unico che si possa cominciare oggi: non
+aspetta nessun dato e non costa richieste. `home_advantage` è l'ultimo
+parametro del progetto mai passato dal backtest, e vale 0.0798 (la casa segna
+×1.08) contro il ×1.16 di tutto l'archivio. Non è un errore — con l'emivita di
+180 giorni il campione efficace è di 234 partite equivalenti su 1541, e lì
+dentro il rapporto vale davvero quello — ma su quel campione l'errore standard
+è **grande quanto il parametro stesso**. La domanda è di modello: l'emivita
+serve a dimenticare la *forma di una squadra*, e viene applicata anche a
+`home_advantage`, `base` e `rho`, che sono costanti di lega e cambiano con gli
+anni, non con le settimane. La prova è un'emivita separata per i parametri di
+lega, misurata col metodo del progetto. Se è piatta, muore.
 
-Contiene per ognuno cosa esiste già nel codice e quali sono le insidie — fra
-cui tre che sembrano buone idee e non lo sono: i tabellini vecchi non
-migliorano i pronostici; una "forza dell'allenatore" che viaggia da una squadra
-all'altra non è identificabile con un campionato solo — e infatti non è quella
-la strada presa, si è pesato il **cambio** come rottura, che è l'unica cosa
-identificabile, e nemmeno quella ha reso; e i mercati dei gol
-**non** si curano con una distribuzione a coda più grassa, perché nei nostri
-dati i gol totali sono *sotto*-dispersi (varianza sempre minore della media,
-quattro stagioni su quattro) e il modello è già troppo largo. Se il file non
-c'è, questa è l'unica traccia che rimane di quell'elenco.
+**1 — le formazioni ufficiali.** Predisposte e **spente**, ed è la regola, non
+un bug: `data/pesi.py` e `data/ufficiali.py` non scrivono niente finché una
+squadra non ha 5 partite con tabellino nella stagione in corso. Si accende da
+sola verso fine settembre. Poi va calibrato `FATTORE_PREDEFINITO`, che è
+l'unico numero di quel lavoro scelto a occhio.
 
-Sui mercati dei gol, ora che il lavoro è stato fatto, restano due cose da
-ricordare. La prima: la compressione **toglie un danno, non aggiunge una
-capacità** — si arriva a pareggiare con la baseline, e chi la ritocca
-aspettandosi di saper pronosticare i gol sta inseguendo qualcosa che nei dati
-non c'è. La seconda: il fattore si sceglie **sulle stagioni diverse da quella
-su cui lo si misura**, e ogni volta si guarda anche l'1X2 — è il mercato che
-funziona, e vale più di quello che non funziona. Verificato il 22 agosto 2026:
-`rho` **non** va ristimato dopo la compressione, muoverlo di ±0.10 sposta i
-mercati dei gol di meno di 0.0005 di Brier e in direzioni opposte da una
-stagione all'altra.
+**2 — gli indisponibili dentro il pronostico.** Metà fatto: si raccolgono e si
+vedono (`data/indisponibili.py`), e la scheda partita dichiara che il
+pronostico non ne tiene conto. L'altra metà — quanto pesa chi manca — è
+esattamente il metodo del lavoro 1 e ne ha la stessa dipendenza.
+
+**5 — gli xG della stagione in corso.** Si aspetta il downgrade, e la prova è
+**una richiesta**: `/fixtures/statistics?fixture=<una partita del 2026>` dice
+se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
+
+### Cosa è già stato fatto, perché nessuno lo rifaccia
+
+  schede giocatore        20/08/2026   `data/players.py`, `/giocatori`
+  mercati dei gol         22/08/2026   compressione 0.20
+  la 2025/26              22 e 24/08   prima da file, poi ricomprata
+  tabellini provvisori    23/08/2026   `tabellino_provvisorio`
+  tabellini 2022-2024     24/08/2026   1141 richieste, **non** erano un lavoro
+                                       da mesi: il gratuito blocca il filtro
+                                       `league+season`, non gli endpoint per
+                                       partita
+  pesi giocatore coi tiri 24/08/2026   (gol+assist)×2 + tiri
+  il sito dal telefono    25/08/2026   Tailscale
+  lineups ed events       25/08/2026   quattro stagioni complete
+  emivita e shrinkage     25/08/2026   misurati; shrinkage rimisurato il
+                                       03/09 sull'archivio cresciuto: 2.0
+  le misure per partita   25/08 e 03/09  prima le ristime, poi i mercati
+  il calendario 2026      28/08/2026   380 partite, 1 richiesta
+  formazioni a metà       30/08/2026   `formazione_provvisoria`
+  sfogliare le giornate   03/09/2026   `/giornata`, `/calendario`
+
+### Le idee che sembrano buone e non lo sono
+
+Sono misurate, non discusse, e ognuna è morta con un numero. Il posto dove
+stanno per esteso è `DA_FARE.txt`, sezione COSE DA NON FARE MAI; qui c'è
+l'elenco, perché è la parte che si tende a riproporre.
+
+- **il modello a tiri e l'xG.** Misurati due volte il 24 agosto 2026, zero
+  richieste. Sui gol totali i tiri danno +0.012 di correlazione e l'xG +0.010,
+  col segno che cambia da una stagione all'altra: è rumore intorno allo zero.
+  L'unica cosa vera che ne resta è che l'xG prevede i gol **fatti** meglio dei
+  gol (+0.026, stabile) e sui gol **subiti** non fa niente.
+- **l'impatto dell'allenatore.** La macchina c'è (`data/panchine.py`) e il
+  fattore è **1.00, cioè spento**: il Brier 1X2 peggiora monotonicamente
+  allontanandosi da 1, in tutte e quattro le stagioni separatamente. La
+  correzione fa due cose insieme — toglie una squadra che non esiste più e
+  toglie **partite vere** — e la seconda si paga sempre.
+- **una «forza dell'allenatore»** che viaggia da una squadra all'altra: non è
+  identificabile con un campionato solo. Non è nemmeno la strada provata.
+- **i mercati dei gol con una coda più grassa** (binomiale negativa o simili):
+  nei nostri dati i gol totali sono *sotto*-dispersi, quattro stagioni su
+  quattro, e il modello è già troppo largo.
+- **ritoccare l'emivita o lo shrinkage.** Misurati, e lo shrinkage è l'unico
+  parametro con un ottimo interno vero. Chi li tocca deve rifare la misura.
+
+Sui mercati dei gol, due cose da ricordare ora che il lavoro è fatto. La
+compressione **toglie un danno, non aggiunge una capacità**: si arriva a
+pareggiare con la baseline, e chi la ritocca aspettandosi di saper
+pronosticare i gol insegue qualcosa che nei dati non c'è. E il fattore si
+sceglie **sulle stagioni diverse da quella su cui lo si misura**, guardando
+sempre anche l'1X2 — è il mercato che funziona, e vale più di quello che non
+funziona. Verificato il 22 agosto 2026: `rho` **non** va ristimato dopo la
+compressione, muoverlo di ±0.10 sposta i mercati dei gol di meno di 0.0005 di
+Brier e in direzioni opposte da una stagione all'altra.

@@ -986,6 +986,93 @@ def test_il_punteggio_giusto_col_segno_sbagliato_resta_il_gradino_alto():
     assert riga.precisione == "esatto"
 
 
+# ---- i punteggi nominati in pagina -----------------------------------------
+
+# Il modello da' 1-0 al 12% e 2-0 al 10.3%: due celle vicine, non due
+# pronostici. Sotto, il terzo si ferma al 9% e resta fuori.
+_DUE_SOPRA_LA_SOGLIA = {
+    (1, 0): 0.12, (2, 0): 0.103, (2, 1): 0.09, (3, 0): 0.07, (3, 1): 0.06,
+    (0, 0): 0.08, (1, 1): 0.09, (2, 2): 0.06,
+    (0, 1): 0.09, (1, 2): 0.08, (0, 2): 0.07, (0, 3): 0.047, (1, 3): 0.04,
+}
+
+
+def test_si_nominano_tutti_i_punteggi_sopra_il_dieci_per_cento():
+    riga = _riga(_probabilita(_DUE_SOPRA_LA_SOGLIA), None, None)
+    assert riga.risultati_probabili == "1-0/2-0"
+    assert riga.piu_di_un_risultato_probabile is True
+
+
+def test_l_ordine_e_quello_della_probabilita():
+    """Il piu' probabile per primo, sempre: e' l'unica lettura che l'occhio fa."""
+    prob = _probabilita({
+        (2, 0): 0.16, (1, 0): 0.12, (0, 0): 0.09, (1, 1): 0.09, (2, 1): 0.09,
+        (3, 0): 0.09, (0, 1): 0.09, (1, 2): 0.09, (0, 2): 0.09, (2, 2): 0.09,
+    })
+    assert prob.most_likely_scoreline == (2, 0)
+    riga = _riga(prob, None, None)
+    assert riga.risultati_probabili == "2-0/1-0"
+
+
+def test_un_solo_punteggio_sopra_la_soglia_resta_al_singolare():
+    prob = _probabilita({
+        (1, 0): 0.16, (1, 1): 0.09, (0, 0): 0.09, (2, 0): 0.09, (2, 1): 0.09,
+        (0, 1): 0.09, (1, 2): 0.09, (0, 2): 0.09, (2, 2): 0.09, (3, 0): 0.06,
+        (3, 1): 0.06,
+    })
+    riga = _riga(prob, None, None)
+    assert riga.risultati_probabili == "1-0"
+    assert riga.piu_di_un_risultato_probabile is False
+
+
+def test_se_nessuno_arriva_alla_soglia_si_torna_al_piu_probabile():
+    """Mai uno spazio bianco: si leggerebbe come "il modello non sa dirlo".
+
+    E' falso — la matrice c'e', e' solo piu' larga del solito — ed e' la
+    differenza che il progetto tiene ovunque fra "non lo so" e "non ce n'e'
+    abbastanza". Qui non lo sappiamo *meno* del solito: lo sappiamo diviso su
+    piu' celle.
+    """
+    prob = _probabilita({
+        (1, 1): 0.095, (1, 0): 0.085, (0, 1): 0.08, (2, 1): 0.08, (1, 2): 0.08,
+        (0, 0): 0.07, (2, 0): 0.07, (0, 2): 0.07, (2, 2): 0.07,
+        (3, 1): 0.06, (1, 3): 0.06, (3, 0): 0.06, (0, 3): 0.06, (3, 2): 0.06,
+    })
+    riga = _riga(prob, None, None)
+    assert max(p for _, p in prob.top_scorelines) < 0.10
+    assert riga.risultati_probabili == "1-1"
+    assert riga.piu_di_un_risultato_probabile is False
+
+
+def test_senza_pronostico_non_si_nomina_niente():
+    riga = _riga(None, None, None)
+    assert riga.risultati_probabili == ""
+
+
+def test_nominarne_due_non_cambia_il_verdetto_sulle_partite_giocate():
+    """La guardia che conta: "azzeccato" misura il punteggio NOMINATO, uno solo.
+
+    In pagina l'hub scrive "1-0/2-0". Se `risultato_probabile` seguisse quella
+    lista, una partita finita 2-0 diventerebbe di colpo "azzeccato" col
+    punteggio esatto — e il gradino alto vorrebbe dire un'altra cosa da ieri,
+    su tutto lo storico e senza che niente lo segnali. Sono due domande
+    diverse: "cosa mostro prima della partita" e "cosa aveva nominato".
+    """
+    prob = _probabilita(_DUE_SOPRA_LA_SOGLIA)
+    riga = _riga(prob, 2, 0)
+
+    assert riga.risultati_probabili == "1-0/2-0"   # cio' che l'hub mostra
+    assert riga.risultato_probabile == "1-0"       # cio' che il modello nomino'
+    assert riga.risultato_azzeccato is False
+    assert riga.pronostico_azzeccato is True
+    assert riga.precisione == "esito"
+
+
+def test_l_hub_scrive_i_punteggi_probabili(client):
+    r = client.get("/")
+    assert "Piu' probabil" in r.text
+
+
 def test_l_hub_disegna_i_tre_gradini(client_col_passato):
     """La pastiglia c'e' e porta la classe del gradino, che e' cio' che tinge."""
     r = client_col_passato.get("/")
@@ -1630,3 +1717,256 @@ def test_se_il_modello_cambia_idea_nasce_una_riga_nuova(client, motore):
 
     pagina = client.get("/pronostici").text
     assert pagina.count('href="/partita/9001"') == 2, "in pagina si vedono tutt'e due"
+
+
+# ---- il sistema dichiara i propri guasti (I2, I4) ---------------------------
+
+
+def test_lo_stato_dice_se_il_modello_e_convergente(client):
+    stato = client.get("/stato").json()
+    assert stato["modello_convergente"] is True
+
+
+def test_un_modello_non_convergente_si_vede_in_pagina(motore, monkeypatch):
+    """Il caso che oggi non capita mai, ed e' per questo che va coperto adesso.
+
+    Se l'ottimizzatore sbattesse contro `max_iterations` le pagine avrebbero
+    la faccia di sempre: percentuali, verdetti, tutto. E' contro la regola del
+    progetto di non nascondere i limiti del modello nell'interfaccia.
+    """
+    snap = motore.snapshot()
+    motore._snapshot = replace(snap, model=replace(snap.model, converged=False))
+    monkeypatch.setattr(app_module, "_engine", motore)
+    client = TestClient(app_module.app)
+
+    assert client.get("/stato").json()["modello_convergente"] is False
+    pagina = client.get("/").text
+    assert "non ha raggiunto la convergenza" in pagina
+    # Le percentuali restano: "non lo so" e "lo so male" sono due cose diverse.
+    assert "avviso-guasto" in pagina
+
+
+def test_un_modello_convergente_non_allarma_nessuno(client):
+    assert "avviso-guasto" not in client.get("/").text
+
+
+def test_un_registro_illeggibile_non_diventa_zero(motore, monkeypatch):
+    """Il difetto I4: `except: return 0` dichiarava un vuoto mai osservato.
+
+    Zero pronostici registrati e' un fatto; un database che non risponde e'
+    un'altra cosa, e scriverli uguale e' la bugia piu' facile da raccontare
+    con dati veri. E' la stessa regola di `pesi.py`, dove None non deve mai
+    diventare 1.0.
+    """
+    def rotto():
+        raise RuntimeError("database occupato")
+
+    monkeypatch.setattr(motore.pronostici, "conteggi", rotto)
+    monkeypatch.setattr(app_module, "_engine", motore)
+    client = TestClient(app_module.app)
+
+    stato = client.get("/stato").json()
+    assert stato["registro_leggibile"] is False
+    assert stato["pronostici_registrati"] is None
+    assert stato["esiti_risolti"] is None
+    assert stato["partite_quotate"] is None
+    assert stato["partite_con_indisponibili"] is None
+
+    assert "non si legge" in client.get("/").text
+
+
+def test_un_registro_sano_non_dice_niente(client):
+    stato = client.get("/stato").json()
+    assert stato["registro_leggibile"] is True
+    # Un numero, quale che sia: il motore ne congela qualcuno da solo alla
+    # ristima. Cio' che conta e' che non sia None.
+    assert isinstance(stato["pronostici_registrati"], int)
+    assert "non si legge" not in client.get("/").text
+
+
+def test_il_registro_si_legge_una_volta_sola_per_pagina(motore, monkeypatch):
+    """Prima ogni voce se lo rileggeva: quattro connessioni sqlite a pagina."""
+    letture = []
+    vero = motore.pronostici.conteggi
+
+    def contando():
+        letture.append(1)
+        return vero()
+
+    monkeypatch.setattr(motore.pronostici, "conteggi", contando)
+    motore.health()
+
+    assert len(letture) == 1
+
+
+# ---- il piede di pagina nomina tutte le sorgenti (I3) -----------------------
+
+
+def test_il_piede_nomina_le_stagioni_importate(motore, monkeypatch):
+    """Oggi valgono zero perche' la 2025/26 e' anche ricomprata e vince il
+    dato pagato. Si vedrebbe il giorno in cui se ne importasse una senza
+    ricomprarla — e allora i numeri del piede non tornerebbero, in silenzio.
+    """
+    snap = motore.snapshot()
+    dataset = replace(snap.dataset, n_importate=380, stagioni_importate=[2021])
+    motore._snapshot = replace(snap, dataset=dataset)
+    monkeypatch.setattr(app_module, "_engine", motore)
+
+    pagina = TestClient(app_module.app).get("/").text
+    assert "dalle stagioni importate da file" in pagina
+    assert "2021" in pagina
+
+
+def test_senza_stagioni_importate_il_piede_non_ne_parla(client):
+    """Una riga a zero direbbe che manca qualcosa che nessuno ha chiesto."""
+    assert "dalle stagioni importate" not in client.get("/").text
+
+
+# ---- la data corta sugli schermi stretti (L1) -------------------------------
+
+
+def test_la_riga_porta_la_data_in_due_forme(client):
+    """Tutte e due nell'HTML: a scegliere e' la larghezza vera, non il server.
+
+    Un'ipotesi lato server su "sei da telefono?" sbaglierebbe ogni volta che
+    qualcuno gira lo schermo.
+    """
+    pagina = client.get("/").text
+    assert 'class="data-lunga"' in pagina
+    assert 'class="data-corta"' in pagina
+
+
+def test_la_data_corta_e_giorno_e_numero():
+    from serie_a_analyzer.web.views import formatta_data, formatta_data_breve
+
+    quando = datetime(2026, 8, 23, 18, 45, tzinfo=timezone.utc)
+    assert formatta_data(quando) == "domenica 23 ago, 20:45"
+    # Niente ora: su una partita giocata dice poco, e mangiava il 40% della riga.
+    assert formatta_data_breve(quando) == "dom 23"
+
+
+# ---- sfogliare una giornata qualsiasi (L3) ----------------------------------
+
+
+def test_una_giornata_si_puo_aprire(client, motore):
+    stagione = motore.snapshot().dataset.stagioni()[0]
+    r = client.get(f"/giornata/1?stagione={stagione}")
+
+    assert r.status_code == 200
+    assert "Giornata 1" in r.text
+
+
+def test_il_calendario_porta_alla_giornata_che_si_sta_per_giocare(client, motore):
+    """/calendario non e' una pagina: e' l'indirizzo che sa dove sei arrivato."""
+    dataset = motore.snapshot().dataset
+    stagione = dataset.stagioni()[0]
+    attesa = dataset.giornata_corrente(stagione)
+
+    r = client.get("/calendario", follow_redirects=False)
+
+    assert r.status_code == 307
+    assert r.headers["location"] == f"/giornata/{attesa}?stagione={stagione}"
+
+
+def test_una_giornata_che_non_esiste_e_un_404(client, motore):
+    stagione = motore.snapshot().dataset.stagioni()[0]
+    assert client.get(f"/giornata/99?stagione={stagione}").status_code == 404
+
+
+def test_una_giornata_da_giocare_non_si_chiama_sbagliata(client, motore):
+    """Il terzo stato della riga, quello che l'hub non aveva mai.
+
+    Sugli ultimi risultati una partita ha due esiti possibili — azzeccata o
+    no. Qui ce n'e' un terzo: non ancora giocata. Con la pastiglia vuota si
+    leggerebbe come "sbagliato", che e' un giudizio su una partita che nessuno
+    ha ancora visto.
+    """
+    dataset = motore.snapshot().dataset
+    stagione = dataset.stagioni()[0]
+    futura = next(
+        f for f in dataset.fixtures
+        if f.status == "scheduled" and f.matchday is not None
+    )
+
+    r = client.get(f"/giornata/{futura.matchday}?stagione={stagione}")
+
+    assert r.status_code == 200
+    assert "da giocare" in r.text
+
+
+def test_le_giornate_di_una_stagione_saltano_quelle_senza_numero(motore):
+    """Una voce "giornata None" nel menu sarebbe un vicolo cieco."""
+    dataset = motore.snapshot().dataset
+    stagione = dataset.stagioni()[0]
+
+    giornate = dataset.giornate(stagione)
+
+    assert giornate == sorted(giornate)
+    assert None not in giornate
+    assert all(isinstance(g, int) for g in giornate)
+
+
+def test_una_giornata_e_ordinata_per_calcio_d_inizio(motore):
+    """Una giornata si spalma su tre giorni: si guarda in ordine di orario."""
+    dataset = motore.snapshot().dataset
+    stagione = dataset.stagioni()[0]
+    numero = dataset.giornate(stagione)[0]
+
+    partite = dataset.giornata(stagione, numero)
+
+    assert partite == sorted(partite, key=lambda f: f.kickoff_utc)
+    assert {f.matchday for f in partite} == {numero}
+
+
+def test_la_testata_porta_al_calendario(client):
+    assert 'href="/calendario"' in client.get("/").text
+
+
+# ---- il foglio di stile deve arrivare al browser ----------------------------
+
+
+def test_il_foglio_di_stile_porta_una_versione(client):
+    """Senza, un CSS appena modificato puo' non essere richiesto affatto.
+
+    E' successo davvero: la pagina di una giornata e' arrivata coi numeri come
+    testo sottolineato invece che come bottoni, con il CSS giusto sul server.
+    """
+    import re
+
+    pagina = client.get("/").text
+    trovato = re.search(r'href="/static/style\.css\?v=(\d+)"', pagina)
+
+    assert trovato, "il foglio di stile non porta nessuna versione"
+    assert int(trovato.group(1)) > 0
+
+
+def test_la_versione_cambia_quando_cambia_il_foglio(tmp_path, monkeypatch):
+    """Si rilegge a ogni pagina, non a un avvio solo: un sito acceso per
+    giorni tornerebbe a servire la versione vecchia dopo ogni ritocco."""
+    import os
+    from serie_a_analyzer.web.app import versione_statici
+
+    prima = versione_statici()
+    foglio = app_module.QUI / "static" / "style.css"
+    dopo_mtime = foglio.stat().st_mtime + 10
+    os.utime(foglio, (dopo_mtime, dopo_mtime))
+    try:
+        assert versione_statici() != prima
+    finally:
+        originale = float(prima)
+        os.utime(foglio, (originale, originale))
+
+
+def test_le_giornate_sono_bottoni_come_quelli_della_testata(client, motore):
+    """Non una forma nuova: la stessa `.bottone` del resto del sito.
+
+    Una pagina che disegna un comando in un terzo modo insegna a non
+    riconoscerlo.
+    """
+    stagione = motore.snapshot().dataset.stagioni()[0]
+    pagina = client.get(f"/giornata/1?stagione={stagione}").text
+
+    assert 'class="bottone giornata' in pagina
+    # La giornata aperta usa lo stesso `.attivo` della pagina in testata.
+    assert 'class="bottone giornata attivo"' in pagina
+    assert "pastiglia-giornata" not in pagina

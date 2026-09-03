@@ -120,17 +120,17 @@ def main() -> int:
         return 0
 
     titolo("Per mercato")
-    print(f"{'Mercato':<24}{'esiti':>7}{'Brier':>10}{'baseline':>11}"
+    print(f"{'Mercato':<24}{'part.':>6}{'esiti':>7}{'Brier':>10}{'baseline':>11}"
           f"{'accaduto':>11}{'previsto':>11}  verdetto")
-    print("-" * 88)
+    print("-" * 94)
     for v in per_mercato:
         if not v["significativo"]:
-            verdetto = f"pochi dati (<{SOGLIA_SIGNIFICATIVITA})"
+            verdetto = f"pochi dati (<{SOGLIA_SIGNIFICATIVITA} partite)"
         elif v["batte_baseline"]:
             verdetto = "meglio della baseline"
         else:
             verdetto = "PEGGIO della baseline"
-        print(f"{ETICHETTE.get(v['mercato'], v['mercato']):<24}{v['n']:>7}"
+        print(f"{ETICHETTE.get(v['mercato'], v['mercato']):<24}{v['partite']:>6}{v['n']:>7}"
               f"{v['brier']:>10.4f}{v['baseline']:>11.4f}"
               f"{v['tasso_reale']:>10.1%}{v['probabilita_media']:>11.1%}  {verdetto}")
 
@@ -161,16 +161,17 @@ def main() -> int:
         print("Le quote di chiusura sono il metro di paragone vero: incorporano")
         print("infortuni, formazioni e il denaro di chi scommette. Pareggiare con")
         print(f"loro e' gia' un buon risultato.  ({confronto['partite']} partite)\n")
-        print(f"{'Mercato':<24}{'esiti':>7}{'modello':>10}{'mercato':>10}{'differenza':>13}  verdetto")
-        print("-" * 84)
+        print(f"{'Mercato':<24}{'part.':>6}{'esiti':>7}{'modello':>10}{'mercato':>10}"
+              f"{'differenza':>13}  verdetto")
+        print("-" * 90)
         for v in confronto["mercati"]:
             if not v["significativo"]:
-                verdetto = f"pochi dati (<{SOGLIA_SIGNIFICATIVITA})"
+                verdetto = f"pochi dati (<{SOGLIA_SIGNIFICATIVITA} partite)"
             elif v["batte_il_mercato"]:
                 verdetto = "meglio del mercato"
             else:
                 verdetto = "il mercato fa meglio"
-            print(f"{ETICHETTE.get(v['mercato'], v['mercato']):<24}{v['n']:>7}"
+            print(f"{ETICHETTE.get(v['mercato'], v['mercato']):<24}{v['partite']:>6}{v['n']:>7}"
                   f"{v['brier_modello']:>10.4f}{v['brier_mercato']:>10.4f}"
                   f"{v['scarto']:>+13.4f}  {verdetto}")
         t = confronto["totale"]
@@ -204,12 +205,12 @@ def main() -> int:
         print("formazioni ufficiali, sulle stesse identiche partite — le uniche")
         print("su cui la domanda abbia una risposta.")
         print(f"  ({modi['partite']} partite in comune)\n")
-        print(f"{'Mercato':<24}{'esiti':>7}{'secco':>10}{'formaz.':>10}"
+        print(f"{'Mercato':<24}{'part.':>6}{'esiti':>7}{'secco':>10}{'formaz.':>10}"
               f"{'differenza':>13}  verdetto")
-        print("-" * 84)
+        print("-" * 90)
         for v in modi["mercati"]:
             if not v["significativo"]:
-                verdetto = f"pochi dati (<{SOGLIA_SIGNIFICATIVITA})"
+                verdetto = f"pochi dati (<{SOGLIA_SIGNIFICATIVITA} partite)"
             elif v["il_secondo_e_migliore"]:
                 verdetto = "le formazioni aiutano"
             else:

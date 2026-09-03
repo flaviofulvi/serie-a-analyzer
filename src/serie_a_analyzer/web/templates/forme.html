@@ -130,3 +130,48 @@
     </span>
   </span>
 {% endmacro %}
+
+{# Una partita come riga di tabella: quando, chi, com'e' finita, il trittico
+   in cifre e il verdetto.
+
+   Sta qui e non dentro l'hub perche' da quando esiste la pagina di una
+   giornata (`giornata.html`) le tabelle sono due, e due copie della stessa
+   riga divergono al primo ritocco. Ha tre stati, non due, ed e' l'unica cosa
+   delicata:
+
+     conclusa col pronostico   il velo colorato cade sull'esito ACCADUTO, e la
+                               pastiglia dice quanto il modello ci ha preso;
+     conclusa senza pronostico trattini: nessuno lo chiese in tempo, e adesso
+                               non c'e' modo di rifarlo;
+     ancora da giocare         le tre percentuali senza velo — non c'e' niente
+                               da evidenziare — e "da giocare" al posto del
+                               verdetto. Una pastiglia vuota si leggerebbe
+                               come "sbagliato". #}
+{% macro riga_risultato(p, punteggio) %}
+  <tr>
+    {# Due date, una sola visibile: sotto i 640px vince la corta. #}
+    <td class="fioco"><span class="data-lunga">{{ p.quando }}</span><span class="data-corta">{{ p.quando_breve }}</span></td>
+    <td><a href="/partita/{{ p.id }}">{{ p.casa }} &middot; {{ p.ospite }}</a></td>
+    <td class="destra">{{ punteggio(p.risultato, p.esito_reale, p.margine) }}</td>
+    {% if p.ha_pronostico %}
+      {# Sulle tre celle il velo colorato cade su quella accaduta davvero. Il
+         colore e' lo stesso del punteggio a sinistra e, se il modello ci ha
+         preso, anche della pastiglia in fondo: la riga diventa monocroma
+         quando le due cose coincidono, screziata quando no. #}
+      <td class="destra mono {{ 'evidenzia tinta-1' if p.esito_reale == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
+      <td class="destra mono {{ 'evidenzia tinta-X' if p.esito_reale == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
+      <td class="destra mono {{ 'evidenzia tinta-2' if p.esito_reale == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
+      {# Tre gradini invece di due: azzeccato col punteggio, azzeccato il solo
+         esito, sbagliato. A dirlo e' il colore della pastiglia. #}
+      <td class="destra">
+        {% if p.precisione %}
+          <span class="verdetto {{ p.precisione }}">{{ p.precisione_testo }}</span>
+        {% else %}
+          <span class="verdetto attesa">da giocare</span>
+        {% endif %}
+      </td>
+    {% else %}
+      <td class="destra fioco" colspan="4">&mdash;</td>
+    {% endif %}
+  </tr>
+{% endmacro %}

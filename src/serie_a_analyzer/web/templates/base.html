@@ -11,7 +11,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400..700&display=swap">
-  <link rel="stylesheet" href="/static/style.css">
+  {# La `?v=` non e' un vezzo: senza, un foglio di stile appena modificato
+     puo' non arrivare mai al browser, che lo tiene per una scadenza sua.
+     Vedi `versione_statici` in web/app.py. #}
+  <link rel="stylesheet" href="/static/style.css?v={{ versione_statici() }}">
 </head>
 <body>
   <header class="intestazione">
@@ -34,6 +37,15 @@
           <span class="bottone attivo" aria-current="page">Partite</span>
         {% else %}
           <a class="bottone" href="/">Partite</a>
+        {% endif %}
+
+        {# "Calendario" e non "Giornate": porta a /calendario, che e' solo un
+           rimando alla giornata che si sta per giocare. Chi ci arriva non
+           deve sapere a che numero e' arrivato il campionato. #}
+        {% if percorso.startswith("/giornata") or percorso.startswith("/calendario") %}
+          <span class="bottone attivo" aria-current="page">Calendario</span>
+        {% else %}
+          <a class="bottone" href="/calendario">Calendario</a>
         {% endif %}
 
         {% if percorso.startswith("/giocator") %}
@@ -59,6 +71,32 @@
   </header>
 
   <main class="contenitore">
+    {# I due guasti che il sistema puo' avere e che nessuna pagina saprebbe
+       raccontare da sola. Stanno qui, in cima a tutto, perche' se compaiono
+       sono l'unica cosa da leggere — e stanno in base.html perche' non
+       riguardano una pagina ma il programma. Nel funzionamento normale non
+       compare niente, ed e' il caso di sempre. #}
+    {% if salute.modello_pronto and salute.modello_convergente is sameas false %}
+      <div class="avviso-guasto" role="alert">
+        <p><strong>Il modello non ha raggiunto la convergenza.</strong>
+        L'ottimizzatore si e' fermato sul tetto delle iterazioni invece che
+        sull'ottimo: le forze delle squadre qui sotto sono l'ultimo tentativo,
+        non la stima.</p>
+        <p>Le percentuali continuano a essere mostrate perche' nasconderle
+        direbbe "non lo so" al posto di "lo so male", e sono due cose diverse.
+        Vanno pero' lette sapendo questo.</p>
+      </div>
+    {% endif %}
+    {% if not salute.registro_leggibile %}
+      <div class="avviso-guasto" role="alert">
+        <p><strong>Il registro dei pronostici non si legge.</strong>
+        Non e' vuoto: e' illeggibile — file mancante, schema vecchio o database
+        occupato. Le pagine che mostrano cosa era stato pronosticato, e tutte
+        le misure di accuratezza, restano indietro finche' non torna.</p>
+        <p>I pronostici gia' scritti non si perdono: il registro e'
+        append-only e nessuno lo sta riscrivendo.</p>
+      </div>
+    {% endif %}
     {% block contenuto %}{% endblock %}
   </main>
 
@@ -68,12 +106,18 @@
         <div>
           <span class="pie-etichetta">Partite in archivio</span>
           <strong>{{ salute.partite_totali }}</strong>
-          {# Le stagioni ricomprate compaiono solo se esistono: sul piano
-             gratuito non ce ne sono, e una riga a zero direbbe solo che manca
-             qualcosa che nessuno ha chiesto. #}
+          {# Ricomprate e importate compaiono solo se esistono: una riga a zero
+             direbbe che manca qualcosa che nessuno ha chiesto. Le due voci
+             sono separate perche' non sono la stessa cosa — una stagione
+             ricomprata ha tabellini, formazioni ed eventi, una importata da
+             un file ha solo i risultati — e perche' un totale che non torna
+             coi suoi addendi sembra un errore di conto. Oggi le importate
+             valgono zero: la 2025/26 e' stata anche ricomprata e il dataset
+             preferisce il dato pagato. #}
           <span class="pie-nota">
             {{ salute.partite_stagione_corrente }} dalla raccolta giornaliera{% if salute.stagioni_riempite %},
-            {{ salute.partite_stagioni_riempite }} dalle stagioni ricomprate ({{ salute.stagioni_riempite | join(", ") }}){% endif %}
+            {{ salute.partite_stagioni_riempite }} dalle stagioni ricomprate ({{ salute.stagioni_riempite | join(", ") }}){% endif %}{% if salute.stagioni_importate %},
+            {{ salute.partite_stagioni_importate }} dalle stagioni importate da file ({{ salute.stagioni_importate | join(", ") }}){% endif %}
           </span>
         </div>
         <div>

@@ -275,14 +275,44 @@ def test_pochi_esiti_non_fanno_una_misura(store):
 
 
 def test_una_misura_diventa_significativa_con_abbastanza_partite(store):
-    for fixture_id in range(1, 21):
+    for fixture_id in range(1, SOGLIA_SIGNIFICATIVITA + 1):
         _pronostica(store, fixture_id=fixture_id)
         risolvi_partita(store, fixture_id, 2, 1, now=DOPO)
 
     uno_x_due = next(v for v in accuratezza_per_mercato(store) if v["mercato"] == "1x2")
 
-    assert uno_x_due["n"] == 60           # 20 partite x 3 esiti
+    assert uno_x_due["partite"] == SOGLIA_SIGNIFICATIVITA
+    assert uno_x_due["n"] == SOGLIA_SIGNIFICATIVITA * 3   # tre selezioni a partita
     assert uno_x_due["significativo"] is True
+
+
+def test_venti_partite_non_diventano_significative_a_forza_di_linee(store):
+    """Il difetto di I1: dieci linee Over/Under non sono dieci osservazioni.
+
+    Se una partita finisce 2-1, "Over 0.5 vero", "Over 1.5 vero" e "Under 3.5
+    vero" sono decisi tutti dallo stesso punteggio: e' un'osservazione sola
+    vestita da dieci. Contando gli esiti, venti partite superavano una soglia
+    di trenta e il sito dichiarava "meglio della baseline"; contando le
+    partite dice quello che sa, cioe' che non sa ancora.
+
+    L'1X2 accanto e' il termine di paragone: stesse identiche partite, meno
+    selezioni, e prima si comportava diversamente solo perche' di righe ne
+    aveva sessanta invece di duecento.
+    """
+    for fixture_id in range(1, 21):
+        _pronostica(store, fixture_id=fixture_id)
+        risolvi_partita(store, fixture_id, 2, 1, now=DOPO)
+
+    per_mercato = {v["mercato"]: v for v in accuratezza_per_mercato(store)}
+    over = per_mercato["over_under"]
+
+    assert over["partite"] == 20
+    assert over["n"] > SOGLIA_SIGNIFICATIVITA      # duecento esiti: la vecchia regola bastava
+    assert over["significativo"] is False          # venti partite: la nuova no
+
+    # Nessun mercato puo' dissentire: sono le stesse venti partite.
+    assert {v["partite"] for v in per_mercato.values()} == {20}
+    assert not any(v["significativo"] for v in per_mercato.values())
 
 
 def test_il_brier_dell_1x2_e_confrontabile_col_backtest(store):

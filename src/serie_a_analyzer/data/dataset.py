@@ -100,6 +100,56 @@ class Dataset:
         """Le ultime partite concluse, dalla piu' recente."""
         return sorted(self.finished, key=lambda f: f.kickoff_utc, reverse=True)[:limit]
 
+    def stagioni(self) -> list[int]:
+        """Le stagioni presenti in archivio, dalla piu' recente."""
+        return sorted({f.season for f in self.fixtures}, reverse=True)
+
+    def giornate(self, stagione: int) -> list[int]:
+        """I numeri di giornata di una stagione, in ordine.
+
+        Salta le partite senza numero: l'API lo lascia vuoto sui turni che non
+        stanno nel conto normale, e una voce "giornata None" nel menu sarebbe
+        un vicolo cieco. Quelle partite restano raggiungibili dalla scheda
+        squadra, che non passa da qui.
+        """
+        return sorted({
+            f.matchday for f in self.fixtures
+            if f.season == stagione and f.matchday is not None
+        })
+
+    def giornata(self, stagione: int, numero: int) -> list[FixtureRecord]:
+        """Le partite di una giornata, dalla prima giocata all'ultima.
+
+        L'ordine e' il calcio d'inizio e non il numero: una giornata di Serie A
+        si spalma su tre giorni, e vederla in ordine di orario e' come la si
+        e' guardata.
+        """
+        return sorted(
+            (f for f in self.fixtures
+             if f.season == stagione and f.matchday == numero),
+            key=lambda f: f.kickoff_utc,
+        )
+
+    def giornata_corrente(self, stagione: int, now: datetime | None = None) -> int | None:
+        """La giornata da mostrare a chi apre il calendario senza chiedere.
+
+        E' quella della prima partita ancora da giocare — cioe' quella che si
+        sta per vedere — e non l'ultima conclusa: a campionato in corso la
+        domanda e' quasi sempre "chi gioca adesso". A stagione finita non
+        esiste piu' un futuro e si ripiega sull'ultima giocata, che e' l'unica
+        risposta rimasta.
+        """
+        giornate = self.giornate(stagione)
+        if not giornate:
+            return None
+        adesso = now or datetime.now(timezone.utc)
+        future = [
+            f.matchday for f in self.fixtures
+            if f.season == stagione and f.matchday is not None
+            and f.kickoff_utc > adesso
+        ]
+        return min(future) if future else max(giornate)
+
     def team_fixtures(self, team_id: int) -> list[FixtureRecord]:
         return sorted(
             (f for f in self.fixtures if team_id in (f.home_team_id, f.away_team_id)),

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% from "forme.html" import trittico, muro, punteggio, calibro %}
+{% from "forme.html" import trittico, muro, punteggio, calibro, riga_risultato %}
 
 {% block contenuto %}
 
@@ -59,9 +59,15 @@
                 <div><span class="voce">Gol/NoGol</span>
                      <b>{{ (p.prob.btts*100)|round|int }}%</b></div>
                 {# "Risultato" da solo, su una partita da giocare, si legge
-                   come il risultato finale: e' il punteggio piu' probabile. #}
-                <div><span class="voce">Piu' probabile</span>
-                     <b>{{ p.risultato_probabile }}</b></div>
+                   come il risultato finale: sono i punteggi piu' probabili.
+                   Ne compare piu' d'uno quando piu' d'uno supera il 10%:
+                   nominare solo il primo farebbe sembrare deciso un modello
+                   che su una partita equilibrata da' 12% al primo e 11% al
+                   secondo. L'etichetta si accorda da sola. #}
+                <div><span class="voce">
+                       {%- if p.piu_di_un_risultato_probabile %}Piu' probabili
+                       {%- else %}Piu' probabile{% endif %}</span>
+                     <b>{{ p.risultati_probabili }}</b></div>
               </div>
             {% else %}
               <div class="esito-riga casa" style="grid-template-columns: 1fr">
@@ -155,29 +161,7 @@
           </thead>
           <tbody>
             {% for p in recenti %}
-              <tr>
-                <td class="fioco">{{ p.quando }}</td>
-                <td><a href="/partita/{{ p.id }}">{{ p.casa }} &middot; {{ p.ospite }}</a></td>
-                <td class="destra">{{ punteggio(p.risultato, p.esito_reale, p.margine) }}</td>
-                {% if p.ha_pronostico %}
-                  {# Sulle tre celle il velo colorato cade su quella accaduta
-                     davvero. Il colore e' lo stesso del punteggio a sinistra
-                     e, se il modello ci ha preso, anche della pastiglia in
-                     fondo: la riga diventa monocroma quando le due cose
-                     coincidono, screziata quando no. #}
-                  <td class="destra mono {{ 'evidenzia tinta-1' if p.esito_reale == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
-                  <td class="destra mono {{ 'evidenzia tinta-X' if p.esito_reale == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
-                  <td class="destra mono {{ 'evidenzia tinta-2' if p.esito_reale == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
-                  {# Tre gradini invece di due: azzeccato col punteggio,
-                     azzeccato il solo esito, sbagliato. A dirlo e' il colore
-                     della pastiglia, che per il resto e' quella di sempre. #}
-                  <td class="destra">
-                    <span class="verdetto {{ p.precisione }}">{{ p.precisione_testo }}</span>
-                  </td>
-                {% else %}
-                  <td class="destra fioco" colspan="4">&mdash;</td>
-                {% endif %}
-              </tr>
+              {{ riga_risultato(p, punteggio) }}
             {% endfor %}
           </tbody>
         </table>
@@ -211,7 +195,7 @@
           <thead>
             <tr>
               <th>Mercato</th>
-              <th class="destra">Esiti</th>
+              <th class="destra">Partite / esiti</th>
               <th class="destra">Brier</th>
               <th class="colonna-muro">Contro la baseline</th>
               <th class="destra">Accaduto / previsto</th>
@@ -222,7 +206,7 @@
             {% for a in accuratezza %}
               <tr>
                 <td class="forte">{{ a.mercato }}</td>
-                <td class="destra mono fioco">{{ a.n }}</td>
+                <td class="destra mono fioco">{{ a.partite }}<span class="ancora-fioco"> / {{ a.n }}</span></td>
                 <td class="destra mono forte">{{ "%.4f"|format(a.brier) }}</td>
                 <td class="colonna-muro">{{ muro(a.brier, a.baseline, a.tono, "baseline") }}</td>
                 <td class="destra mono">
@@ -368,7 +352,7 @@
           <thead>
             <tr>
               <th>Mercato</th>
-              <th class="destra">Esiti</th>
+              <th class="destra">Partite / esiti</th>
               <th class="destra">Modello</th>
               <th class="colonna-muro">Contro le quote</th>
               <th class="destra">Differenza</th>
@@ -379,7 +363,7 @@
             {% for c in confronto_mercato %}
               <tr>
                 <td class="forte">{{ c.mercato }}</td>
-                <td class="destra mono fioco">{{ c.n }}</td>
+                <td class="destra mono fioco">{{ c.partite }}<span class="ancora-fioco"> / {{ c.n }}</span></td>
                 <td class="destra mono forte">{{ "%.4f"|format(c.brier_modello) }}</td>
                 <td class="colonna-muro">{{ muro(c.brier_modello, c.brier_mercato, c.tono, "quote") }}</td>
                 <td class="destra mono">{{ "%+.4f"|format(c.scarto) }}</td>
@@ -442,7 +426,7 @@
           <thead>
             <tr>
               <th>Mercato</th>
-              <th class="destra">Esiti</th>
+              <th class="destra">Partite / esiti</th>
               <th class="destra">Secco</th>
               <th class="destra">Con le formazioni</th>
               <th class="destra">Differenza</th>
@@ -453,7 +437,7 @@
             {% for c in confronto_modi %}
               <tr>
                 <td class="forte">{{ c.mercato }}</td>
-                <td class="destra mono fioco">{{ c.n }}</td>
+                <td class="destra mono fioco">{{ c.partite }}<span class="ancora-fioco"> / {{ c.n }}</span></td>
                 <td class="destra mono">{{ "%.4f"|format(c.brier_secco) }}</td>
                 <td class="destra mono forte">{{ "%.4f"|format(c.brier_ufficiale) }}</td>
                 <td class="destra mono">{{ "%+.4f"|format(c.scarto) }}</td>

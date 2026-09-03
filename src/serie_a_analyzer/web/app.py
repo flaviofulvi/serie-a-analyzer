@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -52,6 +52,33 @@ templates = Jinja2Templates(directory=str(QUI / "templates"))
 
 app = FastAPI(title="Serie A Analyzer")
 app.mount("/static", StaticFiles(directory=str(QUI / "static")), name="static")
+
+def versione_statici() -> str:
+    """Un numero che cambia quando cambia il foglio di stile.
+
+    Serve a una cosa sola, e nasce da un guasto vero: il 3 settembre 2026 la
+    pagina di una giornata e' arrivata all'utente coi numeri delle giornate
+    come testo sottolineato invece che come bottoni. Il CSS sul server era
+    giusto, l'HTML pure — il browser stava semplicemente usando la copia di
+    `style.css` che si era tenuto da prima. Senza `Cache-Control` esplicito i
+    browser applicano una scadenza *euristica*, quindi un foglio appena
+    modificato puo' non essere richiesto affatto.
+
+    Attaccare la data dell'ultima modifica all'indirizzo lo rende un file
+    diverso: il browser lo chiede perche' non ce l'ha, non perche' abbia
+    capito che e' cambiato. Si rilegge a ogni pagina — e' una `stat`, cioe'
+    niente — e non a un avvio solo, altrimenti un sito acceso per giorni
+    tornerebbe a servire la versione vecchia dopo ogni ritocco al foglio.
+    """
+    try:
+        return str(int((QUI / "static" / "style.css").stat().st_mtime))
+    except OSError:
+        # Un foglio che non si legge e' un problema del foglio, non di questa
+        # riga: la pagina deve uscire comunque.
+        return "0"
+
+
+templates.env.globals["versione_statici"] = versione_statici
 
 # Un solo motore per processo: dataset e modello restano caldi fra le richieste.
 _engine: Engine | None = None
@@ -406,6 +433,77 @@ def giocatore(request: Request, player_id: int):
         "scheda": scheda,
         "partite": righe_prestazioni(scheda, snap.dataset.by_id, snap.dataset.name),
         "archivio": archivio,
+        "salute": motore.health(),
+    })
+
+
+@app.get("/calendario", response_class=HTMLResponse)
+def calendario(request: Request):
+    """Il calendario aperto sulla giornata che si sta per giocare.
+
+    Non ha una pagina sua: e' l'indirizzo comodo da mettere nella testata,
+    che porta dove serve senza che nessuno debba sapere a che numero e'
+    arrivato il campionato.
+    """
+    snap = engine().snapshot()
+    stagione = _stagione_predefinita(snap.dataset)
+    if stagione is None:
+        raise HTTPException(status_code=404, detail="Nessuna partita in archivio")
+    numero = snap.dataset.giornata_corrente(stagione)
+    if numero is None:
+        raise HTTPException(status_code=404, detail="Nessuna giornata numerata")
+    return RedirectResponse(f"/giornata/{numero}?stagione={stagione}", status_code=307)
+
+
+def _stagione_predefinita(dataset) -> int | None:
+    """La stagione in corso se c'e', altrimenti la piu' recente in archivio."""
+    stagioni = dataset.stagioni()
+    if not stagioni:
+        return None
+    corrente = current_season()
+    return corrente if corrente in stagioni else stagioni[0]
+
+
+@app.get("/giornata/{numero}", response_class=HTMLResponse)
+def giornata(request: Request, numero: int, stagione: int | None = None):
+    """Una giornata qualsiasi, di una stagione qualsiasi.
+
+    E' il buco piu' grande che c'era fra quello che il sistema sa e quello che
+    lasciava vedere: 1900 partite in archivio e nessun modo di sfogliarle, se
+    non le ultime dieci dell'hub o quelle di una squadra.
+
+    Il pronostico segue la regola di sempre (`_riga`): modello caldo prima del
+    fischio d'inizio, registro dopo. Vale identica qui, ed e' il motivo per cui
+    questa pagina e' quasi tutta codice che esisteva gia' — una giornata del
+    2023 mostrera' trattini dove nessuno pronostico fu scritto in tempo, che e'
+    la verita' e non un difetto.
+    """
+    motore = engine()
+    snap = motore.snapshot()
+
+    if stagione is None:
+        stagione = _stagione_predefinita(snap.dataset)
+    if stagione is None:
+        raise HTTPException(status_code=404, detail="Nessuna partita in archivio")
+
+    partite = snap.dataset.giornata(stagione, numero)
+    if not partite:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Giornata {numero} non trovata nella stagione {stagione}",
+        )
+
+    giornate = snap.dataset.giornate(stagione)
+    posizione = giornate.index(numero)
+    return templates.TemplateResponse(request, "giornata.html", {
+        "numero": numero,
+        "stagione": stagione,
+        "partite": _righe(motore, partite),
+        "giornate": giornate,
+        "stagioni": snap.dataset.stagioni(),
+        "precedente": giornate[posizione - 1] if posizione > 0 else None,
+        "successiva": giornate[posizione + 1] if posizione + 1 < len(giornate) else None,
+        "corrente": snap.dataset.giornata_corrente(stagione),
         "salute": motore.health(),
     })
 

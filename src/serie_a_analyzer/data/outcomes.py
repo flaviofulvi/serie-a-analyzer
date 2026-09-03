@@ -22,9 +22,16 @@ le conserva tutte, una per versione del modello, e fa bene: avvicinandosi alla
 partita il modello cambia idea e quel cambiamento e' leggibile. Ma sono
 tentativi sulla stessa domanda, non osservazioni diverse, e mediarli insieme
 conta quella partita tante volte quante sono le ristime che l'hanno preceduta.
-Il danno non e' la media un po' storta: e' che gonfia `n`, e sopra `n` sta
+Il danno non e' la media un po' storta: e' che gonfiava `n`, e su `n` poggiava
 `SOGLIA_SIGNIFICATIVITA`, cioe' la decisione se un numero meriti un verdetto o
 un "troppi pochi dati". Il perche' per esteso sta in `esiti_risolti`.
+
+La soglia oggi non poggia piu' su `n` ma su **`partite`**, ed e' l'altra meta'
+dello stesso ragionamento: una partita si conta una volta anche quando dieci
+mercati la guardano. Le due correzioni sono gemelle — la prima toglie il
+doppio conteggio nel tempo (piu' ristime della stessa gara), la seconda quello
+nello spazio (piu' selezioni della stessa gara) — e servono tutte e due,
+perche' ognuna da sola lascia in piedi l'altra.
 
 Un esito e' un fatto osservato, non una previsione: a differenza dei
 pronostici puo' essere scritto dopo. Si scrive pero' **una volta sola**
@@ -47,8 +54,26 @@ from .predictions import MODE_SECCO, MODE_UFFICIALE, PredictionStore, istante
 
 logger = logging.getLogger(__name__)
 
-# Sotto questa soglia di pronostici risolti, ogni metrica e' rumore: due
-# partite fortunate bastano a far sembrare eccellente un mercato inutile.
+# Sotto questa soglia ogni metrica e' rumore: due partite fortunate bastano a
+# far sembrare eccellente un mercato inutile.
+#
+# **Si conta in PARTITE, non in esiti**, ed e' la seconda meta' della
+# correzione cominciata in `esiti_risolti`. La' si e' tolto il conteggio
+# multiplo della stessa partita ri-pronosticata; qui si toglie quello della
+# stessa partita letta da piu' mercati. Le dieci linee Over/Under di una
+# partita — Over 0.5, 1.5, 2.5... — sono decise tutte dallo STESSO numero di
+# gol: se finisce 0-2, "Over 0.5 vero", "Over 1.5 vero" e "Under 2.5 vero"
+# sono un'osservazione sola vestita da tre. Contarle per esiti diceva
+# "Over/Under, 200 esiti" su venti partite, cioe' dieci volte la sostanza
+# vera, e faceva scattare il verdetto dove sarebbe dovuto restare "troppi
+# pochi dati".
+#
+# Sull'1X2 le tre selezioni di una partita sono esaustive e la soglia sulle
+# partite e' ovviamente giusta; su Over/Under il numero di linee per partita
+# puo' cambiare nel tempo, e agganciarsi alle partite rende la soglia stabile
+# invece che dipendente da quante linee si e' deciso di salvare. Le tabelle
+# continuano a mostrare gli esiti, che sono un'informazione vera: e' il
+# VERDETTO a dipendere dalle partite.
 SOGLIA_SIGNIFICATIVITA = 30
 
 # Su quale dei due pronostici si misura, quando nessuno lo dice.
@@ -249,11 +274,18 @@ def _baseline(tasso: float) -> float:
 
 
 def _metriche(righe: list[dict]) -> dict[str, float]:
-    """Brier, log loss, frequenza reale e fiducia media di un gruppo di esiti."""
+    """Brier, log loss, frequenza reale e fiducia media di un gruppo di esiti.
+
+    ``n`` sono gli esiti e ``partite`` le gare distinte da cui vengono. I due
+    numeri divergono appena un mercato ha piu' selezioni per partita, ed e'
+    ``partite`` quello su cui si decide se un numero valga un verdetto: vedi
+    `SOGLIA_SIGNIFICATIVITA`.
+    """
     n = len(righe)
     tasso = sum(1 for r in righe if r["hit"]) / n
     return {
         "n": n,
+        "partite": len({r["fixture_id"] for r in righe}),
         "brier": sum(r["brier"] for r in righe) / n,
         "baseline": _baseline(tasso),
         "log_loss": -sum(
@@ -288,7 +320,7 @@ def accuratezza_per_selezione(
         store.esiti_risolti(mode=mode), lambda r: (r["market"], r["selection"])
     ).items():
         voce = {"mercato": mercato, "selezione": selezione, **_metriche(righe)}
-        voce["significativo"] = voce["n"] >= SOGLIA_SIGNIFICATIVITA
+        voce["significativo"] = voce["partite"] >= SOGLIA_SIGNIFICATIVITA
         voce["batte_baseline"] = voce["brier"] < voce["baseline"]
         risultato.append(voce)
     return sorted(risultato, key=lambda v: (v["mercato"], v["selezione"]))
@@ -307,9 +339,11 @@ def accuratezza_per_mercato(
     troppo generosa e' peggio di nessuna baseline: fa sembrare informativo un
     mercato che non lo e'.
 
-    ``significativo`` dice se ci sono abbastanza esiti perche' il numero
-    significhi qualcosa: mostrarlo senza questa avvertenza sarebbe il modo piu'
-    semplice di mentire con dati veri.
+    ``significativo`` dice se il numero merita un verdetto, e si conta in
+    **partite** e non in esiti: le dieci linee Over/Under di una gara sono
+    decise dallo stesso punteggio, quindi valgono un'osservazione sola. Vedi
+    `SOGLIA_SIGNIFICATIVITA`. Mostrare un Brier senza questa avvertenza
+    sarebbe il modo piu' semplice di mentire con dati veri.
 
     Su ``mode`` vale quel che dice `MODO_PREDEFINITO`: si misura un tipo di
     pronostico alla volta, mai i due insieme.
@@ -323,7 +357,7 @@ def accuratezza_per_mercato(
             _baseline(sum(1 for r in gruppo if r["hit"]) / len(gruppo)) * len(gruppo)
             for gruppo in _raggruppa(righe, lambda r: r["selection"]).values()
         ) / len(righe)
-        voce["significativo"] = voce["n"] >= SOGLIA_SIGNIFICATIVITA
+        voce["significativo"] = voce["partite"] >= SOGLIA_SIGNIFICATIVITA
         voce["batte_baseline"] = voce["brier"] < voce["baseline"]
         risultato.append(voce)
 
@@ -416,6 +450,7 @@ def confronto_col_mercato(
         mercato = sum(r["brier_mercato"] for r in righe) / n
         return {
             "n": n,
+            "partite": len({r["fixture_id"] for r in righe}),
             "brier_modello": modello,
             "brier_mercato": mercato,
             "scarto": modello - mercato,
@@ -427,7 +462,7 @@ def confronto_col_mercato(
         for mercato, righe in _raggruppa(accoppiati, lambda r: r["market"]).items()
     ]
     for voce in mercati:
-        voce["significativo"] = voce["n"] >= SOGLIA_SIGNIFICATIVITA
+        voce["significativo"] = voce["partite"] >= SOGLIA_SIGNIFICATIVITA
 
     return {
         "mercati": sorted(mercati, key=lambda v: -v["n"]),
@@ -489,6 +524,7 @@ def confronto_fra_modi(
         due = sum(r["brier_secondo"] for r in righe) / n
         return {
             "n": n,
+            "partite": len({r["fixture_id"] for r in righe}),
             "brier_primo": uno,
             "brier_secondo": due,
             # Negativo = il secondo (le formazioni) e' migliore. Il segno e'
@@ -502,7 +538,7 @@ def confronto_fra_modi(
         for mercato, righe in _raggruppa(accoppiati, lambda r: r["market"]).items()
     ]
     for voce in mercati:
-        voce["significativo"] = voce["n"] >= SOGLIA_SIGNIFICATIVITA
+        voce["significativo"] = voce["partite"] >= SOGLIA_SIGNIFICATIVITA
 
     return {
         "mercati": sorted(mercati, key=lambda v: -v["n"]),

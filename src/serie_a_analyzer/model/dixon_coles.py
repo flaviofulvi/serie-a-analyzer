@@ -69,6 +69,18 @@ DEFAULT_HALF_LIFE_DAYS = 180.0
 # onesta conferma. Sono i due estremi a dire perche': senza shrinkage il
 # modello crede sulla parola a chi ha giocato tre partite, con troppo tutte le
 # squadre somigliano alla media e le forze si schiacciano.
+#
+# **Rimisurato il 3 settembre 2026, e resta 2.0.** La ragione per rifarlo non
+# era il codice ma l'archivio: nella verosimiglianza penalizzata la parte dei
+# dati e' PESATA mentre la penalita' ridge e' fissa, quindi lo shrinkage
+# *effettivo* dipende da quanta massa pesata c'e' nel campione — e fra le due
+# misure l'archivio e' passato da tre stagioni a quattro. Il numero poteva
+# quindi significare qualcosa di diverso pur restando scritto uguale. Non e'
+# successo: stessa griglia, stesso minimo, stessa forma della curva, e la
+# misura onesta dice che allontanarsene costa +0.0003. Tre stagioni su quattro
+# scelgono ancora 2.0 da sole; solo il 2022 preferisce 1.0, e sceglierlo
+# peggiora. Vale la pena rifare questa misura quando l'archivio cambia
+# dimensione, non solo quando cambia il codice.
 DEFAULT_REGULARIZATION = 2.0
 
 # rho e' negativo nel calcio reale; i limiti tengono la correzione tau valida.

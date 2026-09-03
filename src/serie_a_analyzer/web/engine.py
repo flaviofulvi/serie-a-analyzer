@@ -480,22 +480,37 @@ class Engine:
 
     # ---- stato per l'interfaccia ------------------------------------------
 
-    def _conteggio(self, chiave: str) -> int:
+    def _conteggi(self) -> dict[str, int] | None:
+        """Quante righe ha il registro, o ``None`` se non si e' potuto leggere.
+
+        **``None`` non e' zero**, ed e' tutta la ragione per cui questo metodo
+        non restituisce un dizionario vuoto. Se il file manca, lo schema e'
+        vecchio o sqlite e' occupato, "0 pronostici registrati" sarebbe un
+        fatto osservato — e sarebbe falso: il registro potrebbe essere pieno e
+        semplicemente illeggibile. E' la stessa regola che `data/pesi.py`
+        applica ai giocatori ("None non deve mai diventare 1.0") e che la
+        scheda partita applica ai pronostici mancanti; qui mancava.
+
+        Si legge **una volta sola** per richiesta HTTP. Prima ogni voce del
+        piede di pagina se lo rileggeva per conto suo: quattro connessioni
+        sqlite e trentadue `count(*)` su ogni pagina del sito, per un
+        dizionario identico quattro volte.
+        """
         try:
-            return self.pronostici.conteggi()[chiave]
+            return self.pronostici.conteggi()
         except Exception:
-            return 0
-
-    def _conteggio_pronostici(self) -> int:
-        return self._conteggio("pronostici")
-
-    def _conteggio_esiti(self) -> int:
-        return self._conteggio("esiti_risolti")
+            logger.warning("registro dei pronostici illeggibile", exc_info=True)
+            return None
 
     def health(self) -> dict:
         """Cosa sa e cosa non sa il sistema, in forma mostrabile all'utente."""
         snap = self.snapshot()
         giorni = self.journal.collected_days()
+        conteggi = self._conteggi()
+
+        def quante(chiave: str) -> int | None:
+            return conteggi[chiave] if conteggi is not None else None
+
         return {
             "partite_totali": len(snap.dataset.fixtures),
             "partite_storiche": snap.dataset.n_historical,
@@ -509,6 +524,14 @@ class Engine:
             "ultimo_giorno_raccolto": giorni[-1].isoformat() if giorni else None,
             "modello_pronto": snap.ready,
             "modello_partite": snap.model.n_matches if snap.model else 0,
+            # Se l'ottimizzatore ha raggiunto la convergenza o ha sbattuto
+            # contro `max_iterations`. Finora non era da nessuna parte fuori
+            # dal registro, quindi un modello non convergente avrebbe prodotto
+            # pagine con la faccia di sempre — ed e' contro la regola del
+            # progetto di non nascondere i limiti del modello. Oggi converge
+            # sempre, ed e' proprio per questo che costa poco metterlo: si
+            # aggiunge quando non serve, non il giorno in cui serve.
+            "modello_convergente": snap.model.converged if snap.model else None,
             # Quanto delle differenze fra squadre resta nei gol totali, e la
             # media verso cui si comprime il resto. Sta qui perche' e' la
             # sola cosa del pronostico che non si legge dalle forze: due
@@ -530,10 +553,14 @@ class Engine:
                 round(snap.model.league_total_goals, 3) if snap.model else None
             ),
             "aggiornato_alle": snap.built_at,
-            "pronostici_registrati": self._conteggio_pronostici(),
-            "esiti_risolti": self._conteggio_esiti(),
-            "partite_quotate": self._conteggio("partite_quotate"),
-            "partite_con_indisponibili": self._conteggio("partite_con_indisponibili"),
+            # None (e non 0) quando il registro non si e' potuto leggere: le
+            # pagine lo dicono, invece di dichiarare un vuoto che non hanno
+            # osservato. Vedi `_conteggi`.
+            "registro_leggibile": conteggi is not None,
+            "pronostici_registrati": quante("pronostici"),
+            "esiti_risolti": quante("esiti_risolti"),
+            "partite_quotate": quante("partite_quotate"),
+            "partite_con_indisponibili": quante("partite_con_indisponibili"),
             "budget_usato": self.client.budget.used,
             "budget_limite": self.settings.daily_request_limit,
             "errore": snap.error,

@@ -384,6 +384,18 @@ h3 {
 /* ---- utilita' ---------------------------------------------------------- */
 
 .fioco { color: var(--fioco); }
+
+/* La data esiste in due forme nell'HTML e ne si mostra una sola. La scelta
+   la fa la larghezza vera dello schermo e non un'ipotesi del server, che
+   sbaglierebbe ogni volta che qualcuno gira il telefono. Larga e' il default:
+   se il CSS non arrivasse, si vedrebbe quella completa. */
+.data-corta { display: none; }
+
+/* Il secondo numero di una coppia, quando il primo e' quello che conta.
+   Nelle tabelle dei verdetti la cella dice "20 / 200": le partite decidono
+   se c'e' un verdetto, gli esiti sono il dettaglio. Non e' un colore nuovo,
+   e' lo stesso spento: due grigi diversi si leggerebbero come due categorie. */
+.ancora-fioco { opacity: .6; }
 .mono { font-family: var(--dati); font-variant-numeric: tabular-nums; }
 .destra { text-align: right; }
 .forte { font-weight: 600; }
@@ -972,6 +984,25 @@ th.colonna-muro { text-align: left; }
 }
 .avviso strong { color: var(--inchiostro); font-weight: 600; }
 
+/* Un guasto del sistema, non un limite dei dati. Sta in cima a OGNI pagina e
+   non in fondo a una sezione, perche' se compare e' l'unica cosa che conta:
+   il modello non ha raggiunto la convergenza, o il registro dei pronostici
+   non si legge. Non e' una sfumatura del `.avviso` grigio: quello dice "ecco
+   il contesto", questo dice "qualcosa non funziona". */
+.avviso-guasto {
+  margin: 0 0 2rem;
+  padding: 1rem 1.125rem;
+  border: 1px solid var(--allarme);
+  border-left-width: 4px;
+  border-radius: var(--raggio-piccolo);
+  font-size: .875rem;
+  line-height: 1.6;
+  color: var(--inchiostro);
+}
+.avviso-guasto strong { font-weight: 600; }
+.avviso-guasto p { margin: 0; }
+.avviso-guasto p + p { margin-top: .5rem; }
+
 /* ---- piede ------------------------------------------------------------- */
 
 .pie { border-top: 1px solid var(--riga-forte); padding: 2rem 0 3rem; }
@@ -1019,8 +1050,97 @@ th.colonna-muro { text-align: left; }
   .navigazione .divisorio { display: none; }
   /* Le tabelle larghe scorrono da sole invece di sfondare la pagina. */
   .tabella { display: block; overflow-x: auto; white-space: nowrap; }
+
+  /* Misurato a 414px, che e' come il sito viene guardato davvero: nella
+     tabella degli ultimi risultati si vedevano QUANDO, PARTITA e RISULTATO,
+     mentre 1-X-2 e il verdetto — il motivo per cui quella tabella esiste —
+     stavano oltre il bordo. Il difetto non era lo scorrimento ma che la
+     colonna piu' larga fosse la meno utile: "domenica 23 ago, 20:45" si
+     mangiava il 40% della riga. Con "dom 23" il carico utile rientra.
+     L'ora resta nella scheda partita, dove serve. */
+  .data-lunga { display: none; }
+  .data-corta { display: inline; }
+
+  /* E se comunque non entra tutto, che almeno si veda che c'e' altro.
+     Le due sfumature sono ancorate al contenuto (`local`) e le due ombre
+     al riquadro (`scroll`): l'ombra resta visibile solo dal lato in cui
+     c'e' ancora roba da scoprire, e sparisce da sola arrivando in fondo.
+     Senza, quelle colonne per chi guarda non esistono. */
+  .tabella {
+    background:
+      linear-gradient(to right, var(--carta) 30%, transparent) left center,
+      linear-gradient(to left, var(--carta) 30%, transparent) right center,
+      radial-gradient(farthest-side at 0 50%,
+                      color-mix(in srgb, var(--inchiostro) 18%, transparent),
+                      transparent) left center,
+      radial-gradient(farthest-side at 100% 50%,
+                      color-mix(in srgb, var(--inchiostro) 18%, transparent),
+                      transparent) right center,
+      var(--carta);
+    background-repeat: no-repeat;
+    background-size: 2.5rem 100%, 2.5rem 100%, .875rem 100%, .875rem 100%, auto;
+    background-attachment: local, local, scroll, scroll, scroll;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+/* ---- sfogliare una giornata -------------------------------------------- */
+
+/* Trentotto numeri che devono stare in mano su un telefono: vanno a capo da
+   soli invece di scorrere, perche' qui non c'e' un ordine di lettura da
+   preservare — sono un indice, si punta quello che serve. */
+.sfoglia {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+.sfoglia.stagioni { margin-top: -1rem; }
+.sfoglia .voce {
+  font-family: var(--dati);
+  font-size: .625rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--fioco);
+  margin-right: .25rem;
+}
+
+/* Le giornate SONO i bottoni della testata, non una forma nuova: stessa
+   superficie, stessa ombra, stesso `.attivo` a inchiostro pieno per la pagina
+   che si sta guardando. Qui si cambia solo la sagoma — quadrata invece che
+   larga, perche' dentro c'e' una cifra e non una parola — e il carattere, che
+   per i numeri e' sempre il mono. Un'altra pastiglia inventata apposta
+   avrebbe aggiunto un terzo modo di disegnare un comando in una pagina che
+   ne ha gia' due. */
+.bottone.giornata {
+  min-width: 2.75rem;
+  padding: .5rem .5rem;
+  justify-content: center;
+  font-family: var(--dati);
+  font-weight: 500;
+}
+
+/* La giornata che si sta per giocare resta riconoscibile anche mentre se ne
+   guarda un'altra: sfogliando indietro si perde il segno di dov'era il
+   presente, ed e' la prima cosa che si vuole ritrovare. Un bordo pieno, non
+   un colore: i colori di questa pagina dicono 1, X e 2, e non devono voler
+   dire nient'altro. */
+.bottone.giornata.oggi {
+  border-color: var(--inchiostro);
+  box-shadow: inset 0 0 0 1px var(--inchiostro);
+}
+
+/* Distanti dalla tabella e distanti fra loro: erano due bottoni appiccicati
+   al riquadro di sopra e l'uno all'altro. Il `gap` serve al caso in cui uno
+   dei due manchi — prima e ultima giornata — perche' li' lo `space-between`
+   non ha niente da separare. */
+.avanti-indietro {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 2.5rem;
 }
