@@ -24,6 +24,7 @@
       </p>
     </div>
     <div class="corpo">
+      <div class="tabella-avvolgente">
       <table class="tabella">
         <thead><tr><th>Quando</th><th>Partita</th><th class="destra">1</th><th class="destra">X</th><th class="destra">2</th></tr></thead>
         <tbody>
@@ -36,9 +37,10 @@
                 {# Solo la cifra piu' alta prende colore: una partita da
                    giocare non e' un fatto, e non merita il fondo pieno del
                    punteggio finale. #}
-                <td class="destra mono {{ 'favorito tinta-1' if p.esito_previsto == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
-                <td class="destra mono {{ 'favorito tinta-X' if p.esito_previsto == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
-                <td class="destra mono {{ 'favorito tinta-2' if p.esito_previsto == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
+                {% set tre = percentuali(p.prob.home_win, p.prob.draw, p.prob.away_win) %}
+                <td class="destra mono {{ 'favorito tinta-1' if p.esito_previsto == '1' }}">{{ tre[0] }}%</td>
+                <td class="destra mono {{ 'favorito tinta-X' if p.esito_previsto == 'X' }}">{{ tre[1] }}%</td>
+                <td class="destra mono {{ 'favorito tinta-2' if p.esito_previsto == '2' }}">{{ tre[2] }}%</td>
               {% else %}
                 <td class="destra fioco" colspan="3">nessun pronostico</td>
               {% endif %}
@@ -46,6 +48,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </div>
   </section>
 {% endif %}
@@ -62,9 +65,15 @@
         giusto cosi' &mdash; l'archivio non ne sa nulla.
       </p>
       <p class="spiega">
-        Conti costruiti sulle {{ archivio.partite_con_statistiche }} partite
-        con tabellino, su {{ archivio.partite_concluse }} concluse
-        nell'archivio della stagione in corso.
+        Ed e' di <b>una stagione sola</b>, la
+        {{ stagione_rosa }}/{{ "%02d"|format((stagione_rosa + 1) % 100) }}:
+        l'archivio ne contiene quattro, e sommarle metterebbe qui giocatori
+        ceduti anni fa con "presenze" che sono il totale di quattro
+        campionati. La carriera intera sta nella scheda del singolo giocatore.
+      </p>
+      <p class="spiega">
+        Conti costruiti sulle {{ con_tabellino }} partite con tabellino, sulle
+        {{ concluse }} concluse di quel campionato.
       </p>
     {% endif %}
   </div>
@@ -130,6 +139,7 @@
       </p>
     </div>
     <div class="corpo">
+      <div class="tabella-avvolgente">
       <table class="tabella">
         <thead><tr><th>Quando</th><th>Partita</th><th class="destra">Risultato</th></tr></thead>
         <tbody>
@@ -143,6 +153,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </div>
   </section>
 {% endif %}

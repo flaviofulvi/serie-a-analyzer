@@ -110,3 +110,62 @@ def test_riserve_incoerenti_rifiutate(tmp_path):
             state_path=tmp_path / "x.json",
             reserve_fraction={Priority.CRITICAL: 0.7, Priority.NORMAL: 0.5},
         )
+
+
+# ---- il contatore regge processi che girano insieme -------------------------
+#
+# I processi che spendono sono tre e non uno: il sito, la raccolta giornaliera
+# e la corsa del quarto d'ora. Contare una richiesta e' leggi-modifica-scrivi,
+# e senza lucchetto due che lo fanno insieme leggono lo stesso numero e ne
+# scrivono uno solo: una richiesta spesa che risulta mai avvenuta.
+
+
+def test_due_processi_che_spendono_insieme_contano_tutto(tmp_path):
+    """Nessuna richiesta puo' sparire dal conto."""
+    import threading
+
+    contatore = RequestBudget(state_path=tmp_path / "b.json", daily_limit=1000)
+    quanti = 8
+    per_thread = 10
+
+    def spendi():
+        for _ in range(per_thread):
+            RequestBudget(
+                state_path=tmp_path / "b.json", daily_limit=1000
+            ).spend(Priority.NORMAL)
+
+    fili = [threading.Thread(target=spendi) for _ in range(quanti)]
+    for f in fili:
+        f.start()
+    for f in fili:
+        f.join()
+
+    assert contatore.used == quanti * per_thread
+
+
+def test_il_contatore_non_resta_mai_scritto_a_meta(tmp_path):
+    """Si scrive di fianco e si rinomina: chi legge vede il prima o il dopo.
+
+    Un file troncato `_load` lo legge come "usate zero richieste", cioe' un
+    budget intero regalato proprio nel giorno in cui qualcosa era andato
+    storto.
+    """
+    percorso = tmp_path / "b.json"
+    contatore = RequestBudget(state_path=percorso, daily_limit=100)
+    contatore.spend(Priority.NORMAL, 5)
+
+    assert json.loads(percorso.read_text(encoding="utf-8"))["used"] == 5
+    assert not list(tmp_path.glob("*.tmp")), "nessun file provvisorio rimasto"
+    assert not list(tmp_path.glob("*.lock")), "il lucchetto viene restituito"
+
+
+def test_uno_stato_illeggibile_riparte_da_zero_ma_lo_dice(tmp_path, caplog):
+    """Ripartire da zero regala cento richieste: e' una notizia, non un dettaglio."""
+    percorso = tmp_path / "b.json"
+    percorso.write_text('{"day": "2026-0', encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        usate = RequestBudget(state_path=percorso, daily_limit=100).used
+
+    assert usate == 0
+    assert "illeggibile" in caplog.text

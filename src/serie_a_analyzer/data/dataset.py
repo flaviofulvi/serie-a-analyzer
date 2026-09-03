@@ -56,12 +56,29 @@ class Dataset:
     stagioni_riempite: list[int] = field(default_factory=list)
     stagioni_importate: list[int] = field(default_factory=list)
 
+    # Cache di `by_id`, riempita alla prima richiesta. Non entra nel
+    # confronto fra due dataset ne' nella loro stampa: e' una comodita', non
+    # un dato.
+    _per_id: dict[int, FixtureRecord] | None = field(
+        default=None, repr=False, compare=False
+    )
+
     def name(self, team_id: int) -> str:
         return self.team_names.get(team_id, str(team_id))
 
     @property
     def by_id(self) -> dict[int, FixtureRecord]:
-        return {f.api_id: f for f in self.fixtures}
+        """Le partite per id, costruite una volta sola.
+
+        Era una property che rifaceva il dizionario di 1900 partite a ogni
+        accesso, e gli accessi sono parecchi: la scheda partita, il registro,
+        le prestazioni di un giocatore. Un ``Dataset`` non cambia dopo essere
+        stato costruito — lo si butta e se ne fa un altro quando l'archivio si
+        muove — quindi la cache non puo' invecchiare.
+        """
+        if self._per_id is None:
+            self._per_id = {f.api_id: f for f in self.fixtures}
+        return self._per_id
 
     @property
     def finished(self) -> list[FixtureRecord]:
@@ -96,8 +113,14 @@ class Dataset:
         prima = future[0].kickoff_utc
         return [f for f in future if (f.kickoff_utc - prima).days < MATCHDAY_WINDOW_DAYS]
 
-    def recent_results(self, limit: int = 10, now: datetime | None = None) -> list[FixtureRecord]:
-        """Le ultime partite concluse, dalla piu' recente."""
+    def recent_results(self, limit: int = 10) -> list[FixtureRecord]:
+        """Le ultime partite concluse, dalla piu' recente.
+
+        Non prende un ``now`` e non ne ha bisogno: una partita conclusa e' nel
+        passato per definizione. Il parametro c'era e non veniva letto, che e'
+        il modo piu' silenzioso di far credere a chi chiama di poter chiedere
+        una cosa che nessuno gli dara'.
+        """
         return sorted(self.finished, key=lambda f: f.kickoff_utc, reverse=True)[:limit]
 
     def stagioni(self) -> list[int]:
@@ -130,14 +153,27 @@ class Dataset:
             key=lambda f: f.kickoff_utc,
         )
 
-    def giornata_corrente(self, stagione: int, now: datetime | None = None) -> int | None:
+    def giornata_corrente(
+        self,
+        stagione: int,
+        now: datetime | None = None,
+        ripiega: bool = True,
+    ) -> int | None:
         """La giornata da mostrare a chi apre il calendario senza chiedere.
 
         E' quella della prima partita ancora da giocare — cioe' quella che si
         sta per vedere — e non l'ultima conclusa: a campionato in corso la
-        domanda e' quasi sempre "chi gioca adesso". A stagione finita non
-        esiste piu' un futuro e si ripiega sull'ultima giocata, che e' l'unica
-        risposta rimasta.
+        domanda e' quasi sempre "chi gioca adesso".
+
+        ``ripiega`` decide cosa rispondere quando quel futuro non c'e' piu',
+        e i due chiamanti vogliono due cose diverse. `/calendario` deve
+        arrivare da qualche parte, quindi ripiega sull'ultima giocata: e' la
+        sola risposta rimasta. La pagina di una giornata invece **cerchia** la
+        giornata corrente per farla ritrovare mentre si sfoglia, e li' il
+        ripiego mentiva: aprendo il 2023 veniva cerchiata la giornata 38 come
+        se fosse "quella che si sta per giocare", tre anni dopo che era
+        finita. In una stagione conclusa la risposta giusta e' ``None``: non
+        c'e' nessuna giornata corrente, e non cerchiare niente lo dice.
         """
         giornate = self.giornate(stagione)
         if not giornate:
@@ -148,7 +184,9 @@ class Dataset:
             if f.season == stagione and f.matchday is not None
             and f.kickoff_utc > adesso
         ]
-        return min(future) if future else max(giornate)
+        if future:
+            return min(future)
+        return max(giornate) if ripiega else None
 
     def team_fixtures(self, team_id: int) -> list[FixtureRecord]:
         return sorted(

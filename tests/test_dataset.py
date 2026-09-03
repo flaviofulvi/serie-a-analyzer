@@ -103,3 +103,50 @@ def test_gli_ultimi_risultati_arrivano_dal_piu_recente():
     recenti = dati.recent_results(limit=5)
 
     assert [f.api_id for f in recenti] == [2, 1]
+
+
+# ---- cose che le pagine chiedono al Dataset e che possono mentire -----------
+
+
+def test_le_partite_per_id_si_costruiscono_una_volta_sola():
+    """Era una property che rifaceva un dizionario di 1900 partite ogni volta.
+
+    Un Dataset non cambia dopo essere stato costruito — lo si butta e se ne fa
+    un altro quando l'archivio si muove — quindi la cache non puo' invecchiare.
+    """
+    dati = _dataset([
+        _partita(1, 1, 2, ADESSO - timedelta(days=3), gol=(1, 0)),
+        _partita(2, 3, 4, ADESSO + timedelta(days=2)),
+    ])
+
+    primo = dati.by_id
+
+    assert primo is dati.by_id
+    assert set(primo) == {1, 2}
+
+
+def test_una_stagione_finita_non_ha_una_giornata_corrente():
+    """Cerchiare la 38a del 2023 come "quella che si sta per giocare" e' falso.
+
+    `/calendario` deve arrivare da qualche parte e quindi ripiega sull'ultima
+    giocata; la pagina di una giornata invece cerchia il presente mentre si
+    sfoglia, e li' il ripiego mette un segno su una data di tre anni fa.
+    """
+    finita = _dataset([
+        _partita(1, 1, 2, ADESSO - timedelta(days=400), gol=(1, 0)),
+        _partita(2, 3, 4, ADESSO - timedelta(days=399), gol=(0, 0)),
+    ])
+
+    assert finita.giornata_corrente(2026, now=ADESSO) == 1, "il ripiego resta"
+    assert finita.giornata_corrente(2026, now=ADESSO, ripiega=False) is None
+
+
+def test_una_stagione_in_corso_ha_sempre_una_giornata_corrente():
+    """Col futuro davanti le due risposte coincidono: il ripiego non c'entra."""
+    dati = _dataset([
+        _partita(1, 1, 2, ADESSO - timedelta(days=3), gol=(1, 0)),
+        _partita(2, 3, 4, ADESSO + timedelta(days=2)),
+    ])
+
+    assert dati.giornata_corrente(2026, now=ADESSO) == 1
+    assert dati.giornata_corrente(2026, now=ADESSO, ripiega=False) == 1

@@ -279,7 +279,11 @@
           <thead>
             <tr>
               <th>Fascia dichiarata</th>
-              <th class="destra">Esiti</th>
+              {# Partite e esiti, come nelle altre due tabelle: sull'esito
+                 finale una partita mette tre esiti in tre fasce diverse, e
+                 "60 esiti" su venti gare si legge come tre volte i dati che
+                 ci sono. #}
+              <th class="destra">Partite / esiti</th>
               <th class="destra">Accaduto</th>
               <th class="colonna-muro">Promesso e mantenuto</th>
               <th></th>
@@ -289,7 +293,7 @@
             {% for f in calibrazione %}
               <tr>
                 <td class="forte mono">{{ f.fascia }}</td>
-                <td class="destra mono fioco">{{ f.n }}</td>
+                <td class="destra mono fioco">{{ f.partite }}<span class="ancora-fioco"> / {{ f.n }}</span></td>
                 <td class="destra mono forte">{{ (f.reale*100)|round|int }}%</td>
                 <td class="colonna-muro">{{ calibro(f) }}</td>
                 <td>
@@ -312,9 +316,10 @@
         <p class="nota">
           In media il modello sbaglia di
           <b>{{ "%.0f"|format(calibrazione_verdetto.scarto_medio * 100) }}
-          punti</b> percentuali su {{ calibrazione_verdetto.n }} esiti.
+          punti</b> percentuali su {{ calibrazione_verdetto.partite }}
+          partite ({{ calibrazione_verdetto.n }} esiti).
           {% if not calibrazione_verdetto.abbastanza %}
-            Sono <b>troppo pochi</b> perche' il numero valga: con poche partite
+            Sono <b>troppo poche</b> perche' il numero valga: con poche partite
             per fascia lo scarto e' quasi tutto rumore, e all'inizio della
             stagione e' normale che sia cosi'.
           {% elif calibrazione_verdetto.fasce_povere %}
@@ -570,6 +575,13 @@
         Le partite recenti pesano di piu': una di sei mesi fa vale la meta' di
         una di oggi.
       </p>
+      <p class="spiega">
+        Ci sono <b>tutte</b> le squadre che il modello conosce, non solo le
+        {{ squadre_in_corso }} di quest'anno: l'archivio contiene piu'
+        campionati, e chi e' retrocesso resta in tabella marcato
+        <b>fuori quest'anno</b>. Non e' una classifica della Serie A: e' cosa
+        c'e' dentro il modello.
+      </p>
       {% if modello %}
         <p class="spiega">
           Fattore campo <b>{{ "%+.3f"|format(modello.home_advantage) }}</b>,
@@ -593,7 +605,10 @@
             {% for f in forze %}
               <tr>
                 <td class="mono fioco">{{ f.posizione }}</td>
-                <td class="forte">{{ f.squadra }}</td>
+                <td class="forte">
+                  {{ f.squadra }}
+                  {% if not f.in_corso %}<span class="pillola">fuori quest'anno</span>{% endif %}
+                </td>
                 <td class="destra mono">{{ "%+.3f"|format(f.attacco) }}</td>
                 <td class="destra mono">{{ "%+.3f"|format(f.difesa) }}</td>
                 <td class="destra mono forte">{{ "%+.3f"|format(f.netta) }}</td>

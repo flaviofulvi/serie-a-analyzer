@@ -540,3 +540,32 @@ def test_la_stagione_si_ricava_dalla_data_quando_non_la_si_passa(tmp_path):
     assert prestazioni_partita(store, 1, maggio)[0].stagione == 2025
     # Se la partita la sa, vince lei.
     assert prestazioni_partita(store, 1, maggio, 2030)[0].stagione == 2030
+
+
+def test_una_rosa_non_somma_due_campionati(tmp_path):
+    """La stessa trappola della classifica, dove era rimasta aperta.
+
+    La scheda di una squadra sommava quattro stagioni: accanto ai titolari di
+    oggi comparivano giocatori ceduti anni prima, con "presenze" che erano il
+    totale di quattro campionati — sotto una nota che diceva "stagione in
+    corso". Chi vuole la carriera la trova nella scheda del giocatore.
+    """
+    archivio = _archivio_di_due_stagioni(tmp_path)
+
+    quest_anno = archivio.rosa(INTER, stagione=2026)
+    assert [g.nome for g in quest_anno] == ["Veterano"]
+    assert quest_anno[0].gol == 2, "non 3: l'altro campionato resta dov'e'"
+
+    l_anno_scorso = archivio.rosa(INTER, stagione=2025)
+    assert sorted(g.nome for g in l_anno_scorso) == ["Sparito", "Veterano"]
+
+    # Senza annata resta la somma di sempre: e' quello che serve altrove.
+    assert archivio.rosa(INTER)[0].gol == 3
+
+
+def test_una_rosa_senza_niente_in_quell_annata_e_vuota(tmp_path):
+    """Chi non ha giocato quell'anno non compare, invece di comparire a zero."""
+    archivio = _archivio_di_due_stagioni(tmp_path)
+
+    assert archivio.rosa(INTER, stagione=2024) == []
+    assert archivio.rosa(MILAN, stagione=2026) == []

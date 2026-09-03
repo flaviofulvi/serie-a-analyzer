@@ -263,6 +263,14 @@ a:hover { text-decoration-color: currentColor; }
 }
 .bottone.attrezzo:hover { color: var(--inchiostro); }
 
+/* "Aggiorna" e' l'unico comando della testata che **scrive** — ristima il
+   modello e registra pronostici — e per questo e' un bottone dentro un
+   modulo POST invece che un collegamento: un collegamento lo segue anche il
+   precaricamento del browser, e le righe scritte non si cancellano. Il
+   modulo non deve pero' portarsi dietro spazio suo: in fila deve sembrare un
+   bottone come gli altri. */
+.navigazione form { display: inline-flex; margin: 0; }
+
 /* ---- struttura --------------------------------------------------------- */
 
 /* main porta anche .contenitore, che imposta padding con lo shorthand:

@@ -8,7 +8,19 @@
 
 <section class="apertura">
   <p class="occhiello">Il registro</p>
-  {% if totale %}
+  {% if not salute.registro_leggibile %}
+    {# Vuoto e illeggibile non sono la stessa cosa, ed e' la regola che il
+       piede di pagina applica gia' ai suoi conteggi: "il registro e' vuoto"
+       sarebbe un fatto osservato, e nessuno l'ha osservato. Il database
+       potrebbe essere pieno e semplicemente non rispondere. #}
+    <h1>Il registro non si legge</h1>
+    <p class="sommario">
+      Non e' vuoto: e' <b>illeggibile</b>. Finche' non torna, questa pagina
+      non puo' dire cosa fu scritto &mdash; e non vuol dire che non sia stato
+      scritto niente. I pronostici gia' dati non si perdono: il registro e'
+      append-only e nessuno lo sta riscrivendo.
+    </p>
+  {% elif totale %}
     <h1>{{ totale }} pronostic{{ "o" if totale == 1 else "i" }},
         {{ verificati }} gia' verificat{{ "o" if verificati == 1 else "i" }}</h1>
     <p class="sommario">
@@ -32,9 +44,11 @@
       <p class="occhiello">Cosa avevo detto</p>
       <h2>Uno per riga</h2>
       <p class="spiega">
-        In cima ci sono le partite <b>ancora da giocare</b>: il pronostico e'
-        gia' scritto e non cambiera' piu'. E' li' che questa pagina non
-        somiglia a una tabella di risultati.
+        In cima ci sono le partite <b>ancora da giocare</b>, dalla piu'
+        vicina: il pronostico e' gia' scritto e non cambiera' piu'. E' li' che
+        questa pagina non somiglia a una tabella di risultati. Subito sotto,
+        dopo il salto, ricominciano le <b>gia' giocate</b> dalla piu' recente:
+        quelle una risposta ce l'hanno.
       </p>
       <p class="spiega">
         Le percentuali sono quelle <b>di allora</b>, riprese dal registro tale
@@ -66,10 +80,14 @@
           {% endif %}
         </p>
       {% endif %}
-      {% if totale > righe|length %}
+      {% if totale > mostrate %}
         <p class="spiega">
-          In elenco le <b>{{ righe|length }}</b> partite piu' recenti, su
-          {{ totale }} pronostici in archivio.
+          In elenco <b>{{ partite_mostrate }}</b> partite, cioe'
+          {{ mostrate }} righe su {{ totale }} pronostici in archivio: le
+          <b>piu' vicine al fischio d'inizio</b> da una parte e dall'altra,
+          non le ultime del calendario. Con una stagione intera in archivio
+          l'elenco per data finiva a maggio, e le partite gia' giocate &mdash;
+          le sole con una risposta &mdash; restavano fuori pagina.
         </p>
       {% endif %}
     </div>
@@ -112,9 +130,10 @@
                 {% if modi|length > 1 %}
                   <td class="fioco">{{ "secco" if r.modo == "secco" else "formazioni" }}</td>
                 {% endif %}
-                <td class="destra mono {{ 'evidenzia tinta-1' if r.esito_reale == '1' }}">{{ (r.prob_casa*100)|round|int }}%</td>
-                <td class="destra mono {{ 'evidenzia tinta-X' if r.esito_reale == 'X' }}">{{ (r.prob_pari*100)|round|int }}%</td>
-                <td class="destra mono {{ 'evidenzia tinta-2' if r.esito_reale == '2' }}">{{ (r.prob_ospite*100)|round|int }}%</td>
+                {% set tre = percentuali(r.prob_casa, r.prob_pari, r.prob_ospite) %}
+                <td class="destra mono {{ 'evidenzia tinta-1' if r.esito_reale == '1' }}">{{ tre[0] }}%</td>
+                <td class="destra mono {{ 'evidenzia tinta-X' if r.esito_reale == 'X' }}">{{ tre[1] }}%</td>
+                <td class="destra mono {{ 'evidenzia tinta-2' if r.esito_reale == '2' }}">{{ tre[2] }}%</td>
                 <td class="destra">
                   {% if r.conclusa %}
                     {{ punteggio(r.risultato, r.esito_reale, r.margine) }}
@@ -156,7 +175,7 @@
       </p>
     </div>
   </section>
-{% else %}
+{% elif salute.registro_leggibile %}
   <section class="blocco">
     <div class="lato">
       <p class="occhiello">Come si riempie</p>

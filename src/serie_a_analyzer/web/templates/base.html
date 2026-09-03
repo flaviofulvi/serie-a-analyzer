@@ -64,8 +64,17 @@
 
         <span class="divisorio" aria-hidden="true"></span>
 
-        <a class="bottone attrezzo" href="/stato">Stato</a>
-        <a class="bottone attrezzo" href="/aggiorna">Aggiorna</a>
+        {# Lo stato e' una diagnostica in JSON: si apre di fianco, cosi' la
+           pagina che si stava guardando resta dov'era. #}
+        <a class="bottone attrezzo" href="/stato" target="_blank" rel="noopener">Stato</a>
+        {# "Aggiorna" non guarda: ristima il modello, scrive i pronostici
+           delle partite in programma e risolve gli esiti. Era un
+           collegamento, cioe' qualcosa che il browser puo' seguire da solo
+           per vedere dove porta — e le righe che scrive non si cancellano.
+           Un bottone di un modulo POST lo esegue solo chi lo preme. #}
+        <form method="post" action="/aggiorna">
+          <button type="submit" class="bottone attrezzo">Aggiorna</button>
+        </form>
       </nav>
     </div>
   </header>

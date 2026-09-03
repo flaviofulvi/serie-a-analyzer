@@ -39,6 +39,7 @@ from ..data.outcomes import (
     confronto_col_mercato,
     confronto_fra_modi,
     elenco_pronostici,
+    partite_misurate,
     risolvi_pronostici,
 )
 from ..data.panchine import Panchine, costruisci_panchine
@@ -293,6 +294,23 @@ class Engine:
         except Exception as exc:  # come l'accuratezza: mai far cadere una pagina
             logger.warning("calibrazione non calcolabile: %s", exc)
             return []
+
+    def calibrazione_partite(
+        self, market: str = "1x2", mode: str = MODO_PREDEFINITO
+    ) -> int:
+        """Su quante gare distinte poggiano le fasce qui sopra.
+
+        Sta a parte dalle fasce e non dentro perche' e' un conto che le fasce
+        non possono fare: sull'1X2 la stessa partita finisce in due o tre
+        fasce diverse, quindi sommare i loro totali la conterebbe piu' volte.
+        Serve al verdetto, che deve decidere se il numero vale abbastanza, e
+        la soglia del progetto si conta in partite.
+        """
+        try:
+            return partite_misurate(self.pronostici, market=market, mode=mode)
+        except Exception as exc:  # come le altre letture: mai far cadere una pagina
+            logger.warning("partite calibrate non contabili: %s", exc)
+            return 0
 
     def registro(self, market: str = "1x2") -> list[dict]:
         """Tutti i pronostici scritti, con accanto com'e' andata.

@@ -30,6 +30,7 @@ from .views import (
     formatta_data,
     formatta_giorno,
     griglia_risultati,
+    percentuali_intere,
     riga_giocatore,
     riga_partita,
     righe_accuratezza,
@@ -79,6 +80,10 @@ def versione_statici() -> str:
 
 
 templates.env.globals["versione_statici"] = versione_statici
+# Tre probabilita' arrotondate che sommano sempre a 100. Sta fra i globali e
+# non fra i filtri perche' prende piu' di un valore, e serve ovunque si
+# scriva un trittico: hub, giornata, registro, scheda squadra.
+templates.env.globals["percentuali"] = percentuali_intere
 
 # Un solo motore per processo: dataset e modello restano caldi fra le richieste.
 _engine: Engine | None = None
@@ -153,6 +158,17 @@ def hub(request: Request):
     # Dieci: una giornata di Serie A intera, non un troncone di giornata.
     recenti = _righe(motore, snap.dataset.recent_results(limit=10))
 
+    # Chi gioca il campionato di quest'anno. La tabella delle forze le elenca
+    # TUTTE — il modello conosce quattro stagioni, quindi anche squadre
+    # retrocesse due anni fa — e senza dirlo sembrava una classifica della
+    # Serie A con dentro sette squadre di troppo. Non si filtra, perche'
+    # quella tabella e' "dentro il modello" e le forze delle altre esistono
+    # davvero e vengono usate: si marca chi non e' di quest'anno.
+    in_corso = {
+        snap.dataset.name(team_id)
+        for f in snap.dataset.fixtures if f.season == current_season()
+        for team_id in (f.home_team_id, f.away_team_id)
+    }
     forze = []
     if snap.model:
         for posizione, (squadra, att, dif, netta) in enumerate(
@@ -164,6 +180,7 @@ def hub(request: Request):
                 "attacco": att,
                 "difesa": dif,
                 "netta": netta,
+                "in_corso": squadra in in_corso,
             })
 
     accuratezza = motore.accuratezza()
@@ -173,6 +190,10 @@ def hub(request: Request):
     # al suo posto, perche' un buon Brier convive benissimo con l'essere
     # sistematicamente troppo sicuri di se'.
     fasce = motore.calibrazione()
+    # Le gare distinte da cui vengono quelle fasce. Non e' la somma dei loro
+    # totali: sull'1X2 una partita compare in due o tre fasce, e sommarle
+    # faceva scavalcare la soglia a un archivio di venti gare.
+    partite_calibrate = motore.calibrazione_partite()
 
     # La classifica vera, quella a punti. Sempre di UNA stagione: sommando
     # quelle in archivio verrebbe fuori una squadra con trecento punti.
@@ -196,9 +217,11 @@ def hub(request: Request):
         "confronto_modi_totale": (confronto_modi or {}).get("totale"),
         "confronto_modi_partite": (confronto_modi or {}).get("partite", 0),
         "calibrazione": righe_calibrazione(fasce),
-        "calibrazione_verdetto": verdetto_calibrazione(fasce),
+        "calibrazione_verdetto": verdetto_calibrazione(fasce, partite_calibrate),
         "salute": motore.health(),
         "modello": snap.model,
+        "squadre_in_corso": len(in_corso),
+        "squadre_conosciute": len(forze),
     })
 
 
@@ -358,6 +381,12 @@ def pronostici(request: Request):
     righe = righe_registro(elenco, snap.dataset.by_id, snap.dataset.name)
     return templates.TemplateResponse(request, "pronostici.html", {
         "righe": righe,
+        # Quante righe si stanno guardando e quante PARTITE sono. Non e' lo
+        # stesso numero — una partita ha una riga per ogni volta che il
+        # modello ha cambiato idea — e la pagina scriveva "le 200 partite piu'
+        # recenti" contando righe: erano settanta partite.
+        "mostrate": len(righe),
+        "partite_mostrate": len({r.fixture_id for r in righe}),
         # I conti sono sul registro intero, non sulle righe mostrate: dire
         # "34 pronostici" guardandone 200 su 1520 sarebbe falso.
         "totale": len(elenco),
@@ -503,7 +532,10 @@ def giornata(request: Request, numero: int, stagione: int | None = None):
         "stagioni": snap.dataset.stagioni(),
         "precedente": giornate[posizione - 1] if posizione > 0 else None,
         "successiva": giornate[posizione + 1] if posizione + 1 < len(giornate) else None,
-        "corrente": snap.dataset.giornata_corrente(stagione),
+        # Senza ripiego: in una stagione conclusa non c'e' nessuna giornata
+        # che "si sta per giocare", e cerchiare l'ultima del 2023 come tale
+        # sarebbe una data sbagliata scritta in grassetto.
+        "corrente": snap.dataset.giornata_corrente(stagione, ripiega=False),
         "salute": motore.health(),
     })
 
@@ -519,11 +551,22 @@ def squadra(request: Request, team_id: int):
     if not conosciuta:
         raise HTTPException(status_code=404, detail="Squadra non trovata")
 
+    # La rosa e i suoi conti sono di **una** stagione, la piu' recente in
+    # archivio, ed e' la stessa regola di `/giocatori`. Senza, la pagina
+    # sommava quattro campionati: accanto ai titolari di oggi comparivano
+    # giocatori ceduti nel 2023, con "presenze" che erano il totale di
+    # quattro annate, sotto una nota che diceva "stagione in corso".
+    stagioni = archivio.stagioni()
+    stagione_rosa = stagioni[0] if stagioni else None
+
     partite = snap.dataset.team_fixtures(team_id)
     return templates.TemplateResponse(request, "squadra.html", {
         "squadra": snap.dataset.name(team_id),
         "squadra_id": team_id,
-        "rosa": [riga_giocatore(s) for s in archivio.rosa(team_id)],
+        "rosa": [riga_giocatore(s) for s in archivio.rosa(team_id, stagione_rosa)],
+        "stagione_rosa": stagione_rosa,
+        "concluse": archivio.concluse_per_stagione.get(stagione_rosa, 0),
+        "con_tabellino": archivio.con_statistiche_per_stagione.get(stagione_rosa, 0),
         "partite": _righe(motore, [f for f in reversed(partite) if f.is_finished][:10]),
         "prossime": _righe(motore, [f for f in partite if f.status == "scheduled"][:3]),
         "archivio": archivio,
@@ -537,11 +580,25 @@ def stato():
     return engine().health()
 
 
-@app.get("/aggiorna")
-def aggiorna():
-    """Ricostruisce dataset e modello anche se l'archivio non e' cambiato."""
+@app.post("/aggiorna")
+def aggiorna(request: Request):
+    """Ricostruisce dataset e modello anche se l'archivio non e' cambiato.
+
+    E' un **POST** e non un GET, ed e' la correzione di un difetto vero: la
+    ricostruzione non guarda soltanto: ristima il modello, scrive i pronostici
+    delle partite in programma e risolve gli esiti di quelle concluse. Un GET
+    che scrive lo eseguono da soli il precaricamento del browser, un
+    antivirus, un indicizzatore — chiunque segua un collegamento per vedere
+    dove porta. Le righe scritte non si cancellano, quindi non e' un fastidio
+    reversibile.
+
+    Finito il lavoro si torna **da dove si e' arrivati**: un JSON in faccia
+    era un vicolo cieco senza nemmeno la testata per tornare indietro. Chi
+    vuole i numeri li ha su `/stato`, che di suo non scrive niente.
+    """
     engine().snapshot(force=True)
-    return {"esito": "ricostruito", **engine().health()}
+    ritorno = request.headers.get("referer") or "/"
+    return RedirectResponse(ritorno, status_code=303)
 
 
 # Le date vanno formattate anche dentro i template.

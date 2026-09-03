@@ -573,17 +573,32 @@ class ArchivioGiocatori:
             player_id=player_id, nome=self._nomi[player_id], prestazioni=righe
         )
 
-    def rosa(self, team_id: int) -> list[SchedaGiocatore]:
+    def rosa(
+        self, team_id: int, stagione: int | None = None
+    ) -> list[SchedaGiocatore]:
         """Chi e' sceso in campo per questa squadra, dai piu' impiegati.
 
         Non e' la rosa ufficiale ma quella *vista giocare*: chi non e' mai
         entrato non compare, perche' l'archivio non ne sa nulla.
+
+        ``stagione`` restringe a un campionato, ed e' la stessa regola gia'
+        scritta per `classifica`: da quando i tabellini delle stagioni passate
+        sono sul disco l'archivio ne contiene quattro, e una rosa senza annata
+        mette accanto ai titolari di oggi gente che ha lasciato il club nel
+        2023, con i totali di quattro campionati sommati sotto la parola
+        "presenze". Chi vuole la carriera intera la trova nella scheda del
+        giocatore, che e' il posto costruito per quello.
         """
         schede = []
         for player_id in self._per_squadra.get(team_id, ()):
-            scheda = self.scheda(player_id)
+            scheda = self.scheda(player_id, stagione)
             if scheda is not None:
-                schede.append(scheda.con_squadra(team_id))
+                ristretta = scheda.con_squadra(team_id)
+                # Un giocatore puo' aver cambiato squadra dentro la stessa
+                # annata: dopo i due filtri puo' non restargli niente, e una
+                # scheda vuota non e' una scheda.
+                if ristretta.prestazioni:
+                    schede.append(ristretta)
         return sorted(schede, key=lambda s: (s.minuti, s.gol), reverse=True)
 
     def squadre(self) -> dict[int, str]:

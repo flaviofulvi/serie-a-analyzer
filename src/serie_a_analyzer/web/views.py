@@ -78,6 +78,38 @@ def distanza_breve(quanto: timedelta) -> str | None:
     return f"{ore // 24} g"
 
 
+def percentuali_intere(*quote: float) -> tuple[int, ...]:
+    """Percentuali arrotondate che sommano esattamente a 100.
+
+    Arrotondare tre probabilita' una per una e' il modo piu' semplice di
+    scrivere «45% 27% 27%» sotto un titolo che promette una partizione: fa
+    99. Non e' un caso raro — basta che i tre resti stiano tutti sotto la
+    meta' — e chi legge non ha modo di sapere se manchi un punto o se il
+    conto sia sbagliato.
+
+    Il metodo e' quello dei resti piu' grandi: si tiene la parte intera di
+    ognuno e i punti che avanzano vanno a chi aveva il resto maggiore. Le
+    **barre** restano disegnate sui valori veri: qui si aggiusta soltanto
+    l'etichetta, che e' l'unica cosa che deve tornare a occhio.
+
+    Serve un gruppo esaustivo per avere senso, e infatti si usa solo sul
+    trittico 1X2. Su Over/Under, dove le linee non partizionano niente, non
+    va usata: normalizzerebbe numeri che non sono parti di un tutto.
+    """
+    totale = sum(quote)
+    if totale <= 0:
+        return tuple(0 for _ in quote)
+    esatte = [q / totale * 100 for q in quote]
+    interi = [int(v) for v in esatte]
+    avanzo = 100 - sum(interi)
+    ordine = sorted(
+        range(len(esatte)), key=lambda i: esatte[i] - interi[i], reverse=True
+    )
+    for i in ordine[:avanzo]:
+        interi[i] += 1
+    return tuple(interi)
+
+
 def esito_gol(gol_casa: int, gol_ospite: int) -> str:
     """'1', 'X' o '2' a partire dai gol. Il segno, non il giudizio."""
     if gol_casa > gol_ospite:
@@ -739,6 +771,9 @@ def righe_calibrazione(fasce: list[dict]) -> list[dict]:
         righe.append({
             "fascia": f["fascia"],
             "n": f["n"],
+            # Quante gare distinte hanno prodotto quegli esiti: sull'1X2 una
+            # partita ne mette tre, e la riga deve poterlo dire.
+            "partite": f.get("partite", 0),
             "previsto": f["previsto"],
             "reale": f["reale"],
             "scarto": f["reale"] - f["previsto"],
@@ -748,7 +783,7 @@ def righe_calibrazione(fasce: list[dict]) -> list[dict]:
     return righe
 
 
-def verdetto_calibrazione(fasce: list[dict]) -> dict | None:
+def verdetto_calibrazione(fasce: list[dict], partite: int) -> dict | None:
     """Il riassunto onesto delle fasce: quanto sbaglia in media, e se conta.
 
     Lo scarto medio si prende in **valore assoluto**, e non e' un dettaglio.
@@ -758,18 +793,30 @@ def verdetto_calibrazione(fasce: list[dict]) -> dict | None:
     meno. Un "in media ci prende" sarebbe vero e non direbbe niente: la
     calibrazione si legge fascia per fascia, e il numero che la riassume deve
     essere una distanza, non un saldo.
+
+    ``partite`` e' un argomento e non una somma delle fasce, ed e' la
+    correzione che questa funzione aspettava. La soglia del progetto si conta
+    in **partite** e non in esiti (`SOGLIA_SIGNIFICATIVITA`), ma qui si
+    guardava `n`: sull'1X2 ogni gara mette tre esiti in tre fasce diverse,
+    quindi con venti partite in archivio il conto faceva sessanta, scavalcava
+    la soglia, e l'hub dichiarava valido un numero che non lo era — proprio
+    il difetto gia' corretto per l'accuratezza. Sommare le partite delle
+    fasce non funzionerebbe: la stessa gara compare in piu' fasce e verrebbe
+    contata due o tre volte. Il conto delle gare distinte lo sa solo chi ha
+    letto gli esiti, e infatti arriva da li'.
     """
     if not fasce:
         return None
     n = sum(f["n"] for f in fasce)
     return {
         "n": n,
+        "partite": partite,
         "scarto_medio": sum(
             abs(f["reale"] - f["previsto"]) * f["n"] for f in fasce
         ) / n,
         # La stessa soglia dell'accuratezza, e per la stessa ragione: sotto,
         # il numero e' rumore che ha l'aria di una misura.
-        "abbastanza": n >= SOGLIA_SIGNIFICATIVITA,
+        "abbastanza": partite >= SOGLIA_SIGNIFICATIVITA,
         "fasce_povere": sum(1 for f in fasce if f["n"] < MINIMO_PER_FASCIA),
     }
 
@@ -871,10 +918,24 @@ def righe_confronto_modi(confronto: dict | None) -> list[dict]:
 # contesto (chi giocava, com'e' finita) dal dataset, come per le prestazioni
 # dei giocatori qui sotto.
 
-# Quante righe mostrare al massimo. Una stagione ne produce 380, e il giorno
-# in cui l'archivio ne conterra' quattro nessuno vuole una pagina da 1520
-# righe: si mostrano le piu' recenti e si dichiara quante sono in tutto.
+# Quante righe mostrare al massimo, e — la parte che conta davvero — come
+# dividerle fra le due meta' della pagina.
+#
+# Il tetto da solo non basta, ed e' il difetto con cui e' nato: le righe
+# venivano ordinate per calcio d'inizio decrescente, e da quando l'archivio
+# contiene il **calendario intero** le piu' "recenti" sono quelle di maggio.
+# Con 1150 righe su 380 partite, le prime duecento coprivano settanta gare
+# del 2027, tutte ancora da giocare: la pagina annunciava «N gia' verificati»,
+# spiegava per quattro righe come si legge il Brier, e quella colonna era
+# «—» su ognuna delle righe mostrate. Le partite misurate — le uniche su cui
+# la promessa ha gia' una risposta — non erano raggiungibili in nessun modo.
+#
+# La pagina ha due meta' dichiarate, e adesso ognuna ha la sua quota: le
+# promesse ancora aperte, dalla piu' vicina al fischio d'inizio, e quelle
+# gia' giudicate, dalla piu' recente. Nessuna delle due puo' mangiarsi
+# l'altra, per quanto lungo diventi il calendario in archivio.
 LIMITE_REGISTRO = 200
+LIMITE_IN_ATTESA = 60
 
 
 @dataclass(frozen=True)
@@ -987,14 +1048,30 @@ def righe_registro(
     per_id: dict[int, FixtureRecord],
     nome,
     limite: int = LIMITE_REGISTRO,
+    in_attesa: int = LIMITE_IN_ATTESA,
 ) -> list[RigaRegistro]:
-    """Il registro in ordine di partita, dalla piu' recente.
+    """Il registro in due meta': promesse aperte in cima, gia' giudicate sotto.
 
     L'ordine e' il **calcio d'inizio** e non il momento in cui la riga fu
     scritta, cosi' le partite ancora da giocare stanno in cima: sono quelle su
     cui la promessa e' ancora aperta, ed e' li' che questa pagina si distingue
-    da una tabella di risultati. Chi non ha piu' una partita in archivio viene
-    ordinato per quando fu scritto, che e' l'unico momento che gli resta.
+    da una tabella di risultati.
+
+    Le due meta' pero' non si ordinano allo stesso modo, e prima si faceva un
+    ordine solo. **In cima si va all'indietro nel futuro** — la partita che si
+    sta per vedere, non quella di maggio — e **sotto si va all'indietro nel
+    passato**, dalla piu' recente. In mezzo alle due c'e' l'unico salto della
+    pagina, ed e' proprio il momento presente.
+
+    E ognuna ha la sua quota (`LIMITE_IN_ATTESA`), che e' cio' che impedisce a
+    un calendario di 380 partite di seppellire le venti gia' giocate: con un
+    tetto solo, le righe mostrate erano tutte e sole quelle del 2027 e la
+    meta' misurata della pagina spariva. Vedi `LIMITE_REGISTRO`.
+
+    Chi non ha piu' una partita in archivio sta con le giudicate e si ordina
+    per quando fu scritto, che e' l'unico momento che gli resta: di lui non si
+    sa nemmeno se abbia giocato, e metterlo fra le promesse aperte
+    inventerebbe un futuro.
     """
     def quando(voce: dict) -> datetime:
         fixture = per_id.get(voce["fixture_id"])
@@ -1002,10 +1079,24 @@ def righe_registro(
             return fixture.kickoff_utc
         return voce["scritto_il"] or datetime.min.replace(tzinfo=timezone.utc)
 
-    ordinato = sorted(elenco, key=quando, reverse=True)[:limite]
+    def aperta(voce: dict) -> bool:
+        """La partita esiste in archivio e non e' ancora finita."""
+        fixture = per_id.get(voce["fixture_id"])
+        return fixture is not None and not fixture.is_finished
+
+    # Il tetto vero e' il piu' stretto fra la quota dichiarata e **meta'**
+    # pagina: cosi' la meta' gia' giudicata ha sempre spazio, qualunque siano
+    # i due numeri. Con i valori del progetto (60 su 200) il secondo non
+    # morde mai, ed e' li' apposta per il giorno in cui qualcuno li cambia.
+    tetto = min(in_attesa, limite // 2)
+    attesa = sorted((v for v in elenco if aperta(v)), key=quando)[:tetto]
+    giudicate = sorted(
+        (v for v in elenco if not aperta(v)), key=quando, reverse=True
+    )[: max(0, limite - len(attesa))]
+
     return [
         riga_registro(voce, per_id.get(voce["fixture_id"]), nome)
-        for voce in ordinato
+        for voce in (*attesa, *giudicate)
     ]
 
 

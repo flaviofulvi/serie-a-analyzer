@@ -576,10 +576,37 @@ def calibrazione(
         righe.append({
             "fascia": f"{idx / n_bin:.0%}-{(idx + 1) / n_bin:.0%}",
             "n": len(gruppo),
+            # Le gare distinte che hanno prodotto quegli esiti. Sull'1X2 una
+            # partita ne mette tre, in fasce anche diverse: dire solo `n`
+            # faceva sembrare trenta osservazioni cio' che erano dieci gare.
+            "partite": len({r["fixture_id"] for r in gruppo}),
             "previsto": sum(r["probability"] for r in gruppo) / len(gruppo),
             "reale": sum(1 for r in gruppo if r["hit"]) / len(gruppo),
         })
     return righe
+
+
+def partite_misurate(
+    store: PredictionStore,
+    market: str = "1x2",
+    selection: str | None = None,
+    mode: str = MODO_PREDEFINITO,
+) -> int:
+    """Su quante **gare distinte** poggia una misura.
+
+    Esiste perche' la soglia del progetto si conta in partite e non in esiti
+    (`SOGLIA_SIGNIFICATIVITA`), e la calibrazione era rimasta indietro: le
+    sue fasce contano esiti, e sull'1X2 ogni gara ne mette tre. Sommare le
+    partite delle fasce non risponderebbe — la stessa gara compare in piu'
+    fasce e verrebbe contata due o tre volte — quindi il conto delle gare
+    distinte si fa qui, dove le righe sono ancora tutte insieme.
+    """
+    return len({
+        r["fixture_id"]
+        for r in store.esiti_risolti(
+            market=market, selection=selection, mode=mode
+        )
+    })
 
 
 # ---- il registro, riga per riga ----------------------------------------------

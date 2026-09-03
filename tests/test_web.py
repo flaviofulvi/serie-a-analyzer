@@ -20,6 +20,7 @@ from serie_a_analyzer.config import Settings
 from serie_a_analyzer.data.predictions import MODE_SECCO, MODE_UFFICIALE, registra_partite
 from serie_a_analyzer.web import app as app_module
 from serie_a_analyzer.web.engine import Engine
+from serie_a_analyzer.data.outcomes import SOGLIA_SIGNIFICATIVITA
 from serie_a_analyzer.web.views import (
     MINIMO_PER_FASCIA,
     confronto_ufficiale,
@@ -413,8 +414,20 @@ def test_il_modello_si_ricostruisce_quando_l_archivio_cambia(motore):
 
 def test_aggiorna_forza_la_ricostruzione(client, motore):
     primo = motore.snapshot()
-    assert client.get("/aggiorna").status_code == 200
+    r = client.post("/aggiorna", follow_redirects=False)
+    assert r.status_code == 303
     assert motore.snapshot() is not primo
+
+
+def test_aggiorna_non_si_esegue_con_un_collegamento(client):
+    """Ricostruire scrive: pronostici registrati, esiti risolti.
+
+    Un GET lo segue da solo il precaricamento del browser, e le righe che
+    scrive non si cancellano. Deve essere un POST, cioe' qualcosa che
+    succede solo se qualcuno preme.
+    """
+    assert client.get("/aggiorna").status_code == 405
+    assert 'action="/aggiorna"' in client.get("/").text
 
 
 # ---- storico dei pronostici -------------------------------------------------
@@ -1340,14 +1353,34 @@ def test_la_scheda_partita_mostra_i_due_pronostici_a_confronto(motore, monkeypat
     assert "difensori" in pagina
 
 
-def test_la_scheda_dice_quale_dei_due_e_il_pronostico_grande(motore, monkeypatch):
+def test_a_partita_finita_il_pronostico_grande_e_il_secco(motore, monkeypatch):
     """Se non lo dicesse, i due numeri diversi in pagina si contraddirebbero."""
+    passata = motore.snapshot().dataset.finished[0]
+    _pronostico_con_le_formazioni(motore, passata.api_id)
+    monkeypatch.setattr(app_module, "_engine", motore)
+
+    pagina = TestClient(app_module.app).get(f"/partita/{passata.api_id}").text
+
+    assert "in cima alla pagina e' quello <b>secco</b>" in pagina
+
+
+def test_prima_del_via_il_pronostico_grande_non_e_nessuno_dei_due(motore, monkeypatch):
+    """Su una partita da giocare la testata e' il modello di ADESSO.
+
+    La regola di `_riga` e' modello caldo prima del fischio d'inizio, registro
+    dopo — quindi finche' la partita non comincia il trittico in cima non e'
+    la riga secca del registro, e puo' mostrare numeri diversi dalla colonna
+    "Secco" della tabella qui sotto. La pagina lo diceva al contrario, e si
+    contraddiceva da sola proprio dove i due numeri sono affiancati.
+    """
     _pronostico_con_le_formazioni(motore, 9001)
     monkeypatch.setattr(app_module, "_engine", motore)
 
     pagina = TestClient(app_module.app).get("/partita/9001").text
 
-    assert "in cima alla pagina e' quello <b>secco</b>" in pagina
+    assert "Il pronostico rifatto" in pagina, "premessa: il confronto c'e'"
+    assert "in cima alla pagina e' quello <b>secco</b>" not in pagina
+    assert "il <b>modello di adesso</b>" in pagina
 
 
 def test_il_confronto_viene_da_due_righe_congelate_e_non_dal_modello_caldo(motore):
@@ -1482,7 +1515,7 @@ def test_lo_scarto_medio_e_una_distanza_e_non_un_saldo():
     fasce = _fasce((50, 0.60, 0.40), (50, 0.40, 0.60))
 
     saldo = sum((f["reale"] - f["previsto"]) * f["n"] for f in fasce)
-    verdetto = verdetto_calibrazione(fasce)
+    verdetto = verdetto_calibrazione(fasce, partite=40)
 
     assert saldo == pytest.approx(0.0), "premessa del test"
     assert verdetto["scarto_medio"] == pytest.approx(0.20)
@@ -1490,7 +1523,26 @@ def test_lo_scarto_medio_e_una_distanza_e_non_un_saldo():
 
 
 def test_senza_fasce_non_c_e_verdetto():
-    assert verdetto_calibrazione([]) is None
+    assert verdetto_calibrazione([], partite=0) is None
+
+
+def test_la_calibrazione_si_giudica_in_partite_e_non_in_esiti():
+    """Sull'1X2 una partita mette tre esiti: contarli triplicava il campione.
+
+    Con venti partite in archivio il conto faceva sessanta, scavalcava
+    `SOGLIA_SIGNIFICATIVITA` e l'hub dichiarava valido un numero che non lo
+    era — l'avviso "sono troppo poche" non compariva. E' lo stesso difetto
+    gia' corretto per l'accuratezza, rimasto qui.
+    """
+    fasce = _fasce((30, 0.30, 0.28), (30, 0.60, 0.55))
+
+    pochi = verdetto_calibrazione(fasce, partite=20)
+    abbastanza = verdetto_calibrazione(fasce, partite=SOGLIA_SIGNIFICATIVITA)
+
+    assert pochi["n"] == 60, "gli esiti restano sessanta: sono veri"
+    assert pochi["partite"] == 20
+    assert pochi["abbastanza"] is False, "venti partite non bastano"
+    assert abbastanza["abbastanza"] is True
 
 
 def test_l_hub_mostra_la_calibrazione_solo_quando_c_e_qualcosa(motore, monkeypatch):
@@ -1970,3 +2022,179 @@ def test_le_giornate_sono_bottoni_come_quelli_della_testata(client, motore):
     # La giornata aperta usa lo stesso `.attivo` della pagina in testata.
     assert 'class="bottone giornata attivo"' in pagina
     assert "pastiglia-giornata" not in pagina
+
+
+# ---- il registro non puo' seppellire le partite gia' giudicate --------------
+#
+# Il difetto piu' grosso che la pagina abbia avuto: le righe erano ordinate
+# per calcio d'inizio decrescente e tagliate a duecento, e da quando
+# l'archivio contiene il calendario intero le piu' "recenti" erano quelle di
+# maggio. La pagina annunciava «N gia' verificati», spiegava per quattro righe
+# come si legge il Brier, e quella colonna era vuota su ognuna delle righe
+# mostrate.
+
+
+def test_il_registro_non_lascia_fuori_le_partite_gia_giudicate(motore):
+    """Un calendario lungo non deve mangiarsi la meta' misurata della pagina."""
+    snap = motore.snapshot()
+    futura = snap.dataset.upcoming()[0]
+    passata = snap.dataset.finished[0]
+    # Un calendario che va avanti per mesi: cinquanta partite finte, tutte
+    # piu' in la' di quella vera.
+    lontane = [
+        _voce_registro(900000 + i, risolto=False)
+        for i in range(50)
+    ]
+    per_id = dict(snap.dataset.by_id)
+    for i, voce in enumerate(lontane):
+        per_id[voce["fixture_id"]] = replace(
+            futura,
+            api_id=voce["fixture_id"],
+            kickoff_utc=futura.kickoff_utc + timedelta(days=7 * (i + 1)),
+        )
+
+    righe = righe_registro(
+        [*lontane, _voce_registro(passata.api_id), _voce_registro(futura.api_id, risolto=False)],
+        per_id, snap.dataset.name,
+        limite=10, in_attesa=4,
+    )
+
+    assert passata.api_id in [r.fixture_id for r in righe], (
+        "la partita gia' giudicata deve restare in pagina"
+    )
+    assert righe[0].fixture_id == futura.api_id, "in cima la piu' vicina, non maggio"
+    assert righe[-1].fixture_id == passata.api_id
+
+
+def test_il_registro_va_avanti_nel_futuro_e_indietro_nel_passato(motore):
+    """Due meta', due ordini, e in mezzo il presente.
+
+    In cima le promesse aperte dalla piu' vicina al fischio d'inizio, sotto
+    quelle gia' giudicate dalla piu' recente: e' l'unico ordine in cui le due
+    righe di confine sono le due partite piu' vicine a oggi.
+    """
+    snap = motore.snapshot()
+    future = snap.dataset.upcoming()[:2]
+    passate = sorted(snap.dataset.finished, key=lambda f: f.kickoff_utc, reverse=True)[:2]
+    assert len(future) == 2 and len(passate) == 2, "premessa del test"
+
+    righe = righe_registro(
+        [_voce_registro(f.api_id, risolto=False) for f in future]
+        + [_voce_registro(f.api_id) for f in passate],
+        snap.dataset.by_id, snap.dataset.name,
+    )
+
+    assert [r.fixture_id for r in righe] == [
+        future[0].api_id, future[1].api_id, passate[0].api_id, passate[1].api_id
+    ]
+
+
+def test_la_quota_delle_partite_da_giocare_ha_un_tetto_suo(motore):
+    """Senza, bastano sessanta partite in calendario per riempire la pagina."""
+    snap = motore.snapshot()
+    futura = snap.dataset.upcoming()[0]
+    passata = snap.dataset.finished[0]
+
+    righe = righe_registro(
+        [_voce_registro(futura.api_id, risolto=False), _voce_registro(passata.api_id)],
+        snap.dataset.by_id, snap.dataset.name,
+        limite=10, in_attesa=0,
+    )
+
+    assert [r.fixture_id for r in righe] == [passata.api_id]
+
+
+# ---- tre percentuali che sommano a cento ------------------------------------
+
+
+def test_le_tre_percentuali_di_una_partita_fanno_cento():
+    """«45% 27% 27%» sotto un titolo che promette una partizione fa 99."""
+    from serie_a_analyzer.web.views import percentuali_intere
+
+    tre = percentuali_intere(0.4489, 0.2733, 0.2778)
+
+    assert sum(tre) == 100
+    assert tre == (45, 27, 28), "il punto che avanza va al resto piu' grande"
+
+
+def test_percentuali_di_niente_non_diventano_numeri():
+    from serie_a_analyzer.web.views import percentuali_intere
+
+    assert percentuali_intere(0.0, 0.0, 0.0) == (0, 0, 0)
+
+
+def test_in_pagina_le_tre_percentuali_di_una_partita_fanno_cento(client, motore):
+    """La regola vale dove si vede: nella tabella dei risultati."""
+    import re
+
+    motore.snapshot()
+    pagina = client.get("/").text
+    quanti = [int(x) for x in re.findall(r'class="quanto">(\d+)%', pagina)]
+
+    assert quanti, "nessun trittico in pagina"
+    assert len(quanti) % 3 == 0, "un trittico ha tre cifre"
+    for i in range(0, len(quanti), 3):
+        assert sum(quanti[i:i + 3]) == 100, quanti[i:i + 3]
+
+
+# ---- una partita da giocare non ha un punteggio, nemmeno vuoto --------------
+
+
+def test_una_partita_da_giocare_non_mostra_una_pastiglia_vuota(client, motore):
+    """Il terzo stato della riga era stato scritto per la colonna sbagliata.
+
+    Con `risultato` vuoto la pastiglia usciva lo stesso: un rettangolino
+    grigio pieno, senza cifre, in una colonna che si chiama "Risultato".
+    """
+    dataset = motore.snapshot().dataset
+    stagione = dataset.stagioni()[0]
+    futura = next(
+        f for f in dataset.fixtures
+        if f.status == "scheduled" and f.matchday is not None
+    )
+
+    pagina = client.get(f"/giornata/{futura.matchday}?stagione={stagione}").text
+
+    import re
+
+    vuote = re.search(r'class="punteggio[^"]*"[^>]*>\s*</span>', pagina)
+    assert vuote is None, f"pastiglia senza testo: {vuote and vuote.group(0)}"
+    assert "da giocare" in pagina, "il terzo stato resta detto a parole"
+
+
+# ---- la tabella delle forze non e' una classifica della Serie A -------------
+
+
+def test_le_forze_marcano_chi_non_gioca_quest_anno(client, motore):
+    """Il modello conosce quattro stagioni: senza dirlo sembrano tutte di adesso."""
+    motore.snapshot()
+
+    pagina = client.get("/").text
+
+    assert "Ci sono <b>tutte</b> le squadre che il modello conosce" in pagina
+
+
+# ---- vuoto e illeggibile non sono la stessa cosa ----------------------------
+
+
+def test_un_registro_illeggibile_non_si_chiama_vuoto(motore, monkeypatch):
+    """E' la regola del piede di pagina applicata anche al titolo.
+
+    "Il registro e' vuoto" sarebbe un fatto osservato, e nessuno l'ha
+    osservato: il database potrebbe essere pieno e semplicemente non
+    rispondere.
+    """
+    motore.snapshot()
+    monkeypatch.setattr(
+        motore.pronostici, "conteggi",
+        lambda: (_ for _ in ()).throw(RuntimeError("database occupato")),
+    )
+    monkeypatch.setattr(
+        motore, "registro", lambda *a, **k: [],
+    )
+    monkeypatch.setattr(app_module, "_engine", motore)
+
+    pagina = TestClient(app_module.app).get("/pronostici").text
+
+    assert "Il registro non si legge" in pagina
+    assert "Il registro e' vuoto" not in pagina

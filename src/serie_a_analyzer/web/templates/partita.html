@@ -117,12 +117,34 @@
       sulla stessa partita sono l'unico modo di scoprire se rifarli
       <b>serve</b> — fra qualche mese si confrontano i punteggi e si vede.
     </p>
-    <p class="spiega">
-      Il pronostico grande in cima alla pagina e' quello <b>secco</b>, cioe' il
-      primo. Non perche' sia migliore: perche' e' l'unico che esiste per ogni
-      partita, e cambiare fonte a seconda di cosa c'e' sul disco mostrerebbe
-      due cose diverse su due partite della stessa giornata.
-    </p>
+    {% if p.congelato %}
+      <p class="spiega">
+        Il pronostico grande in cima alla pagina e' quello <b>secco</b>, cioe'
+        il primo. Non perche' sia migliore: perche' e' l'unico che esiste per
+        ogni partita, e cambiare fonte a seconda di cosa c'e' sul disco
+        mostrerebbe due cose diverse su due partite della stessa giornata.
+      </p>
+    {% else %}
+      {# Prima del fischio d'inizio la testata non e' nessuna delle due righe
+         qui sotto: e' il modello di ADESSO, che nel frattempo puo' aver visto
+         altre partite. Dirla "il secco" era falso e si vedeva — i numeri in
+         cima non corrispondono alla colonna Secco — proprio nella pagina che
+         esiste per confrontare due pronostici. #}
+      <p class="spiega">
+        Attenzione a cosa c'e' in cima alla pagina: finche' la partita non
+        comincia, quel pronostico e' il <b>modello di adesso</b>, non una
+        delle due righe qui sotto. Puo' aver visto altre partite nel
+        frattempo, quindi i numeri possono non coincidere con la colonna
+        <b>Secco</b>.
+      </p>
+      <p class="spiega">
+        Le due colonne qui sotto vengono <b>tutte e due dal registro</b>, ed e'
+        l'unico modo di confrontarle: sono state scritte nello stesso mondo, e
+        la loro differenza racconta le formazioni e non il tempo passato. Dopo
+        il fischio d'inizio anche la testata diventa la riga secca, e i tre
+        numeri tornano a coincidere.
+      </p>
+    {% endif %}
     <p class="spiega">
       Un limite da sapere, che non e' un difetto da correggere ma un confine
       del metodo: <b>quanto pesa un giocatore si misura da cio' che fa

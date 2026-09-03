@@ -2,7 +2,7 @@
 
 {% from "forme.html" import punteggio, riga_risultato %}
 
-{% block titolo %}Giornata {{ numero }} {{ stagione }}/{{ (stagione + 1) % 100 }} &middot; Serie A Analyzer{% endblock %}
+{% block titolo %}Giornata {{ numero }} {{ stagione }}/{{ "%02d"|format((stagione + 1) % 100) }} &middot; Serie A Analyzer{% endblock %}
 
 {% block contenuto %}
 

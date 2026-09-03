@@ -8,27 +8,32 @@
    zero. Confrontarle a occhio e' immediato, cosa che con gli spicchi di una
    barra sola non e'. I nomi delle squadre fanno da etichetta: e' per questo
    che la scheda non li ripete sopra. #}
+{# Le tre cifre passano da `percentuali` e non da tre arrotondamenti
+   separati: 1, X e 2 sono una partizione, e «45% 27% 27%» sotto un titolo che
+   promette il 100% fa 99. Le **barre** restano disegnate sui valori veri —
+   li' un centesimo non si vede — perche' e' l'etichetta a dover tornare. #}
 {% macro trittico(p, casa, ospite, grande=false) %}
+  {% set tre = percentuali(p.home_win, p.draw, p.away_win) %}
   <div class="trittico {{ 'grande' if grande }}"
        role="img"
-       aria-label="{{ casa }} {{ (p.home_win*100)|round|int }}%, pareggio {{ (p.draw*100)|round|int }}%, {{ ospite }} {{ (p.away_win*100)|round|int }}%">
+       aria-label="{{ casa }} {{ tre[0] }}%, pareggio {{ tre[1] }}%, {{ ospite }} {{ tre[2] }}%">
     <div class="esito-riga casa">
       <span class="chi">{{ casa }}</span>
       <span class="segno">1</span>
       <span class="pista"><span class="riempi" style="width: {{ (p.home_win*100)|round(2) }}%"></span></span>
-      <span class="quanto">{{ (p.home_win*100)|round|int }}%</span>
+      <span class="quanto">{{ tre[0] }}%</span>
     </div>
     <div class="esito-riga pari">
       <span class="chi">pareggio</span>
       <span class="segno">X</span>
       <span class="pista"><span class="riempi" style="width: {{ (p.draw*100)|round(2) }}%"></span></span>
-      <span class="quanto">{{ (p.draw*100)|round|int }}%</span>
+      <span class="quanto">{{ tre[1] }}%</span>
     </div>
     <div class="esito-riga ospite">
       <span class="chi">{{ ospite }}</span>
       <span class="segno">2</span>
       <span class="pista"><span class="riempi" style="width: {{ (p.away_win*100)|round(2) }}%"></span></span>
-      <span class="quanto">{{ (p.away_win*100)|round|int }}%</span>
+      <span class="quanto">{{ tre[2] }}%</span>
     </div>
   </div>
 {% endmacro %}
@@ -152,15 +157,24 @@
     {# Due date, una sola visibile: sotto i 640px vince la corta. #}
     <td class="fioco"><span class="data-lunga">{{ p.quando }}</span><span class="data-corta">{{ p.quando_breve }}</span></td>
     <td><a href="/partita/{{ p.id }}">{{ p.casa }} &middot; {{ p.ospite }}</a></td>
-    <td class="destra">{{ punteggio(p.risultato, p.esito_reale, p.margine) }}</td>
+    {# Il punteggio tinto solo dove un punteggio c'e'. Su una partita da
+       giocare `risultato` e' vuoto, e la pastiglia usciva lo stesso: un
+       rettangolino grigio pieno, senza cifre, in una colonna che si chiama
+       "Risultato". Il terzo stato della riga era stato scritto per la
+       colonna del verdetto e si era fermato li'. #}
+    <td class="destra">
+      {%- if p.risultato %}{{ punteggio(p.risultato, p.esito_reale, p.margine) }}
+      {%- else %}<span class="fioco">&mdash;</span>{% endif -%}
+    </td>
     {% if p.ha_pronostico %}
       {# Sulle tre celle il velo colorato cade su quella accaduta davvero. Il
          colore e' lo stesso del punteggio a sinistra e, se il modello ci ha
          preso, anche della pastiglia in fondo: la riga diventa monocroma
          quando le due cose coincidono, screziata quando no. #}
-      <td class="destra mono {{ 'evidenzia tinta-1' if p.esito_reale == '1' }}">{{ (p.prob.home_win*100)|round|int }}%</td>
-      <td class="destra mono {{ 'evidenzia tinta-X' if p.esito_reale == 'X' }}">{{ (p.prob.draw*100)|round|int }}%</td>
-      <td class="destra mono {{ 'evidenzia tinta-2' if p.esito_reale == '2' }}">{{ (p.prob.away_win*100)|round|int }}%</td>
+      {% set tre = percentuali(p.prob.home_win, p.prob.draw, p.prob.away_win) %}
+      <td class="destra mono {{ 'evidenzia tinta-1' if p.esito_reale == '1' }}">{{ tre[0] }}%</td>
+      <td class="destra mono {{ 'evidenzia tinta-X' if p.esito_reale == 'X' }}">{{ tre[1] }}%</td>
+      <td class="destra mono {{ 'evidenzia tinta-2' if p.esito_reale == '2' }}">{{ tre[2] }}%</td>
       {# Tre gradini invece di due: azzeccato col punteggio, azzeccato il solo
          esito, sbagliato. A dirlo e' il colore della pastiglia. #}
       <td class="destra">

@@ -644,7 +644,12 @@ espone hub, scheda partita, `/pronostici` (il registro riga per riga),
 `/giocatori` (marcatori, assist, voti),
 `/giocatore/<id>`, `/squadra/<id>`, `/stato` (JSON: cosa sa il sistema, budget
 residuo, pronostici registrati, esiti risolti) e `/aggiorna` (forza la
-ricostruzione).
+ricostruzione). `/aggiorna` e' un **POST** e non un GET, ed e' voluto:
+ricostruire non guarda soltanto — ristima il modello, registra i pronostici
+delle partite in programma e risolve gli esiti — e un GET che scrive lo
+esegue da solo il precaricamento del browser. Da terminale vuole quindi
+`curl -X POST`; dal sito e' il bottone della testata, che dopo il lavoro
+rimanda alla pagina da cui si e' partiti.
 
 Due campi di `/stato` esistono per dichiarare un **guasto** e non un dato, e
 tutti e due compaiono come avviso in cima a ogni pagina quando scattano.

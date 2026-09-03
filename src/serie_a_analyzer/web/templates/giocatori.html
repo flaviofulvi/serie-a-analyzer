@@ -41,7 +41,7 @@
 <section class="apertura">
   <p class="occhiello">
     Serie A &middot;
-    {% if stagione %}stagione {{ stagione }}/{{ (stagione + 1) % 100 }}{% else %}nessuna stagione{% endif %}
+    {% if stagione %}stagione {{ stagione }}/{{ "%02d"|format((stagione + 1) % 100) }}{% else %}nessuna stagione{% endif %}
   </p>
   <h1>{{ quanti }} giocatori visti in campo</h1>
   <p class="sommario">
