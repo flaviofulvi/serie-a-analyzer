@@ -1,8 +1,13 @@
-# Serie A Analyzer
+# Il Pinguino Fatto Meglio
 
 Analisi dei dati di squadre e giocatori della Serie A per produrre **probabilita'
 di esito** delle partite e di singoli eventi di gioco, con tracciamento onesto
 di quanto quei pronostici si avvicinino alla realta'.
+
+Il sito si chiama cosi'; il pacchetto Python si chiama ancora
+`serie_a_analyzer` e la cartella del progetto `serie-a-analyzer`. Non e' una
+svista: rinominare un pacchetto installato rompe gli import, i percorsi delle
+attivita' pianificate e i comandi scritti qui sotto, in cambio di niente.
 
 ## Idea centrale
 

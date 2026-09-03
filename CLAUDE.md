@@ -670,7 +670,42 @@ modificato può non essere richiesto affatto — è successo il 3 settembre 2026
 con la pagina delle giornate arrivata all'utente senza i suoi stili mentre sul
 server erano giusti. Si rilegge a ogni pagina e non a un avvio solo, altrimenti
 un sito acceso per giorni tornerebbe a servire la versione vecchia dopo ogni
-ritocco.
+ritocco. Dal 4 settembre 2026 il numero non è più l'mtime del solo `style.css`
+ma **il più recente di tutta la cartella `static/`**: da quando i file sono
+due, col vecchio criterio un logo sostituito sarebbe rimasto quello di prima
+finché nessuno toccava il CSS — cioè esattamente la trappola che quella riga
+esiste per chiudere. È un numero solo per tutti i file e non uno per file: si
+paga una richiesta di troppo ogni tanti mesi e si toglie di mezzo un argomento
+che qualcuno prima o poi dimenticherebbe di passare.
+
+Il colore della pagina è stato **rifatto il 4 settembre 2026**, ed è un
+cambio di sole tinte: nessun riquadro spostato, nessuna tabella cambiata di
+forma. Tutte le tinte del sito vivono in una quarantina di variabili in
+`:root` più il blocco `prefers-color-scheme: dark`, e nei template non c'è un
+solo colore scritto a mano — è quello che rende il restyle una riscrittura di
+variabili e non un rifacimento. L'alfabeto dei fatti era indaco/grigio/arancio
+e ora è **grafite = 1, cenere = X, magenta = 2**: la scala va dal piombo al
+colore invece che da una tinta a un'altra, cioè spende **un colore vivo solo**
+in tutta la pagina. La conseguenza è voluta: con tutto il resto in carta e
+inchiostro, il verde, l'oro e il rosso del giudizio diventano l'unica altra
+tinta che si vede. Quei tre **non sono cambiati** ed è una richiesta esplicita
+dell'utente — sono l'unica cosa che il lettore ha già imparato a leggere.
+L'arancio non torna: era il vicino di casa dell'oro del verdetto, e a undici
+pixel le due colonne devono restare distinguibili. Chi tocca la palette deve
+cambiare anche le **parole**: quattro template nominano i colori a voce
+(«grafite ha vinto la casa, magenta l'ospite»), e una pagina che spiega un
+colore e ne mostra un altro è peggio di una che non spiega niente.
+
+Il sito ha un **logo** (`static/logo.png`) e da lì un nome: **Il Pinguino
+Fatto Meglio**. L'immagine sta in tre posti — la testata, `rel="icon"` e
+`rel="apple-touch-icon"` — e il terzo non è di troppo: il sito si guarda dal
+telefono via Tailscale, e su iOS è l'unica icona che Safari usa quando la
+pagina finisce sulla schermata Home. Il nome è cambiato solo dove il sito lo
+mostra (testata, `<title>` di ogni pagina, titolo FastAPI, banner di
+`scripts/serve.py`, README); il **pacchetto resta `serie_a_analyzer`** e la
+cartella `serie-a-analyzer`, perché rinominarli romperebbe import, percorsi
+delle attività pianificate e ogni comando scritto qui sopra, in cambio di
+niente.
 
 **I template si rileggono dal disco a ogni richiesta, il codice Python no.**
 Non è una scelta ma un fatto di Jinja, e va conosciuto perché ha morso: quel
@@ -919,6 +954,11 @@ se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
   sfogliare le giornate   03/09/2026   `/giornata`, `/calendario`
   il verdetto verde       03/09/2026   vale per ogni punteggio nominato in
                                        pagina, non solo il primo
+  la palette «piombo»     04/09/2026   grafite/cenere/magenta al posto di
+                                       indaco/grigio/arancio; verde, oro e
+                                       rosso del giudizio **invariati**
+  logo e nome             04/09/2026   `static/logo.png`, «Il Pinguino Fatto
+                                       Meglio»; il pacchetto non si rinomina
 
 ### Le idee che sembrano buone e non lo sono
 

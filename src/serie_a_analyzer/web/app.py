@@ -9,6 +9,7 @@ verranno appese qui man mano.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -51,11 +52,11 @@ logger = logging.getLogger(__name__)
 QUI = Path(__file__).parent
 templates = Jinja2Templates(directory=str(QUI / "templates"))
 
-app = FastAPI(title="Serie A Analyzer")
+app = FastAPI(title="Il Pinguino Fatto Meglio")
 app.mount("/static", StaticFiles(directory=str(QUI / "static")), name="static")
 
 def versione_statici() -> str:
-    """Un numero che cambia quando cambia il foglio di stile.
+    """Un numero che cambia quando cambia un qualsiasi file statico.
 
     Serve a una cosa sola, e nasce da un guasto vero: il 3 settembre 2026 la
     pagina di una giornata e' arrivata all'utente coi numeri delle giornate
@@ -70,12 +71,26 @@ def versione_statici() -> str:
     capito che e' cambiato. Si rilegge a ogni pagina — e' una `stat`, cioe'
     niente — e non a un avvio solo, altrimenti un sito acceso per giorni
     tornerebbe a servire la versione vecchia dopo ogni ritocco al foglio.
+
+    Guarda **tutta** la cartella e non piu' il solo `style.css`, da quando i
+    file statici sono due: col solo mtime del foglio, un logo sostituito
+    resterebbe quello di prima finche' non si tocca il CSS — cioe' proprio la
+    trappola che questa funzione esiste per chiudere. Il numero e' uno per
+    tutti e non uno per file: cambiando un file si rilegge anche l'altro, il
+    che costa una richiesta ogni tanti mesi e in cambio toglie di mezzo un
+    argomento che qualcuno prima o poi dimenticherebbe di passare.
+
+    `os.scandir` e non `iterdir()` piu' `stat()` per la ragione gia' scritta
+    in `data/store.py`: la data arriva insieme al nome, senza una chiamata di
+    sistema per file.
     """
     try:
-        return str(int((QUI / "static" / "style.css").stat().st_mtime))
+        with os.scandir(QUI / "static") as voci:
+            date = [v.stat().st_mtime for v in voci if v.is_file()]
+        return str(int(max(date))) if date else "0"
     except OSError:
-        # Un foglio che non si legge e' un problema del foglio, non di questa
-        # riga: la pagina deve uscire comunque.
+        # Una cartella che non si legge e' un problema di quella cartella, non
+        # di questa riga: la pagina deve uscire comunque.
         return "0"
 
 

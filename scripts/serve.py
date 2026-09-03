@@ -18,7 +18,7 @@ sys.path.insert(0, str(SRC))
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Serie A Analyzer — server locale")
+    parser = argparse.ArgumentParser(description="Il Pinguino Fatto Meglio — server locale")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--porta", type=int, default=8000)
     parser.add_argument(
@@ -30,7 +30,7 @@ def main() -> int:
 
     import uvicorn
 
-    print(f"\n  Serie A Analyzer -> http://{args.host}:{args.porta}\n")
+    print(f"\n  Il Pinguino Fatto Meglio -> http://{args.host}:{args.porta}\n")
     uvicorn.run(
         "serie_a_analyzer.web.app:app",
         host=args.host,

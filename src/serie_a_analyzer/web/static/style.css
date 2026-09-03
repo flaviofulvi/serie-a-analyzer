@@ -9,29 +9,39 @@
       altezza, stesso allineamento a sinistra. Chi impara a leggerne una le
       sa leggere tutte.
 
-   2. IL COLORE DICE UNA COSA SOLA, E LA DICE IN UN POSTO SOLO. Indaco = 1,
-      grigio = X, arancio = 2: una scala che va dalla casa alla trasferta
+   2. IL COLORE DICE UNA COSA SOLA, E LA DICE IN UN POSTO SOLO. Grafite = 1,
+      cenere = X, magenta = 2: una scala che va dalla casa alla trasferta
       passando per il neutro, e che descrive **fatti** — chi ha vinto, quanto
       e' probabile un punteggio. Accanto ne vive una seconda, e una sola:
       verde/giallo/rosso, che non descrive un fatto ma **giudica il modello**,
       e per questo sta confinata nell'ultima colonna degli ultimi risultati e
       nel rosso che sfonda il muro dei Brier. Due alfabeti, due colonne
       diverse, mai mescolati nella stessa cifra. Tutto il resto e' carta e
-      inchiostro. */
+      inchiostro.
+
+   Di quei due alfabeti il primo spende **un colore vivo solo**, il magenta
+   della trasferta: la casa e' grafite, il pareggio cenere, e la scala va
+   percio' dal piombo al colore invece che da una tinta a un'altra. E' una
+   scelta e non un risparmio — con la pagina quasi tutta in carta e
+   inchiostro, il verde, l'oro e il rosso del giudizio diventano l'unica
+   altra tinta che si vede, che e' esattamente il peso che dovrebbero avere.
+   Nessuna delle due scale usa l'arancio, ed e' voluto: era il vicino di casa
+   dell'oro del verdetto, e le due colonne devono restare distinguibili a
+   undici pixel. */
 
 :root {
-  --fondo: #e9ecf1;          /* la pagina */
+  --fondo: #eceae6;          /* la pagina */
   --carta: #ffffff;          /* schede, tabelle, pannelli */
-  --incavo: #f3f5f8;         /* riquadri dentro le schede */
-  --riga: #dce0e7;
-  --riga-forte: #c2c8d4;
+  --incavo: #f4f3f0;         /* riquadri dentro le schede */
+  --riga: #dedbd6;
+  --riga-forte: #c2beb7;
 
-  --inchiostro: #0e1524;
-  --fioco: #5a6373;
+  --inchiostro: #1b1a18;
+  --fioco: #64615b;
 
-  --uno: #2f4be0;            /* 1 — casa */
-  --ics: #949daf;            /* X — pareggio */
-  --due: #d4560a;            /* 2 — trasferta */
+  --uno: #3c4550;            /* 1 — casa */
+  --ics: #a8a49d;            /* X — pareggio */
+  --due: #b8156f;            /* 2 — trasferta */
   --allarme: #cf2020;        /* il modello ha sbagliato: muro sfondato o pronostico mancato */
 
   /* La scala del giudizio, usata solo dove si dice quanto ci ha preso il
@@ -45,9 +55,9 @@
 
   /* Le caselle della matrice si tingono fino all'82%: servono tinte
      proprie, perche' il testo ci sta sopra e deve restare leggibile. */
-  --uno-cella: #2f4be0;
-  --ics-cella: #949daf;
-  --due-cella: #d4560a;
+  --uno-cella: #3c4550;
+  --ics-cella: #a8a49d;
+  --due-cella: #b8156f;
 
   /* Le tinte piene, quelle che si portano il testo bianco sopra. Sono i
      colori vivi qui sopra spinti fino al punto esatto in cui il bianco
@@ -57,10 +67,10 @@
      Da li' in giu' si smorzano verso `--profondo`, che resta scuro in
      entrambi i temi — mescolare verso `--inchiostro` schiarirebbe tutto al
      buio invece di spegnerlo. */
-  --tinto-1: #2f4be0;
-  --tinto-X: #6c7485;
-  --tinto-2: #c4510c;
-  --profondo: #0e1524;
+  --tinto-1: #3c4550;
+  --tinto-X: #77736c;
+  --tinto-2: #a91266;
+  --profondo: #1b1a18;
   --su-tinto: #ffffff;
 
   /* Quanta tinta entra nella carta quando serve un velo invece che una
@@ -71,7 +81,7 @@
   --spazio: 1.5rem;
   --raggio: 14px;
   --raggio-piccolo: 8px;
-  --ombra: 0 1px 1px rgba(14, 21, 36, .04), 0 6px 20px rgba(14, 21, 36, .05);
+  --ombra: 0 1px 1px rgba(27, 26, 24, .05), 0 6px 20px rgba(27, 26, 24, .06);
 
   --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --testo: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
@@ -80,35 +90,37 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --fondo: #0b0f17;
-    --carta: #141a26;
-    --incavo: #1b2230;
-    --riga: #252e3d;
-    --riga-forte: #3a4456;
+    --fondo: #100f0e;
+    --carta: #1a1917;
+    --incavo: #221f1d;
+    --riga: #2e2b28;
+    --riga-forte: #443f3a;
 
-    --inchiostro: #e9edf4;
-    --fioco: #97a1b4;
+    --inchiostro: #edeae5;
+    --fioco: #a09b93;
 
-    --uno: #6d86ff;
-    --ics: #7b8598;
-    --due: #ff8b3d;
+    --uno: #a3b4c4;
+    --ics: #7d786f;
+    --due: #f0479f;
     --allarme: #ff5f5f;
 
     /* Al buio si ribalta: le stesse due tinte del tema chiaro sarebbero
-       macchie scure sulla carta scura, e servono schiarite. Il giallo tira
-       via dall'arancio piu' che sul chiaro, perche' la cella del 2 sta sulla
-       stessa riga a due colonne di distanza. */
+       macchie scure sulla carta scura, e servono schiarite. Sono gli unici
+       due valori sopravvissuti al cambio di palette, insieme al rosso: la
+       scala del giudizio e' rimasta esattamente com'era, e cambiarla
+       avrebbe significato cambiare l'unica cosa che il lettore ha gia'
+       imparato a leggere. */
     --esatto: #3ed18d;
     --parziale: #e9c94b;
 
-    --uno-cella: #25378f;
-    --ics-cella: #3d4553;
-    --due-cella: #8a4310;
+    --uno-cella: #38424c;
+    --ics-cella: #3b3733;
+    --due-cella: #7a1049;
 
-    --tinto-1: #586dcf;
-    --tinto-X: #6c7586;
-    --tinto-2: #ac602e;
-    --profondo: #05080f;
+    --tinto-1: #55606c;
+    --tinto-X: #6a655e;
+    --tinto-2: #b52a76;
+    --profondo: #0a0908;
     --su-tinto: #ffffff;
 
     --velo: 26%;
@@ -136,7 +148,7 @@ body {
   padding: 0 2rem;
 }
 
-/* I collegamenti restano color inchiostro: l'indaco vuol dire "1" e non
+/* I collegamenti restano color inchiostro: il magenta vuol dire "2" e non
    deve voler dire nient'altro. La riga sotto e' l'unico segno che c'e' un
    collegamento, e si accende al passaggio. */
 a {
@@ -168,8 +180,26 @@ a:hover { text-decoration-color: currentColor; }
   border-bottom: 1px solid var(--riga-forte);
 }
 
-.marchio { display: block; text-decoration: none; }
+/* Il marchio: il logo e le due righe di testo su una riga sola. Il logo ha
+   una misura fissa e non una in percentuale — deve stare alla stessa altezza
+   dei bottoni della navigazione, che e' la riga su cui la testata si legge. */
+.marchio {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  text-decoration: none;
+}
 .marchio:hover { text-decoration: none; }
+.marchio-logo {
+  display: block;
+  width: 2.75rem;
+  height: 2.75rem;
+  /* L'immagine e' quadrata: senza questo un ritocco alle proporzioni la
+     schiaccerebbe invece di ritagliarla. */
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.marchio-testo { display: block; }
 .marchio-nome {
   display: block;
   font-family: var(--display);
@@ -231,7 +261,7 @@ a:hover { text-decoration-color: currentColor; }
   white-space: nowrap;
   cursor: pointer;
   text-decoration: none;
-  box-shadow: 0 1px 1px rgba(14, 21, 36, .04);
+  box-shadow: 0 1px 1px rgba(27, 26, 24, .05);
   transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease,
               background-color .12s ease;
 }
@@ -239,7 +269,7 @@ a:hover { text-decoration-color: currentColor; }
   text-decoration: none;
   border-color: var(--inchiostro);
   transform: translateY(-1px);
-  box-shadow: 0 2px 2px rgba(14, 21, 36, .05), 0 6px 14px rgba(14, 21, 36, .07);
+  box-shadow: 0 2px 2px rgba(27, 26, 24, .06), 0 6px 14px rgba(27, 26, 24, .08);
 }
 .bottone:active { transform: translateY(0); box-shadow: none; }
 
@@ -441,8 +471,8 @@ h3 {
 
 /* ---- il colore degli esiti --------------------------------------------- */
 
-/* Un solo alfabeto, applicato ovunque compaia un esito: indaco = ha vinto
-   la squadra di casa, grigio = pareggio, arancio = ha vinto la trasferta.
+/* Un solo alfabeto, applicato ovunque compaia un esito: grafite = ha vinto
+   la squadra di casa, cenere = pareggio, magenta = ha vinto la trasferta.
    Sono gli stessi tre colori delle barre e delle caselle della matrice, e
    dicono la stessa identica cosa. Qui dentro non entra il verde: queste
    tinte raccontano cosa e' successo in campo, non se il modello e' stato
@@ -565,7 +595,7 @@ h3 {
 .scheda-partita:hover {
   text-decoration: none;
   border-color: var(--riga-forte);
-  box-shadow: 0 1px 1px rgba(14, 21, 36, .05), 0 10px 30px rgba(14, 21, 36, .09);
+  box-shadow: 0 1px 1px rgba(27, 26, 24, .06), 0 10px 30px rgba(27, 26, 24, .10);
 }
 
 .scheda-testa {
@@ -742,9 +772,11 @@ h3 {
 
    Ogni gradino porta un velo della propria tinta nella carta, l'idioma gia'
    usato per la casella dell'esito accaduto. Il contorno da solo, a undici
-   pixel, e' pochissimo colore: il gradino di mezzo finiva per assomigliare
-   all'arancio del "2", che gli sta due colonne piu' in la'. Il velo resta
-   ben sotto la pastiglia piena delle tabelle di accuratezza — tre livelli
+   pixel, e' pochissimo colore: quando il "2" era arancio il gradino di mezzo
+   finiva per assomigliargli, e sta li' da allora. Con la palette di adesso
+   quel vicino non c'e' piu' — nessuna delle tinte dei fatti e' calda — ma il
+   velo resta, perche' serviva anche a un'altra cosa: tiene i tre gradini
+   ben sotto la pastiglia piena delle tabelle di accuratezza, tre livelli
    di riempimento per tre mestieri diversi, e nessuno che imiti l'altro. */
 .verdetto.esatto {
   color: var(--esatto);

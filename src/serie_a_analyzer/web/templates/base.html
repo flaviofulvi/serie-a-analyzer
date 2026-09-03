@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block titolo %}Serie A Analyzer{% endblock %}</title>
+  <title>{% block titolo %}Il Pinguino Fatto Meglio{% endblock %}</title>
   {# Tre caratteri, tre mestieri: Bricolage Grotesque per i titoli e i nomi
      delle squadre, Instrument Sans per il testo, DM Mono per ogni cifra. Se
      non arrivano — la pagina gira anche in locale senza rete — le alternative
@@ -13,15 +13,32 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400..700&display=swap">
   {# La `?v=` non e' un vezzo: senza, un foglio di stile appena modificato
      puo' non arrivare mai al browser, che lo tiene per una scadenza sua.
-     Vedi `versione_statici` in web/app.py. #}
+     Vedi `versione_statici` in web/app.py. Vale per il logo esattamente come
+     per il foglio, ed e' un numero solo per tutti e due: cambiandone uno si
+     rilegge anche l'altro, che costa una richiesta ogni tanti mesi. #}
   <link rel="stylesheet" href="/static/style.css?v={{ versione_statici() }}">
+  {# Il logo fa anche da icona. `apple-touch-icon` non e' di troppo: il sito
+     si guarda dal telefono via Tailscale, e su iOS e' l'unica icona che
+     Safari usa quando la pagina finisce sulla schermata Home. #}
+  <link rel="icon" type="image/png" href="/static/logo.png?v={{ versione_statici() }}">
+  <link rel="apple-touch-icon" href="/static/logo.png?v={{ versione_statici() }}">
 </head>
 <body>
   <header class="intestazione">
     <div class="contenitore intestazione-riga">
+      {# Il logo e' decorativo e non informativo: accanto gli sta gia' scritto
+         il nome del sito, e un `alt` che lo ripete lo farebbe leggere due
+         volte a chi usa uno screen reader. Da qui `alt=""` e
+         `aria-hidden`. Larghezza e altezza sono nell'HTML perche' lo spazio
+         vada riservato prima che l'immagine arrivi: senza, la testata si
+         allarga a scatto a pagina gia' disegnata. #}
       <a class="marchio" href="/">
-        <span class="marchio-nome">Serie A Analyzer</span>
-        <span class="marchio-sotto">probabilita', non certezze</span>
+        <img class="marchio-logo" src="/static/logo.png?v={{ versione_statici() }}"
+             width="500" height="500" alt="" aria-hidden="true">
+        <span class="marchio-testo">
+          <span class="marchio-nome">Il Pinguino Fatto Meglio</span>
+          <span class="marchio-sotto">probabilita', non certezze</span>
+        </span>
       </a>
       {# Bottoni veri, non testo sottolineato: si vede quale pagina si sta
          guardando e cosa fa ciascun comando. Il filetto separa le due pagine
