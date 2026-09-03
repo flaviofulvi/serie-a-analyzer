@@ -175,8 +175,9 @@
       <td class="destra mono {{ 'evidenzia tinta-1' if p.esito_reale == '1' }}">{{ tre[0] }}%</td>
       <td class="destra mono {{ 'evidenzia tinta-X' if p.esito_reale == 'X' }}">{{ tre[1] }}%</td>
       <td class="destra mono {{ 'evidenzia tinta-2' if p.esito_reale == '2' }}">{{ tre[2] }}%</td>
-      {# Tre gradini invece di due: azzeccato col punteggio, azzeccato il solo
-         esito, sbagliato. A dirlo e' il colore della pastiglia. #}
+      {# Tre gradini invece di due: il punteggio era fra quelli nominati,
+         azzeccato il solo esito, sbagliato. A dirlo e' il colore della
+         pastiglia. #}
       <td class="destra">
         {% if p.precisione %}
           <span class="verdetto {{ p.precisione }}">{{ p.precisione_testo }}</span>

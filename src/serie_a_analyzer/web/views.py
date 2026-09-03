@@ -144,6 +144,12 @@ def margine_gol(gol_casa: int, gol_ospite: int) -> float:
 # Non e' una soglia sulla certezza ed e' bene che nessuno la legga cosi': due
 # risultati sopra il 10% non sono due pronostici, sono due celle vicine della
 # stessa matrice.
+#
+# Dal 3 settembre 2026 questo numero decide DUE cose e non piu' una: quali
+# punteggi si leggono prima della partita e quali valgono "azzeccato" dopo
+# (vedi ``risultato_azzeccato``). E' voluto che sia lo stesso: promettere una
+# rosa di punteggi e poi giudicarne uno solo sarebbe cambiare la domanda a
+# partita finita. Chi lo tocca sposta anche il verdetto su tutto lo storico.
 SOGLIA_RISULTATO_PROBABILE = 0.10
 
 # Quanto ci ha preso il modello su una partita gia' giocata. Le parole restano
@@ -244,11 +250,12 @@ class RigaPartita:
     def risultato_probabile(self) -> str:
         """Il singolo punteggio piu' probabile.
 
-        Resta uno solo, e non e' una dimenticanza: da qui passa
-        ``risultato_azzeccato``, cioe' il verdetto sulle partite gia' giocate.
-        Quello misura una cosa precisa — il modello ha nominato il punteggio
-        giusto? — e una domanda con una risposta sola non puo' averne due.
-        Per le pagine c'e' ``risultati_probabili``, che e' un'altra cosa.
+        **Non e' piu' il metro del verdetto**: dal 3 settembre 2026 il gradino
+        alto guarda tutti i punteggi nominati in pagina e non solo il primo
+        (il perche' sta in ``risultato_azzeccato``). Il suo unico compito
+        adesso e' fare da rete a ``punteggi_probabili`` quando nessuna cella
+        arriva alla soglia: la pagina non resta mai senza un punteggio, che si
+        leggerebbe come "il modello non sa dirlo".
         """
         if self.prob is None:
             return ""
@@ -274,14 +281,26 @@ class RigaPartita:
         celle, e i gol attesi della Serie A non producono una matrice cosi'
         stretta. Il tetto c'e' ma non morde.
         """
+        return "/".join(self.punteggi_probabili)
+
+    @property
+    def punteggi_probabili(self) -> list[str]:
+        """Gli stessi punteggi, uno per elemento invece che in una stringa.
+
+        Esiste perche' li leggono in due — l'anteprima della partita e il
+        verdetto di quando e' finita — e devono leggere la STESSA cosa. Una
+        seconda lista ricalcolata con la stessa soglia sarebbe uguale oggi e
+        divergerebbe al primo ritocco, con la pagina che nomina cinque
+        punteggi e la pastiglia che ne premia quattro.
+        """
         if self.prob is None:
-            return ""
+            return []
         sopra = [
             f"{casa}-{ospite}"
             for (casa, ospite), p in self.prob.top_scorelines
             if p > SOGLIA_RISULTATO_PROBABILE
         ]
-        return "/".join(sopra) if sopra else self.risultato_probabile
+        return sopra or [self.risultato_probabile]
 
     @property
     def piu_di_un_risultato_probabile(self) -> bool:
@@ -293,14 +312,33 @@ class RigaPartita:
         escapata, e "Piu&#39; probabili" nel sorgente non lo troverebbe piu'
         nessuno.
         """
-        return "/" in self.risultati_probabili
+        return len(self.punteggi_probabili) > 1
 
     @property
     def risultato_azzeccato(self) -> bool | None:
-        """Il punteggio piu' probabile e' proprio quello finito sul tabellone."""
+        """Il punteggio finito sul tabellone era fra quelli nominati in pagina.
+
+        Fino al 3 settembre 2026 il confronto era col solo punteggio piu'
+        probabile. Cambiato su richiesta dell'utente, e la ragione tiene:
+        prima della partita la pagina non nomina un punteggio, ne nomina fino
+        a cinque — tutti sopra il 10%, messi li' apposta per dire che il
+        modello fra quelli non sta scegliendo. Giudicare poi sul solo primo
+        vorrebbe dire cambiare la domanda a partita finita, e chiamare
+        sbagliato un 2-0 che la pagina aveva scritto.
+
+        La lista e' esattamente quella mostrata (``punteggi_probabili``), non
+        una ricalcolata: pastiglia e anteprima non possono divergere.
+
+        Due cose da tenere in mente, e nessuna delle due e' un guasto. Il
+        gradino alto e' **piu' facile** di prima, quindi i verdetti verdi
+        scritti prima di oggi e quelli di dopo non si contano insieme. E
+        questo non e' una misura del modello: le misure stanno in
+        ``/pronostici``, nel Brier e nella calibrazione, e nessuna passa di
+        qui — questa e' la riga che racconta com'e' andata a chi guarda.
+        """
         if self.prob is None or not self.conclusa or self.gol_casa is None:
             return None
-        return self.risultato_probabile == self.risultato
+        return self.risultato in self.punteggi_probabili
 
     @property
     def precisione(self) -> str | None:

@@ -690,7 +690,20 @@ arrivato il campionato. La riga di quelle tabelle è una macro condivisa con
 l'hub (`riga_risultato` in `forme.html`) e ha **tre** stati e non due: il
 terzo, «da giocare», non esisteva perché l'hub mostra solo partite concluse, e
 senza di esso una partita futura avrebbe una pastiglia vuota — che si legge
-come «sbagliato». La scheda partita mostra anche gol, formazioni e pagelle
+come «sbagliato». La pastiglia del verdetto in fondo alla riga ha tre gradini, e dal 3
+settembre 2026 il piu' alto — il verde — vale per **ogni punteggio nominato
+in pagina**, non solo per il primo: prima della partita l'anteprima ne scrive
+fino a cinque, tutti sopra il 10% e messi li' apposta per dire che fra quelli
+il modello non sta scegliendo, e giudicare poi sul solo primo cambierebbe la
+domanda a partita finita. La lista e' **la stessa** che l'anteprima mostra
+(`punteggi_probabili` in `web/views.py`), non una ricalcolata con la stessa
+soglia: due liste sarebbero uguali oggi e divergerebbero al primo ritocco,
+con la pagina che nomina cinque punteggi e la pastiglia che ne premia
+quattro. Due conseguenze da non scambiare per guasti: il gradino alto e' piu'
+facile di prima, quindi i verdi di ieri e quelli di oggi non si contano
+insieme; e non e' una misura del modello — quelle stanno in `/pronostici`,
+nel Brier e nella calibrazione, e nessuna passa di qui.
+La scheda partita mostra anche gol, formazioni e pagelle
 quando i dettagli ci sono, e dice quando non ci sono. Mostra inoltre gli
 **indisponibili**, che sono l'unica cosa che quella pagina sappia dire su una
 partita non ancora giocata — e dichiara che il pronostico **non ne tiene
@@ -904,6 +917,8 @@ se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
   il calendario 2026      28/08/2026   380 partite, 1 richiesta
   formazioni a metà       30/08/2026   `formazione_provvisoria`
   sfogliare le giornate   03/09/2026   `/giornata`, `/calendario`
+  il verdetto verde       03/09/2026   vale per ogni punteggio nominato in
+                                       pagina, non solo il primo
 
 ### Le idee che sembrano buone e non lo sono
 

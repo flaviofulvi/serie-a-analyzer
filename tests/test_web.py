@@ -903,10 +903,11 @@ def test_una_lettura_dopo_il_fischio_non_finisce_nella_scheda(client, motore):
 # ---- i tre gradini del giudizio ---------------------------------------------
 #
 # Nell'elenco degli ultimi risultati la pastiglia in fondo alla riga dice
-# quanto ci ha preso il modello, e sono tre cose diverse: aver nominato il
-# punteggio, aver azzeccato solo chi vince, non aver azzeccato niente. I test
-# lavorano su matrici costruite a mano perche' e' l'unico modo di decidere
-# quale sia il risultato piu' probabile invece di sperarci.
+# quanto ci ha preso il modello, e sono tre cose diverse: il punteggio era
+# fra quelli nominati in pagina, era azzeccato solo chi vince, non era
+# azzeccato niente. I test lavorano su matrici costruite a mano perche' e'
+# l'unico modo di decidere quali punteggi siano i probabili invece di
+# sperarci.
 
 
 def _probabilita(celle):
@@ -1062,23 +1063,59 @@ def test_senza_pronostico_non_si_nomina_niente():
     assert riga.risultati_probabili == ""
 
 
-def test_nominarne_due_non_cambia_il_verdetto_sulle_partite_giocate():
-    """La guardia che conta: "azzeccato" misura il punteggio NOMINATO, uno solo.
+def test_il_gradino_alto_vale_per_ogni_punteggio_nominato():
+    """La regola, cambiata il 3 settembre 2026 su richiesta dell'utente.
 
-    In pagina l'hub scrive "1-0/2-0". Se `risultato_probabile` seguisse quella
-    lista, una partita finita 2-0 diventerebbe di colpo "azzeccato" col
-    punteggio esatto — e il gradino alto vorrebbe dire un'altra cosa da ieri,
-    su tutto lo storico e senza che niente lo segnali. Sono due domande
-    diverse: "cosa mostro prima della partita" e "cosa aveva nominato".
+    In pagina l'hub scrive "1-0/2-0": due punteggi, tutti e due sopra il 10%,
+    messi li' apposta per dire che fra quelli il modello non sta scegliendo.
+    Una partita finita 2-0 e' quindi finita su un punteggio che la pagina
+    aveva scritto, e la pastiglia lo chiama azzeccato — anche se il primo
+    della lista era un altro. Prima contava solo il primo.
     """
     prob = _probabilita(_DUE_SOPRA_LA_SOGLIA)
     riga = _riga(prob, 2, 0)
 
     assert riga.risultati_probabili == "1-0/2-0"   # cio' che l'hub mostra
-    assert riga.risultato_probabile == "1-0"       # cio' che il modello nomino'
+    assert riga.risultato_probabile == "1-0"       # il primo della lista
+    assert riga.risultato_azzeccato is True
+    assert riga.precisione == "esatto"
+
+
+def test_un_punteggio_sotto_la_soglia_non_e_azzeccato():
+    """L'altra meta' della regola, senza la quale il verdetto direbbe sempre si'.
+
+    Il 2-1 vale il 9% e in pagina non compare: la partita finita 2-1 ha visto
+    il modello indovinare chi vinceva e nient'altro. Se bastasse una cella
+    qualsiasi della matrice il gradino alto non vorrebbe piu' dire niente —
+    la matrice contiene ogni punteggio possibile.
+    """
+    riga = _riga(_probabilita(_DUE_SOPRA_LA_SOGLIA), 2, 1)
+
+    assert "2-1" not in riga.risultati_probabili
     assert riga.risultato_azzeccato is False
     assert riga.pronostico_azzeccato is True
     assert riga.precisione == "esito"
+
+
+def test_il_verdetto_guarda_gli_stessi_punteggi_che_la_pagina_mostra():
+    """La guardia che conta adesso: una lista sola, letta da due parti.
+
+    Anteprima e pastiglia devono leggere la STESSA cosa, altrimenti la pagina
+    nomina un punteggio e poi lo chiama sbagliato. Vale anche nel caso di
+    ripiego, quando nessuna cella arriva alla soglia e in pagina resta il solo
+    piu' probabile: li' il verdetto deve stringersi insieme all'anteprima.
+    """
+    sotto_soglia = {
+        (1, 1): 0.095, (1, 0): 0.085, (0, 1): 0.08, (2, 1): 0.08, (1, 2): 0.08,
+        (0, 0): 0.07, (2, 0): 0.07, (0, 2): 0.07, (2, 2): 0.07,
+        (3, 1): 0.06, (1, 3): 0.06, (3, 0): 0.06, (0, 3): 0.06,
+    }
+    prob = _probabilita(sotto_soglia)
+
+    assert _riga(prob, 1, 1).risultati_probabili == "1-1"
+    assert _riga(prob, 1, 1).risultato_azzeccato is True
+    # 1-0 e' il secondo della matrice ma la pagina non lo nomina: non conta.
+    assert _riga(prob, 1, 0).risultato_azzeccato is False
 
 
 def test_l_hub_scrive_i_punteggi_probabili(client):
