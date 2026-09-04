@@ -770,6 +770,21 @@ quattro. Due conseguenze da non scambiare per guasti: il gradino alto e' piu'
 facile di prima, quindi i verdi di ieri e quelli di oggi non si contano
 insieme; e non e' una misura del modello — quelle stanno in `/pronostici`,
 nel Brier e nella calibrazione, e nessuna passa di qui.
+Accanto ai punteggi probabili la pagina scrive anche **l'esito che il modello
+sceglie** — 1, X o 2 — con la sua percentuale a fianco (`esito_previsto` e
+`probabilita_esito_previsto` in `web/views.py`, sull'hub e sulla scheda
+partita). Tre cose da sapere. Non è un mercato nuovo: è la stessa somma di
+celle che già tingeva il favorito nella scheda squadra e che decide il gradino
+di mezzo del verdetto, e resta **una sola** — un secondo argmax scritto
+altrove sarebbe uguale oggi e divergerebbe al primo ritocco, con la pagina che
+nomina un esito e la pastiglia che ne premia un altro. La percentuale non è un
+ornamento: il prescelto ha una mediana del 49% e in una partita su sette sta
+sotto il 40% (misurato sui 1154 pronostici in registro il 5 settembre 2026),
+quindi «1» da solo direbbe che il modello ha deciso mentre quasi sempre sta
+indicando il meno incerto dei tre. E la **X non esce quasi mai** — zero volte
+su 1154, perché il pareggio non ha mai passato il 33.5% — il che non è un
+guasto ma una proprietà del calcio: chi la incontra deve poterla riconoscere
+invece di andare a cercare il bug.
 La scheda partita mostra anche gol, formazioni e pagelle
 quando i dettagli ci sono, e dice quando non ci sono. Mostra inoltre gli
 **indisponibili**, che sono l'unica cosa che quella pagina sappia dire su una
@@ -991,6 +1006,9 @@ se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
                                        rosso del giudizio **invariati**
   logo e nome             04/09/2026   `static/logo.png`, «Il Pinguino Fatto
                                        Meglio»; il pacchetto non si rinomina
+  l'esito scritto         05/09/2026   1, X o 2 accanto ai punteggi, con la
+                                       sua percentuale; la doppia chance
+                                       resta senza regola di scelta
 
 ### Le idee che sembrano buone e non lo sono
 
@@ -1008,6 +1026,20 @@ l'elenco, perché è la parte che si tende a riproporre.
   allontanandosi da 1, in tutte e quattro le stagioni separatamente. La
   correzione fa due cose insieme — toglie una squadra che non esiste più e
   toglie **partite vere** — e la seconda si paga sempre.
+- **una regola che sceglie fra secco e doppia chance** (scrivere 1X o X2 al
+  posto di 1 quando il modello è indeciso). Misurata il 5 settembre 2026 sui
+  1154 pronostici in registro, zero richieste, e cade su tre numeri. Le tre
+  doppie sommano a **2 per costruzione** — ogni esito è contato due volte —
+  quindi la più alta non può scendere sotto i due terzi: minimo osservato
+  69.6%, mediana 74.9%, e una soglia sotto il 70% scatta sempre, cioè non è
+  una soglia. «12» è ≥67% nel **99.9%** delle partite, cioè equivale a
+  scrivere «qualcuno vincerà». E soprattutto: quando il modello è indeciso lo
+  è anche la doppia — se 1≈X≈2≈33% ogni doppia vale circa 67% e non arriva a
+  nessuna soglia seria. **La doppia chance non copre l'incertezza, sposta solo
+  il pavimento da un terzo a due terzi**, e una regola così finirebbe per
+  ri-etichettare le partite che il modello aveva già deciso. Le tre
+  percentuali restano dove sono — scheda partita e registro — senza che
+  nessuno scelga al posto di chi legge.
 - **una «forza dell'allenatore»** che viaggia da una squadra all'altra: non è
   identificabile con un campionato solo. Non è nemmeno la strada provata.
 - **i mercati dei gol con una coda più grassa** (binomiale negativa o simili):

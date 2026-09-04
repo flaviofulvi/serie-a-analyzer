@@ -68,6 +68,18 @@
                        {%- if p.piu_di_un_risultato_probabile %}Piu' probabili
                        {%- else %}Piu' probabile{% endif %}</span>
                      <b>{{ p.risultati_probabili }}</b></div>
+                {# L'esito scelto fra i tre: la barra piu' lunga qui sopra
+                   detta a parole. La percentuale gli sta accanto e non e' un
+                   di piu' — "1" da solo si legge come una decisione, mentre
+                   in mediana vale il 49%: e' il meno incerto dei tre, non una
+                   certezza. Il velo colorato e' lo stesso che marca il
+                   favorito nella scheda squadra, e vuol dire la stessa cosa:
+                   un velo e' una previsione, un velo con la riga sotto e' un
+                   fatto accaduto. #}
+                <div><span class="voce">Esito</span>
+                     <b class="esito-scelto tinta-{{ p.esito_previsto }}"
+                        >{{ p.esito_previsto }} &middot;
+                        {{ (p.probabilita_esito_previsto * 100)|round|int }}%</b></div>
               </div>
             {% else %}
               <div class="esito-riga casa" style="grid-template-columns: 1fr">

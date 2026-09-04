@@ -532,6 +532,17 @@ h3 {
   background: color-mix(in srgb, var(--tinta, var(--ics)) calc(var(--velo-lieve) + 8%), var(--carta));
 }
 
+/* L'esito scelto fra i tre, scritto a parole accanto ai punteggi probabili.
+   E' lo stesso velo del favorito qui sopra e dice la stessa cosa — un velo e'
+   una previsione, un velo con la riga sotto e' un fatto — ma qui non cade su
+   una cella di tabella bensi' su una parola in mezzo ad altre cifre, e senza
+   un filo di padding il colore le si appiccicherebbe addosso. */
+.esito-scelto {
+  padding: .0625rem .375rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--tinta, var(--ics)) var(--velo-lieve), var(--carta));
+}
+
 /* ---- trittico: le tre probabilita', una per riga ----------------------- */
 
 /* Tre barre allineate allo stesso zero si confrontano a occhio; tre

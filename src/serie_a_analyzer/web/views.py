@@ -227,10 +227,43 @@ class RigaPartita:
 
     @property
     def esito_previsto(self) -> str | None:
+        """L'esito che il modello sceglie fra 1, X e 2: il piu' probabile.
+
+        Lo leggono in tre — il velo sul favorito nella scheda squadra, il
+        verdetto di fine partita e, dal 5 settembre 2026, la scritta accanto
+        ai punteggi probabili — e devono leggere la STESSA cosa. Un secondo
+        argmax scritto altrove sarebbe identico oggi e divergerebbe al primo
+        ritocco, con la pagina che nomina un esito e la pastiglia che ne
+        giudica un altro: e' la trappola gia' vista coi cinque punteggi.
+
+        La "X" non esce quasi mai, e non e' un guasto da cercare. Perche'
+        esca deve essere il pareggio il piu' probabile dei tre, e nei 1154
+        pronostici in registro il pareggio non ha mai passato il 33.5% mentre
+        il prescelto sta in mediana al 49%: zero volte su 1154 (misurato il 5
+        settembre 2026). E' una proprieta' del calcio prima che del modello —
+        il pareggio e' l'esito piu' frequente di nessuno — e chi la incontra
+        deve poterla riconoscere invece di aprire il codice.
+        """
         if self.prob is None:
             return None
         trio = {"1": self.prob.home_win, "X": self.prob.draw, "2": self.prob.away_win}
         return max(trio, key=trio.get)
+
+    @property
+    def probabilita_esito_previsto(self) -> float | None:
+        """Quanto vale l'esito scelto qui sopra, da 0 a 1.
+
+        Viaggia sempre insieme alla lettera e non e' un ornamento. Il
+        prescelto ha una mediana del 49% e in una partita su sette sta sotto
+        il 40% (stessa misura, 5 settembre 2026): scrivere "1" da solo
+        direbbe che il modello ha deciso, mentre il piu' delle volte sta
+        indicando il meno incerto dei tre. E' la regola gia' applicata ai
+        punteggi probabili, che sono piu' d'uno proprio per non far sembrare
+        deciso un modello che deciso non e'.
+        """
+        if self.prob is None:
+            return None
+        return max(self.prob.home_win, self.prob.draw, self.prob.away_win)
 
     @property
     def pronostico_azzeccato(self) -> bool | None:

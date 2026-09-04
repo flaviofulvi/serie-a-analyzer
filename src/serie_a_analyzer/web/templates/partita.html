@@ -547,6 +547,25 @@
         <div><span class="voce">{{ punteggio[0] }}&ndash;{{ punteggio[1] }}</span><b>{{ (prob*100)|round(1) }}%</b></div>
       {% endfor %}
     </div>
+
+    {# Gli stessi punteggi sommati per esito: 1, X o 2, il piu' probabile dei
+       tre. Sta qui e non in cima alla pagina perche' e' un'altra somma della
+       stessa matrice, come i cinque punteggi qui sopra. Su una partita gia'
+       cominciata esce dalla matrice CONGELATA insieme a tutto il resto di
+       questa sezione: legge `p.prob`, che dopo il fischio d'inizio e' quella
+       del registro e mai un ricalcolo. #}
+    <h3>L'esito che ne esce</h3>
+    <div class="cifre minute">
+      <div><span class="voce">Il modello sceglie</span>
+           <b class="esito-scelto tinta-{{ p.esito_previsto }}"
+              >{{ p.esito_previsto }} &middot;
+              {{ (p.probabilita_esito_previsto * 100)|round(1) }}%</b></div>
+    </div>
+    <p class="spiega">
+      E' la piu' alta delle tre barre in cima alla pagina, scritta a parole.
+      La percentuale le sta accanto apposta: quasi sempre e' sotto la meta',
+      cioe' il modello indica il meno incerto dei tre e non una certezza.
+    </p>
   </div>
 </section>
 {% endif %}

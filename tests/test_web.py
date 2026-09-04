@@ -1123,6 +1123,103 @@ def test_l_hub_scrive_i_punteggi_probabili(client):
     assert "Piu' probabil" in r.text
 
 
+# ---- l'esito scelto fra 1, X e 2 ---------------------------------------------
+#
+# Non e' un mercato nuovo: e' la stessa somma di celle che tinge il favorito
+# nella scheda squadra e che decide il gradino di mezzo del verdetto, scritta
+# a parole accanto ai punteggi probabili. Le righe qui sotto esistono perche'
+# resti UNA somma sola: due argmax scritti in due posti sarebbero uguali oggi
+# e divergerebbero al primo ritocco.
+
+
+def test_l_esito_scelto_e_il_piu_probabile_dei_tre():
+    """1 vale 0.55, X 0.20, 2 0.25: la pagina scrive 1."""
+    riga = _riga(_probabilita(_DAVA_2_1), 2, 1)
+    assert riga.esito_previsto == "1"
+    assert riga.probabilita_esito_previsto == pytest.approx(riga.prob.home_win)
+
+
+def test_la_probabilita_scritta_e_quella_dell_esito_scritto():
+    """Le due cose viaggiano insieme, e devono parlare della stessa lettera."""
+    prob = _probabilita({
+        (0, 1): 0.22, (0, 2): 0.18, (1, 2): 0.14,      # trasferta: 0.54
+        (1, 1): 0.14, (0, 0): 0.10,                    # pareggio:  0.24
+        (1, 0): 0.12, (2, 1): 0.10,                    # casa:      0.22
+    })
+    riga = _riga(prob, 0, 1)
+    scelta = {"1": prob.home_win, "X": prob.draw, "2": prob.away_win}
+    assert riga.esito_previsto == "2"
+    assert riga.probabilita_esito_previsto == pytest.approx(scelta["2"])
+
+
+def test_senza_pronostico_non_si_scrive_nessun_esito():
+    """"Non lo so" non deve diventare una lettera, come sempre in questo progetto."""
+    from serie_a_analyzer.web.views import RigaPartita
+
+    riga = RigaPartita(
+        id=1, casa="Inter", ospite="Lecce", casa_id=1, ospite_id=6,
+        quando="sabato 22 ago, 18:30", giornata=1, conclusa=False,
+        gol_casa=None, gol_ospite=None, prob=None,
+    )
+    assert riga.esito_previsto is None
+    assert riga.probabilita_esito_previsto is None
+
+
+def test_l_esito_scelto_e_lo_stesso_che_giudica_il_verdetto():
+    """La lettera nominata in pagina e quella su cui si viene giudicati.
+
+    Se le due potessero divergere, la pagina prometterebbe un esito e la
+    pastiglia ne premierebbe un altro: e' la trappola gia' chiusa per i
+    cinque punteggi, e vale identica qui.
+    """
+    prob = _probabilita(_DAVA_2_1)
+    for gol_casa, gol_ospite in ((2, 1), (1, 1), (0, 2)):
+        riga = _riga(prob, gol_casa, gol_ospite)
+        assert riga.pronostico_azzeccato == (riga.esito_reale == riga.esito_previsto)
+
+
+def test_l_hub_scrive_l_esito_scelto(client):
+    r = client.get("/")
+    assert "esito-scelto" in r.text
+    assert ">Esito<" in r.text
+
+
+def test_la_scheda_di_una_partita_da_giocare_scrive_l_esito_scelto(client, motore):
+    futura = motore.snapshot().dataset.upcoming()[0]
+    r = client.get(f"/partita/{futura.api_id}")
+    assert "esito-scelto" in r.text
+    assert "L'esito che ne esce" in r.text
+
+
+def test_l_esito_scelto_di_una_partita_giocata_viene_dal_congelato(motore):
+    """Dopo il fischio d'inizio la lettera esce dalla matrice del registro.
+
+    Viene gratis perche' `esito_previsto` legge `self.prob`, che su una
+    partita iniziata e' gia' quella congelata — ma "viene gratis" e' proprio
+    il motivo per cui qualcuno potrebbe scriverne una seconda copia che
+    interroga il modello caldo, ed e' quella che questo test impedisce.
+    """
+    _congela_il_passato(motore)
+    snap = motore.snapshot()
+    partita = snap.dataset.recent_results(limit=1)[0]
+
+    riga, _ = app_module._riga(
+        motore, partita, snap.dataset.name, datetime.now(timezone.utc)
+    )
+
+    registrato = motore.pronostici.ultimo_per_partita(partita.api_id)
+    mercati = {
+        m["selection"]: m["probability"]
+        for m in motore.pronostici.mercati(registrato["id"])
+        if m["market"] == "1x2"
+    }
+    atteso = {"home": "1", "draw": "X", "away": "2"}[max(mercati, key=mercati.get)]
+
+    assert riga.congelato
+    assert riga.esito_previsto == atteso
+    assert riga.probabilita_esito_previsto == pytest.approx(max(mercati.values()))
+
+
 def test_l_hub_disegna_i_tre_gradini(client_col_passato):
     """La pastiglia c'e' e porta la classe del gradino, che e' cio' che tinge."""
     r = client_col_passato.get("/")
