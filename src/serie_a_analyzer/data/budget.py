@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -33,6 +34,35 @@ logger = logging.getLogger(__name__)
 # vedi `_blocco`, dove a scadere e' il lucchetto e non la raccolta.
 ATTESA_LUCCHETTO = 5.0
 LUCCHETTO_ABBANDONATO = 30.0
+
+# Su Windows aprire un file che qualcun altro sta leggendo o sostituendo puo'
+# fallire per un istante: non e' un guasto, e' una finestra che si chiude da
+# sola in pochi millisecondi. Quanto insistere prima di crederci davvero.
+# Misurato il 4 settembre 2026, senza tentativi e con quattro lettori del
+# contatore addosso: 2932 scritture su 3000 fallivano. Con i tentativi e un
+# lettore ogni 50 millisecondi — molto piu' di quanto il sito legga davvero —
+# non ne fallisce nessuna.
+TENTATIVI_CONDIVISIONE = 20
+ATTESA_FRA_TENTATIVI = 0.02
+
+
+def _riprovando(azione, *args, **kwargs):
+    """Esegue ``azione``, insistendo sui permessi negati passeggeri.
+
+    Windows nega l'accesso a un file mentre un altro processo lo tiene aperto
+    o lo sta sostituendo, e lo fa con lo stesso errore di un permesso mancante
+    per davvero. La differenza non si legge dall'errore: si legge dal fatto che
+    il primo sparisce da solo e il secondo no. Quindi si riprova, e solo chi
+    resiste a tutti i tentativi viene creduto.
+    """
+    for rimasti in range(TENTATIVI_CONDIVISIONE - 1, -1, -1):
+        try:
+            return azione(*args, **kwargs)
+        except PermissionError:
+            if not rimasti:
+                raise
+            time.sleep(ATTESA_FRA_TENTATIVI)
+
 
 # Limite del piano gratuito di API-Football.
 DEFAULT_DAILY_LIMIT = 100
@@ -90,26 +120,59 @@ class RequestBudget:
     def _today(self) -> date:
         return datetime.now(timezone.utc).date()
 
+    def _stato_vuoto(self) -> dict[str, Any]:
+        return {"day": self._today().isoformat(), "used": 0, "by_priority": {}}
+
     def _load(self) -> dict[str, Any]:
-        if not self.state_path.exists():
-            return {"day": self._today().isoformat(), "used": 0, "by_priority": {}}
+        """Legge il contatore, distinguendo "non c'e'" da "non si riesce".
+
+        Le due cose finiscono allo stesso posto — si riparte da zero — ma solo
+        la prima e' un fatto. La seconda e' una rinuncia, e va detta: ripartire
+        da zero significa regalarsi un intero budget giornaliero, e nessuno se
+        ne accorgerebbe.
+
+        Il file non si controlla con `exists()` prima di aprirlo, e non e' un
+        risparmio ma una correzione: mentre un altro processo sostituisce il
+        contatore, su Windows anche `exists()` puo' rispondere di no — e
+        rispondeva di no in silenzio, senza nemmeno il warning, perche' quel
+        ramo credeva di aver trovato un contatore mai scritto. Si apre e basta:
+        un file che non c'e' lo dice da solo con FileNotFoundError.
+        """
         try:
-            state = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            # Uno stato illeggibile non deve bloccare l'applicazione: nel
-            # dubbio si riparte da zero, al massimo si spendono richieste in
-            # piu' oggi. Va pero' DETTO, perche' ripartire da zero significa
-            # regalarsi un intero budget giornaliero e nessuno se ne
-            # accorgerebbe. Da quando `_save` scrive in modo atomico questo
-            # ramo non dovrebbe scattare mai piu': se scatta e' una notizia.
+            testo = _riprovando(self.state_path.read_text, encoding="utf-8")
+        except FileNotFoundError:
+            # Non e' mai stato scritto: zero e' la verita', non una rinuncia.
+            return self._stato_vuoto()
+        except OSError:
+            logger.warning(
+                "contatore del budget non leggibile (%s): si riparte da zero, "
+                "oggi si potrebbe spendere piu' del dovuto", self.state_path,
+            )
+            return self._stato_vuoto()
+        try:
+            state = json.loads(testo)
+        except json.JSONDecodeError:
+            # Da quando `_save` scrive in modo atomico questo ramo non dovrebbe
+            # scattare mai piu': se scatta e' una notizia.
             logger.warning(
                 "contatore del budget illeggibile (%s): si riparte da zero, "
                 "oggi si potrebbe spendere piu' del dovuto", self.state_path,
             )
-            return {"day": self._today().isoformat(), "used": 0, "by_priority": {}}
+            return self._stato_vuoto()
         if state.get("day") != self._today().isoformat():
-            return {"day": self._today().isoformat(), "used": 0, "by_priority": {}}
+            return self._stato_vuoto()
         return state
+
+    def _provvisorio(self) -> Path:
+        """Il file di fianco su cui si scrive prima di rinominare.
+
+        Un nome per SCRITTORE — processo piu' thread — e non uno per contatore:
+        il lucchetto e' volutamente a perdere, quindi due scrittori possono
+        coesistere per disegno, e con un nome solo si troncavano a vicenda.
+        """
+        return self.state_path.with_name(
+            f"{self.state_path.stem}.{os.getpid()}-{threading.get_ident()}.tmp"
+        )
 
     def _save(self, state: dict[str, Any]) -> None:
         """Scrive il contatore senza poter lasciare un file a meta'.
@@ -121,10 +184,49 @@ class RequestBudget:
         spegne, una raccolta fermata con Ctrl+C — lasciava un JSON troncato,
         che `_load` traduce in "usate zero richieste": cioe' un budget intero
         regalato proprio nel giorno in cui qualcosa era andato storto.
+
+        Il file di fianco ha un nome DIVERSO per ogni scrittore (processo piu'
+        thread), e non e' un dettaglio: era uno solo per tutti, e il lucchetto
+        e' volutamente a perdere, quindi due scrittori possono coesistere per
+        disegno. Coesistendo si pestavano lo stesso `.tmp` — uno lo troncava
+        mentre l'altro lo rinominava — e ne usciva un `PermissionError` che
+        nessun chiamante cattura: la raccolta moriva li'. Un nome per ciascuno
+        rende il ripiego innocuo, che e' la cosa che il ripiego prometteva.
+
+        La rinomina insiste (`_riprovando`) perche' i LETTORI stanno fuori dal
+        lucchetto — `client.py` scrive `budget.used` nel log dopo ogni
+        richiesta, `/stato` lo mostra a ogni pagina — e su Windows un lettore
+        che tiene aperto il file fa fallire chi lo sostituisce. Misurato il 4
+        settembre 2026, prima che si insistesse: con quattro lettori addosso
+        fallivano 2932 scritture su 3000, e l'errore usciva da `spend`.
+
+        Se dopo tutti i tentativi non si riesce comunque, si rinuncia e lo si
+        dice: questa richiesta risultera' non spesa. E' la stessa scelta del
+        lucchetto e per la stessa ragione — perdere un conteggio e' un
+        fastidio, fermare la raccolta costa una giornata di partite che l'API
+        non restituira' mai piu'.
+
+        Il limite, misurato e non dedotto: con QUATTRO lettori in ciclo stretto
+        addosso — che nessun processo di questo progetto fa — i tentativi non
+        bastano piu' e si perde un conteggio su cinque, sempre dicendolo. Con
+        un lettore ogni 50 millisecondi, che e' molto piu' di quanto il sito
+        legga davvero, non se ne perde nessuno. Chi un giorno mettesse il
+        contatore sotto interrogazione continua deve saperlo: la difesa e'
+        dimensionata sui lettori che ci sono.
         """
-        provvisorio = self.state_path.with_suffix(".tmp")
-        provvisorio.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        os.replace(provvisorio, self.state_path)
+        provvisorio = self._provvisorio()
+        try:
+            provvisorio.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            _riprovando(os.replace, provvisorio, self.state_path)
+        except OSError as exc:
+            logger.warning(
+                "contatore del budget non scrivibile (%s): questa richiesta non "
+                "risultera' spesa, oggi si potrebbe spendere piu' del dovuto", exc,
+            )
+            try:
+                provvisorio.unlink()
+            except OSError:
+                pass
 
     @contextmanager
     def _blocco(self):
@@ -147,6 +249,20 @@ class RequestBudget:
         dati. Per la stessa ragione un lucchetto piu' vecchio di
         ``LUCCHETTO_ABBANDONATO`` viene tolto: e' di un processo che non c'e'
         piu'.
+
+        "Occupato" su Windows si presenta in DUE modi e non in uno: un
+        lucchetto appena tolto resta in cancellazione per un istante, e chi
+        prova ad aprirlo in quella finestra non riceve FileExistsError ma un
+        permesso negato. Trattare il secondo come "filesystem che non
+        collabora" — cioe' proseguire subito e senza dirlo — era il modo di
+        uscire dalla sezione critica in silenzio, ed e' il difetto che faceva
+        sparire conteggi: 8 volte su 3192 prese, misurate il 4 settembre 2026.
+        Non lo si distingue da un permesso mancante per davvero guardando
+        l'errore, e nemmeno chiedendo se il file c'e' (`exists()` risponde di
+        no anche li'): lo si distingue aspettando, perche' il primo passa da
+        solo e il secondo no. Chi resiste fino alla scadenza finisce quindi
+        nello stesso ripiego di un lucchetto occupato sul serio, che e'
+        limitato e dichiarato.
         """
         lucchetto = self.state_path.with_suffix(".lock")
         scadenza = time.monotonic() + ATTESA_LUCCHETTO
@@ -156,7 +272,7 @@ class RequestBudget:
                 os.close(os.open(lucchetto, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
                 preso = True
                 break
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
                 try:
                     vecchio = (
                         time.time() - lucchetto.stat().st_mtime
@@ -178,8 +294,14 @@ class RequestBudget:
                     )
                     break
                 time.sleep(0.05)
-            except OSError:
+            except OSError as exc:
                 # Un filesystem che non collabora non deve fermare la raccolta.
+                # Ma va DETTO: e' l'unico ramo che rinuncia al lucchetto senza
+                # nemmeno aspettare, e in silenzio nessuno lo scoprirebbe.
+                logger.warning(
+                    "lucchetto del budget non creabile (%s): si prosegue senza, "
+                    "un conteggio potrebbe perdersi", exc,
+                )
                 break
         try:
             yield

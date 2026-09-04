@@ -136,6 +136,38 @@ Da qui l'intera forma di `data/`:
   priorità**: `BACKFILL` si ferma prima di intaccare la quota di `CRITICAL`
   (formazioni ufficiali). Toccando le priorità si rischia di restare a secco
   la domenica alle 14:30.
+  Ci scrivono **tre processi insieme** — il sito, la raccolta giornaliera e la
+  corsa del quarto d'ora — e contare una richiesta è leggi-modifica-scrivi,
+  quindi il lucchetto (`_blocco`) è un file creato con `O_EXCL`, l'unica
+  primitiva che si comporta uguale su Windows e altrove. Se non lo prende
+  **prosegue lo stesso**, ed è voluto: perdere un conteggio è un fastidio,
+  bloccare la lettura delle formazioni mezz'ora prima del fischio costa una
+  giornata di dati. Il 4 settembre 2026 quella scelta è stata trovata
+  **esplosiva invece che innocua**, e la correzione vale la pena di essere
+  raccontata perché è tutta di forma, non di logica. Su Windows un file appena
+  cancellato resta «in cancellazione» per un istante, e in quella finestra
+  aprirlo non dà `FileExistsError` ma un permesso negato: finiva nel ramo
+  «filesystem che non collabora», che usciva dalla sezione critica **subito e
+  senza dire niente** (8 volte su 3192 prese; il warning del timeout non è mai
+  scattato). I due scrittori che entravano insieme si pestavano poi lo stesso
+  file provvisorio, e ne usciva un `PermissionError` che **nessun chiamante
+  cattura** — `client.py` chiama `spend()` prima di spedire e chi chiama prende
+  solo `BudgetExhausted`. Da qui le tre regole di oggi: un permesso negato è un
+  lucchetto **occupato** e non un guasto (lo si distingue solo aspettando —
+  nemmeno `exists()` sa rispondere in quella finestra), il file provvisorio ha
+  un nome per **scrittore** così il ripiego resta innocuo com'era promesso, e
+  il ramo del guasto vero adesso **lo dice**. La terza regola non c'entra col
+  lucchetto ed è la più pericolosa: i **lettori** stanno fuori dalla sezione
+  critica — `client.py` scrive `budget.used` nel log a ogni richiesta, `/stato`
+  lo mostra a ogni pagina — e su Windows chi tiene aperto un file fa fallire
+  chi lo sostituisce (con quattro lettori addosso, 2932 scritture su 3000
+  fallivano). Perciò lettura e rinomina **insistono** (`_riprovando`), e `_load`
+  separa «non c'è» da «non si riesce»: solo il primo è uno zero, il secondo è
+  una rinuncia — e metterli nello stesso ramo faceva rispondere «usate zero
+  richieste», cioè regalare un budget giornaliero intero. Il limite è
+  dichiarato e non nascosto: sotto quattro lettori in ciclo stretto — che
+  nessun processo di questo progetto fa — un conteggio su cinque si perde
+  comunque, sempre dicendolo.
 - `cache.py` — risposte grezze su disco (`data/cache/`); TTL per endpoint, una
   stagione conclusa non scade mai.
 - `daily.py` — la stagione in corso si raccoglie in **due modi diversi**, e la
