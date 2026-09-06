@@ -993,15 +993,21 @@ raccolta.
 
 ## Lavori futuri
 
-`DA_FARE.txt` e `DA_SISTEMARE.txt` (file locali, volutamente non tracciati)
-tengono l'elenco: il primo i **lavori concordati** con l'utente, il secondo i
-**difetti trovati leggendo il codice**. Se quei file non ci fossero, questa
-sezione è l'unica traccia che ne rimane.
+`LAVORI.txt` (file locale, volutamente non tracciato) tiene l'elenco: i
+**lavori concordati** con l'utente e i **difetti trovati leggendo il codice**,
+ognuno col tempo che vuole, la sua scadenza e quante richieste API costa. È
+nato il 7 settembre 2026 dalla fusione di `DA_FARE.txt` e `DA_SISTEMARE.txt`,
+che sono stati cancellati — erano già pieni di rimandi incrociati e la
+scadenza del 24 settembre stava scritta in tutti e due. Se quel file non ci
+fosse, questa sezione è l'unica traccia che ne rimane.
 
 **I numeri dei lavori non si riusano**: quelli chiusi lasciano il posto vuoto,
 così i riferimenti nei commenti del codice continuano a puntare alla cosa
-giusta. Al 3 settembre 2026 restano aperti il **6**, l'**1**, il **2** e il
-**5**, ed è anche l'ordine in cui conviene affrontarli.
+giusta. Vale anche per i numeri dei difetti, che nel file unito conservano le
+lettere che avevano. Al 7 settembre 2026 restano aperti **C1** (l'unico con
+una scadenza: prima del 24 settembre), il **6**, l'**1**, il **2** e il
+**5**, ed è anche l'ordine in cui conviene affrontarli. Solo il 5 costa una
+richiesta; tutto il resto è gratis e si paga in tempo.
 
 **6 — il vantaggio di casa.** L'unico che si possa cominciare oggi: non
 aspetta nessun dato e non costa richieste. `home_advantage` è l'ultimo
@@ -1070,7 +1076,7 @@ se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
 ### Le idee che sembrano buone e non lo sono
 
 Sono misurate, non discusse, e ognuna è morta con un numero. Il posto dove
-stanno per esteso è `DA_FARE.txt`, sezione COSE DA NON FARE MAI; qui c'è
+stanno per esteso è `LAVORI.txt`, sezione COSE DA NON FARE MAI; qui c'è
 l'elenco, perché è la parte che si tende a riproporre.
 
 - **il modello a tiri e l'xG.** Misurati due volte il 24 agosto 2026, zero

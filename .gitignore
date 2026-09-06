@@ -16,10 +16,11 @@ data/importato/
 
 # Appunti locali: la lista dei lavori e il comando per avviare il sito.
 # Non tracciati di proposito, sono la scrivania di chi sviluppa.
-DA_FARE.txt
+# LAVORI.txt e' nato il 7 settembre 2026 dalla fusione di DA_FARE.txt e
+# DA_SISTEMARE.txt, che sono stati cancellati.
+LAVORI.txt
 run
 
-# Appunti locali e log delle esecuzioni: la scrivania, non il progetto.
-DA_SISTEMARE.txt
+# Log delle esecuzioni: la scrivania, non il progetto.
 logs/
 *.bak-*

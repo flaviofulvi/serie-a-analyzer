@@ -10,7 +10,7 @@ Dentro il triennio, pero', lo script funziona anche gratis: verificato il
 (formazioni con allenatore, tabellini con minuti e voti, eventi). Serve a
 riempire di dettaglio stagioni di cui abbiamo solo i risultati — ~1140
 richieste a stagione, quindi con `--max-richieste` e molta pazienza. Vedi il
-lavoro 5 in DA_FARE.txt per i tempi veri.
+lavoro 5 in LAVORI.txt per i tempi veri.
 
     python scripts/riempi_storico.py --solo-verifica   # cosa e' possibile, 2 richieste
     python scripts/riempi_storico.py                   # la scorsa stagione, tutta
