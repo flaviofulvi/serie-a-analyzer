@@ -152,15 +152,6 @@ def margine_gol(gol_casa: int, gol_ospite: int) -> float:
 # partita finita. Chi lo tocca sposta anche il verdetto su tutto lo storico.
 SOGLIA_RISULTATO_PROBABILE = 0.10
 
-# Quanto ci ha preso il modello su una partita gia' giocata. Le parole restano
-# due, azzeccato e sbagliato: a distinguere il punteggio azzeccato dal solo
-# esito e' il colore della pastiglia, non un'etichetta diversa.
-TESTI_PRECISIONE = {
-    "esatto": "azzeccato",
-    "esito": "azzeccato",
-    "niente": "sbagliato",
-}
-
 
 @dataclass
 class RigaPartita:
@@ -266,7 +257,70 @@ class RigaPartita:
         return max(self.prob.home_win, self.prob.draw, self.prob.away_win)
 
     @property
+    def gol_nogol_previsto(self) -> str | None:
+        """«GG» o «NG»: il modello se l'aspetta con gol da entrambe, o no.
+
+        E' l'equivalente di ``esito_previsto`` sul Gol/NoGol, e sta accanto a
+        quello in pagina su richiesta dell'utente (7 settembre 2026). Non e'
+        un mercato nuovo: e' la stessa ``prob.btts`` che la scheda partita
+        gia' mostrava, detta come scelta invece che come probabilita' secca.
+
+        **Va letto sapendo tre cose, e la pagina le dichiara.** La prima e'
+        che qui il modello non sceglie granche': misurato sui 1170 pronostici
+        in registro il 7 settembre 2026, dice **NG 1071 volte su 1170** e la
+        P(GG) non ha mai passato il 55.2%, con mediana 47.6%. La seconda e'
+        aritmetica e vale sempre: GG e NG sommano a uno, quindi la
+        percentuale del prescelto **non puo' scendere sotto il 50%** — la sua
+        mediana e' 52.4% e in tre casi su quattro sta sotto il 55%. E' lo
+        stesso pavimento che ha fatto scartare la doppia chance, un piano
+        piu' in basso: un numero che parte da meta' sembra una decisione e
+        non lo e'. La terza e' il limite noto del modello, gia' scritto nella
+        scheda partita: sui mercati dei gol, dopo la compressione, dichiara
+        quasi sempre la media di campionato, perche' e' quanto sa davvero.
+
+        Il pareggio fra i due va a GG, e non capita: servirebbe una P(GG) di
+        esattamente 0.5.
+        """
+        if self.prob is None:
+            return None
+        return "GG" if self.prob.btts >= self.prob.no_btts else "NG"
+
+    @property
+    def probabilita_gol_nogol_previsto(self) -> float | None:
+        """Quanto vale la scelta qui sopra, da 0 a 1. Mai sotto 0.5.
+
+        Viaggia sempre insieme alla sigla, per la stessa ragione per cui la
+        percentuale sta accanto all'1X2: «NG» da solo si legge come una
+        decisione. Qui serve anche di piu', perche' il pavimento e' il doppio
+        — vedi ``gol_nogol_previsto``.
+        """
+        if self.prob is None:
+            return None
+        return max(self.prob.btts, self.prob.no_btts)
+
+    @property
     def pronostico_azzeccato(self) -> bool | None:
+        """L'esito accaduto era quello che il modello preferiva.
+
+        Dal 7 settembre 2026 ha **una colonna sua**, accanto a quella del
+        punteggio, e il perche' e' una partita sola: Juventus-Milan del 6
+        settembre 2026 e' finita 1-1, con il modello che dava l'1 al 45% e
+        nominava 1-0 e 1-1 fra i punteggi probabili. La pastiglia unica di
+        allora guardava il punteggio per primo, trovava l'1-1 nella rosa e
+        scriveva "azzeccato" in verde su una partita in cui il segno era
+        sbagliato.
+
+        Non era un difetto di quel codice ma della domanda che gli si faceva.
+        Una pastiglia sola deve mettere i due giudizi in fila, e dal 3
+        settembre 2026 in fila non stanno piu': i punteggi nominati sono fino
+        a cinque e **possono avere segni diversi fra loro**, quindi "il
+        punteggio era fra quelli detti" non implica piu' "il segno era
+        quello". Due domande diverse vogliono due risposte diverse.
+
+        Vale ``None`` finche' la partita non e' finita, o se il pronostico non
+        fu scritto in tempo: "non lo so" e "sbagliato" non si disegnano
+        uguale.
+        """
         reale, previsto = self.esito_reale, self.esito_previsto
         if reale is None or previsto is None:
             return None
@@ -283,8 +337,8 @@ class RigaPartita:
     def risultato_probabile(self) -> str:
         """Il singolo punteggio piu' probabile.
 
-        **Non e' piu' il metro del verdetto**: dal 3 settembre 2026 il gradino
-        alto guarda tutti i punteggi nominati in pagina e non solo il primo
+        **Non e' piu' il metro del verdetto**: dal 3 settembre 2026 la
+        colonna del punteggio guarda tutti quelli nominati e non solo il primo
         (il perche' sta in ``risultato_azzeccato``). Il suo unico compito
         adesso e' fare da rete a ``punteggi_probabili`` quando nessuna cella
         arriva alla soglia: la pagina non resta mai senza un punteggio, che si
@@ -362,42 +416,37 @@ class RigaPartita:
         La lista e' esattamente quella mostrata (``punteggi_probabili``), non
         una ricalcolata: pastiglia e anteprima non possono divergere.
 
-        Due cose da tenere in mente, e nessuna delle due e' un guasto. Il
-        gradino alto e' **piu' facile** di prima, quindi i verdetti verdi
-        scritti prima di oggi e quelli di dopo non si contano insieme. E
-        questo non e' una misura del modello: le misure stanno in
-        ``/pronostici``, nel Brier e nella calibrazione, e nessuna passa di
-        qui — questa e' la riga che racconta com'e' andata a chi guarda.
+        Due cose da tenere in mente, e nessuna delle due e' un guasto.
+        Questa colonna e' **piu' facile** di un confronto col solo punteggio
+        piu' probabile, quindi i verdi scritti prima del 3 settembre 2026 e
+        quelli di dopo non si contano insieme. E questo non e' una misura del
+        modello: le misure stanno in ``/pronostici``, nel Brier e nella
+        calibrazione, e nessuna passa di qui — questa e' la riga che racconta
+        com'e' andata a chi guarda.
+
+        Puo' dire di si' mentre la colonna accanto dice di no, ed e' il caso
+        che ha fatto nascere le due colonne: il perche' sta in
+        ``pronostico_azzeccato``.
         """
         if self.prob is None or not self.conclusa or self.gol_casa is None:
             return None
         return self.risultato in self.punteggi_probabili
 
     @property
-    def precisione(self) -> str | None:
-        """Quanto ci ha preso il modello: 'esatto', 'esito' o 'niente'.
+    def giudicabile(self) -> bool:
+        """Se di questa riga si puo' dire com'e' andata.
 
-        L'ordine dei due controlli non e' indifferente. Quasi sempre azzeccare
-        il punteggio implica azzeccare anche l'esito, ma non sempre: il
-        risultato piu' probabile puo' essere 1-1 mentre la somma di tutte le
-        vittorie interne supera quella di tutti i pareggi, e allora il modello
-        nomina il punteggio giusto pur avendo come favorito il segno sbagliato.
-        Guardare prima il punteggio fa finire quel caso nel gradino alto, che e'
-        dove deve stare: aver detto *come* finiva e' piu' di aver detto *chi*
-        vinceva. Per questo l'etichetta parla di risultato e non di esito — non
-        promette una cosa che in quel caso non e' vera.
+        Le due palline in fondo rispondono a due domande diverse, ma nascono
+        e spariscono insieme: nessuna delle due ha risposta finche' la partita
+        non e' finita, e un cerchio rosso su una partita da giocare direbbe
+        "sbagliato" di una cosa che nessuno ha ancora visto. E' il terzo stato
+        della riga, quello che si continua a dire a parole.
+
+        Sta qui e non nel template perche' i template non fanno calcoli, e
+        perche' le due colonne devono comparire insieme: chiederlo due volte,
+        una per colonna, e' il modo di ritrovarsene un giorno una sola.
         """
-        esatto = self.risultato_azzeccato
-        if esatto is None:
-            return None
-        if esatto:
-            return "esatto"
-        return "esito" if self.pronostico_azzeccato else "niente"
-
-    @property
-    def precisione_testo(self) -> str:
-        """L'etichetta della pastiglia. I template non conoscono le chiavi."""
-        return TESTI_PRECISIONE.get(self.precisione or "", "")
+        return self.risultato_azzeccato is not None
 
 
 def riga_partita(

@@ -900,14 +900,16 @@ def test_una_lettura_dopo_il_fischio_non_finisce_nella_scheda(client, motore):
     assert "Tizio Tardivo" not in r.text
 
 
-# ---- i tre gradini del giudizio ---------------------------------------------
+# ---- i due giudizi -----------------------------------------------------------
 #
-# Nell'elenco degli ultimi risultati la pastiglia in fondo alla riga dice
-# quanto ci ha preso il modello, e sono tre cose diverse: il punteggio era
-# fra quelli nominati in pagina, era azzeccato solo chi vince, non era
-# azzeccato niente. I test lavorano su matrici costruite a mano perche' e'
-# l'unico modo di decidere quali punteggi siano i probabili invece di
-# sperarci.
+# Nell'elenco degli ultimi risultati le due palline in fondo alla riga
+# rispondono a due domande diverse: il segno accaduto era quello che il
+# modello preferiva, e il punteggio era fra quelli nominati in pagina. Fino
+# al 6 settembre 2026 era una pastiglia sola a tre gradini, e li' i due
+# giudizi si pestavano — vedi
+# ``test_il_punteggio_giusto_col_segno_sbagliato_e_mezzo_verdetto``.
+# I test lavorano su matrici costruite a mano perche' e' l'unico modo di
+# decidere quali punteggi siano i probabili invece di sperarci.
 
 
 def _probabilita(celle):
@@ -941,31 +943,32 @@ _DAVA_2_1 = {
 }
 
 
-def test_il_punteggio_nominato_e_il_gradino_alto():
+def test_il_punteggio_nominato_accende_tutte_e_due_le_palline():
     riga = _riga(_probabilita(_DAVA_2_1), 2, 1)
-    assert riga.precisione == "esatto"
-    assert riga.precisione_testo == "azzeccato"
+    assert riga.giudicabile is True
+    assert riga.pronostico_azzeccato is True
+    assert riga.risultato_azzeccato is True
 
 
-def test_azzeccare_solo_chi_vince_e_il_gradino_di_mezzo():
+def test_azzeccare_solo_chi_vince_accende_una_pallina_sola():
     """Vittoria interna si', ma 3-0 non e' il 2-1 che il modello aveva nominato."""
     riga = _riga(_probabilita(_DAVA_2_1), 3, 0)
-    assert riga.precisione == "esito"
-    # La parola e' la stessa del gradino sopra: a distinguerli e' il colore.
-    assert riga.precisione_testo == "azzeccato"
+    assert riga.pronostico_azzeccato is True
+    assert riga.risultato_azzeccato is False
 
 
-def test_l_esito_sbagliato_e_il_gradino_basso():
+def test_l_esito_sbagliato_le_spegne_tutte_e_due():
     riga = _riga(_probabilita(_DAVA_2_1), 0, 2)
-    assert riga.precisione == "niente"
-    assert riga.precisione_testo == "sbagliato"
+    assert riga.pronostico_azzeccato is False
+    assert riga.risultato_azzeccato is False
 
 
 def test_senza_pronostico_non_si_giudica_niente():
-    """Il modello non conosceva le squadre: non c'e' niente da promuovere."""
+    """Il modello non conosceva le squadre: non c'e' niente da giudicare."""
     riga = _riga(None, 2, 1)
-    assert riga.precisione is None
-    assert riga.precisione_testo == ""
+    assert riga.giudicabile is False
+    assert riga.pronostico_azzeccato is None
+    assert riga.risultato_azzeccato is None
 
 
 def test_una_partita_da_giocare_non_si_giudica():
@@ -976,17 +979,22 @@ def test_una_partita_da_giocare_non_si_giudica():
         quando="sabato 22 ago, 18:30", giornata=1, conclusa=False,
         gol_casa=None, gol_ospite=None, prob=_probabilita(_DAVA_2_1),
     )
-    assert riga.precisione is None
+    assert riga.giudicabile is False
 
 
-def test_il_punteggio_giusto_col_segno_sbagliato_resta_il_gradino_alto():
-    """Il caso raro in cui i due controlli non dicono la stessa cosa.
+def test_il_punteggio_giusto_col_segno_sbagliato_e_mezzo_verdetto():
+    """Il caso che ha fatto nascere le due colonne, il 6 settembre 2026.
 
-    Il punteggio piu' probabile e' 1-1, ma sommando *tutte* le vittorie interne
-    si supera la somma di *tutti* i pareggi: il favorito e' l'1 mentre il
-    risultato nominato e' un pareggio. Finisce 1-1: il modello aveva detto
-    come sarebbe andata a finire, e la pagina non puo' chiamarlo sbagliato.
-    Per questo l'etichetta parla di risultato e non di esito.
+    E' Juventus-Milan: il modello dava l'1 al 45% e nominava 1-0 e 1-1 fra i
+    punteggi probabili, la partita e' finita 1-1. Il punteggio era fra quelli
+    detti, il segno no. La pastiglia unica di allora guardava il punteggio per
+    primo e scriveva "azzeccato" in verde su una riga in cui meta' del
+    giudizio era sbagliata; adesso sono due palline e dicono cose diverse.
+
+    Qui sotto la stessa forma su una matrice costruita a mano: il punteggio
+    piu' probabile e' 1-1, ma sommando *tutte* le vittorie interne si supera
+    la somma di *tutti* i pareggi, quindi il favorito e' l'1 mentre il
+    risultato nominato e' un pareggio.
     """
     prob = _probabilita({
         (1, 1): 0.20, (0, 0): 0.05, (2, 2): 0.05,      # pareggi: 0.30
@@ -996,8 +1004,9 @@ def test_il_punteggio_giusto_col_segno_sbagliato_resta_il_gradino_alto():
     riga = _riga(prob, 1, 1)
 
     assert riga.esito_previsto == "1"
-    assert riga.pronostico_azzeccato is False
-    assert riga.precisione == "esatto"
+    assert riga.pronostico_azzeccato is False   # il segno: sbagliato
+    assert riga.risultato_azzeccato is True     # il punteggio: azzeccato
+    assert riga.giudicabile is True
 
 
 # ---- i punteggi nominati in pagina -----------------------------------------
@@ -1063,14 +1072,14 @@ def test_senza_pronostico_non_si_nomina_niente():
     assert riga.risultati_probabili == ""
 
 
-def test_il_gradino_alto_vale_per_ogni_punteggio_nominato():
+def test_il_verde_del_punteggio_vale_per_ogni_punteggio_nominato():
     """La regola, cambiata il 3 settembre 2026 su richiesta dell'utente.
 
     In pagina l'hub scrive "1-0/2-0": due punteggi, tutti e due sopra il 10%,
     messi li' apposta per dire che fra quelli il modello non sta scegliendo.
     Una partita finita 2-0 e' quindi finita su un punteggio che la pagina
-    aveva scritto, e la pastiglia lo chiama azzeccato — anche se il primo
-    della lista era un altro. Prima contava solo il primo.
+    aveva scritto, e la pallina del punteggio lo chiama azzeccato — anche se
+    il primo della lista era un altro. Prima contava solo il primo.
     """
     prob = _probabilita(_DUE_SOPRA_LA_SOGLIA)
     riga = _riga(prob, 2, 0)
@@ -1078,7 +1087,6 @@ def test_il_gradino_alto_vale_per_ogni_punteggio_nominato():
     assert riga.risultati_probabili == "1-0/2-0"   # cio' che l'hub mostra
     assert riga.risultato_probabile == "1-0"       # il primo della lista
     assert riga.risultato_azzeccato is True
-    assert riga.precisione == "esatto"
 
 
 def test_un_punteggio_sotto_la_soglia_non_e_azzeccato():
@@ -1086,7 +1094,7 @@ def test_un_punteggio_sotto_la_soglia_non_e_azzeccato():
 
     Il 2-1 vale il 9% e in pagina non compare: la partita finita 2-1 ha visto
     il modello indovinare chi vinceva e nient'altro. Se bastasse una cella
-    qualsiasi della matrice il gradino alto non vorrebbe piu' dire niente —
+    qualsiasi della matrice la pallina verde non vorrebbe piu' dire niente —
     la matrice contiene ogni punteggio possibile.
     """
     riga = _riga(_probabilita(_DUE_SOPRA_LA_SOGLIA), 2, 1)
@@ -1094,13 +1102,12 @@ def test_un_punteggio_sotto_la_soglia_non_e_azzeccato():
     assert "2-1" not in riga.risultati_probabili
     assert riga.risultato_azzeccato is False
     assert riga.pronostico_azzeccato is True
-    assert riga.precisione == "esito"
 
 
 def test_il_verdetto_guarda_gli_stessi_punteggi_che_la_pagina_mostra():
     """La guardia che conta adesso: una lista sola, letta da due parti.
 
-    Anteprima e pastiglia devono leggere la STESSA cosa, altrimenti la pagina
+    Anteprima e pallina devono leggere la STESSA cosa, altrimenti la pagina
     nomina un punteggio e poi lo chiama sbagliato. Vale anche nel caso di
     ripiego, quando nessuna cella arriva alla soglia e in pagina resta il solo
     piu' probabile: li' il verdetto deve stringersi insieme all'anteprima.
@@ -1126,8 +1133,8 @@ def test_l_hub_scrive_i_punteggi_probabili(client):
 # ---- l'esito scelto fra 1, X e 2 ---------------------------------------------
 #
 # Non e' un mercato nuovo: e' la stessa somma di celle che tinge il favorito
-# nella scheda squadra e che decide il gradino di mezzo del verdetto, scritta
-# a parole accanto ai punteggi probabili. Le righe qui sotto esistono perche'
+# nella scheda squadra e che decide la pallina dell'esito, scritta a parole
+# accanto ai punteggi probabili. Le righe qui sotto esistono perche'
 # resti UNA somma sola: due argmax scritti in due posti sarebbero uguali oggi
 # e divergerebbero al primo ritocco.
 
@@ -1191,6 +1198,93 @@ def test_la_scheda_di_una_partita_da_giocare_scrive_l_esito_scelto(client, motor
     assert "L'esito che ne esce" in r.text
 
 
+# ---- la scelta sul Gol/NoGol -------------------------------------------------
+#
+# Accanto all'esito, e nella stessa forma, dal 7 settembre 2026. Non e' un
+# mercato nuovo — e' la ``prob.btts`` che la scheda partita gia' mostrava —
+# ma detta come scelta invece che come probabilita' secca, e una scelta ha
+# bisogno di due guardie che una probabilita' non aveva: che la sigla e il
+# numero parlino della stessa cosa, e che la pagina dica quanto poco il
+# modello stia davvero scegliendo.
+
+
+def test_il_gol_nogol_scelto_e_il_piu_probabile_dei_due():
+    prob = _probabilita({
+        (1, 1): 0.22, (2, 1): 0.14, (1, 2): 0.12,      # GG: 0.48
+        (1, 0): 0.16, (0, 1): 0.14, (0, 0): 0.14,      # NG: 0.52 (con lo 0-0)
+        (2, 0): 0.08,
+    })
+    riga = _riga(prob, 1, 0)
+
+    assert riga.gol_nogol_previsto == "NG"
+    assert riga.probabilita_gol_nogol_previsto == pytest.approx(prob.no_btts)
+
+
+def test_il_numero_scritto_e_quello_della_sigla_scritta():
+    """Le due cose viaggiano insieme e devono parlare della stessa risposta."""
+    prob = _probabilita({
+        (1, 1): 0.30, (2, 1): 0.18, (1, 2): 0.14,      # GG: 0.62
+        (1, 0): 0.14, (0, 1): 0.12, (0, 0): 0.12,      # NG: 0.38
+    })
+    riga = _riga(prob, 1, 1)
+
+    assert riga.gol_nogol_previsto == "GG"
+    assert riga.probabilita_gol_nogol_previsto == pytest.approx(prob.btts)
+
+
+def test_la_percentuale_del_gol_nogol_non_scende_mai_sotto_meta():
+    """Il pavimento e' aritmetico, ed e' la ragione per cui va dichiarato.
+
+    GG e NG sommano a uno: il prescelto e' il maggiore di due numeri che
+    fanno cento, quindi parte dal 50%. E' lo stesso pavimento che ha fatto
+    scartare la doppia chance, un piano piu' in basso — un numero che comincia
+    da meta' sembra una decisione e non lo e'.
+    """
+    matrici = (_DAVA_2_1, _DUE_SOPRA_LA_SOGLIA)
+    for celle in matrici:
+        riga = _riga(_probabilita(celle), 1, 1)
+        assert riga.probabilita_gol_nogol_previsto >= 0.5
+
+
+def test_senza_pronostico_non_si_scrive_nessun_gol_nogol():
+    """"Non lo so" non diventa una sigla, come sempre in questo progetto."""
+    riga = _riga(None, 1, 1)
+    assert riga.gol_nogol_previsto is None
+    assert riga.probabilita_gol_nogol_previsto is None
+
+
+def test_l_hub_scrive_il_gol_nogol_scelto(client):
+    r = client.get("/")
+    assert ">Gol/NoGol<" in r.text
+    assert "GG &middot;" in r.text or "NG &middot;" in r.text
+
+
+def test_l_hub_dichiara_il_limite_del_gol_nogol(client):
+    """La regola di progetto: i limiti del modello si dicono dove si legge.
+
+    Sui mercati dei gol il modello dichiara quasi sempre la media di
+    campionato, e scrivere "NG" nella stessa forma dell'1X2 gli darebbe la
+    stessa autorita' senza questa riga accanto.
+    """
+    r = client.get("/")
+    assert "media di campionato" in r.text
+
+
+def test_il_gol_nogol_non_prende_l_alfabeto_degli_esiti(client):
+    """Grafite, cenere e magenta vogliono dire casa, pareggio e trasferta.
+
+    Tingere "NG" con una di quelle direbbe una terza cosa in un alfabeto che
+    ne dice due: la sigla resta senza velo, ed e' l'unico modo di tenere in
+    piedi la regola del colore che dice una cosa sola.
+    """
+    import re
+
+    r = client.get("/")
+    for riga in re.findall(r"<b[^>]*>[^<]*(?:GG|NG) &middot;", r.text):
+        assert "esito-scelto" not in riga
+        assert "tinta-" not in riga
+
+
 def test_l_esito_scelto_di_una_partita_giocata_viene_dal_congelato(motore):
     """Dopo il fischio d'inizio la lettera esce dalla matrice del registro.
 
@@ -1220,15 +1314,15 @@ def test_l_esito_scelto_di_una_partita_giocata_viene_dal_congelato(motore):
     assert riga.probabilita_esito_previsto == pytest.approx(max(mercati.values()))
 
 
-def test_l_hub_disegna_i_tre_gradini(client_col_passato):
-    """La pastiglia c'e' e porta la classe del gradino, che e' cio' che tinge."""
+def test_l_hub_disegna_le_due_palline(client_col_passato):
+    """I cerchi ci sono, e la pastiglia a tre gradini non torna."""
     r = client_col_passato.get("/")
-    assert 'class="verdetto esatto"' in r.text \
-        or 'class="verdetto esito"' in r.text \
-        or 'class="verdetto niente"' in r.text
-    # Il verdetto non prende piu' l'alfabeto degli esiti: indaco, grigio e
-    # arancio restano ai fatti (punteggio e casella accaduta), qui si giudica.
+    assert VERDE in r.text or ROSSO in r.text
+    # Il giudizio non prende l'alfabeto degli esiti: grafite, cenere e magenta
+    # restano ai fatti (punteggio e casella accaduta), qui si giudica.
     assert "verdetto ok tinta-" not in r.text
+    for morto in ("verdetto esatto", "verdetto esito", "verdetto niente"):
+        assert morto not in r.text
 
 
 # ---- il pronostico di una partita gia' giocata --------------------------------
@@ -2294,6 +2388,114 @@ def test_una_partita_da_giocare_non_mostra_una_pastiglia_vuota(client, motore):
     vuote = re.search(r'class="punteggio[^"]*"[^>]*>\s*</span>', pagina)
     assert vuote is None, f"pastiglia senza testo: {vuote and vuote.group(0)}"
     assert "da giocare" in pagina, "il terzo stato resta detto a parole"
+
+
+# ---- le due palline: due domande, due colonne -------------------------------
+#
+# La regressione che le ha fatte nascere e' Juventus-Milan del 6 settembre
+# 2026 (vedi ``test_il_punteggio_giusto_col_segno_sbagliato_e_mezzo_verdetto``
+# per il caso, qui c'e' la pagina). Questi test guardano l'HTML e non le
+# proprieta': il difetto di allora non era nel calcolo — i due booleani
+# c'erano gia' e dicevano il vero — ma nel disegno, che li schiacciava in una
+# pastiglia sola.
+
+VERDE = "&#128994;"
+ROSSO = "&#128308;"
+
+
+def _larghezze_per_tabella(html):
+    """Per ogni tabella, le larghezze delle sue righe (colspan compresi).
+
+    Una pagina intera non ha una larghezza sola — l'hub ne ha cinque tabelle
+    di mestieri diversi — quindi il conto va fatto dentro ogni ``<table>``.
+    """
+    import re
+
+    tabelle = []
+    for tabella in re.findall(r"<table[^>]*>(.*?)</table>", html, re.S):
+        larghezze = []
+        for riga in re.findall(r"<tr>(.*?)</tr>", tabella, re.S):
+            celle = re.findall(r"<t[dh]([^>]*)>", riga)
+            if not celle:
+                continue
+            larghezza = 0
+            for attributi in celle:
+                span = re.search(r'colspan="(\d+)"', attributi)
+                larghezza += int(span.group(1)) if span else 1
+            larghezze.append(larghezza)
+        if larghezze:
+            tabelle.append(larghezze)
+    return tabelle
+
+
+def test_i_due_giudizi_hanno_due_colonne(client_col_passato):
+    """Una colonna sola non puo' dire due cose che possono discordare."""
+    pagina = client_col_passato.get("/").text
+
+    assert '<th class="destra">Esito</th>' in pagina
+    assert '<th class="destra">Punteggio</th>' in pagina
+    assert VERDE in pagina or ROSSO in pagina, "nessun giudizio disegnato"
+
+
+def test_ogni_riga_occupa_le_stesse_colonne_dell_intestazione(client_col_passato, motore):
+    """La guardia dei colspan, che una colonna in piu' rompe in silenzio.
+
+    Le righe senza pronostico e quelle da giocare accorpano celle: se il
+    numero non torna il browser non protesta, disegna storto — ed e' il
+    genere di difetto che si vede dal telefono e non dai test. Si guardano
+    due pagine perche' sono due stati diversi della riga: l'hub col passato
+    congelato ha i giudizi, una giornata futura ha il "da giocare".
+    """
+    dataset = motore.snapshot().dataset
+    stagione = dataset.stagioni()[0]
+    futura = next(
+        f for f in dataset.fixtures
+        if f.status == "scheduled" and f.matchday is not None
+    )
+
+    for pagina in (client_col_passato.get("/").text,
+                   client_col_passato.get(
+                       f"/giornata/{futura.matchday}?stagione={stagione}").text):
+        tabelle = _larghezze_per_tabella(pagina)
+        assert tabelle, "nessuna tabella nella pagina"
+        for larghezze in tabelle:
+            assert len(set(larghezze)) == 1, \
+                f"righe di larghezza diversa: {sorted(set(larghezze))}"
+
+
+def test_la_pallina_dice_a_voce_quello_che_il_colore_dice_a_occhio(client_col_passato):
+    """Un cerchio non letto e' un cerchio che non c'e'.
+
+    Senza ``role="img"`` e ``aria-label`` un lettore di schermo annuncia
+    "cerchio grande verde", cioe' descrive il disegno invece di dire cosa
+    significa. La parola e' anche quella del ``title``, che e' quanto vede chi
+    ci passa sopra col mouse e non sa cosa sia quella colonna.
+    """
+    pagina = client_col_passato.get("/").text
+
+    assert 'aria-label="esito: azzeccato"' in pagina or            'aria-label="esito: sbagliato"' in pagina
+    assert 'aria-label="punteggio: azzeccato"' in pagina or            'aria-label="punteggio: sbagliato"' in pagina
+
+
+def test_una_partita_da_giocare_non_prende_due_palline_grigie(client, motore):
+    """Il terzo stato resta uno, e resta detto a parole.
+
+    Due cerchi spenti sarebbero due giudizi su una partita che nessuno ha
+    ancora visto: e' la stessa ragione per cui la pastiglia di prima non
+    poteva restare vuota.
+    """
+    dataset = motore.snapshot().dataset
+    stagione = dataset.stagioni()[0]
+    futura = next(
+        f for f in dataset.fixtures
+        if f.status == "scheduled" and f.matchday is not None
+    )
+
+    pagina = client.get(f"/giornata/{futura.matchday}?stagione={stagione}").text
+
+    assert "da giocare" in pagina
+    assert 'colspan="2"' in pagina, "il terzo stato occupa tutte e due le colonne"
+
 
 
 # ---- la tabella delle forze non e' una classifica della Serie A -------------

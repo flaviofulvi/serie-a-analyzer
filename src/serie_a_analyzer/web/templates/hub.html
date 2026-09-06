@@ -38,6 +38,14 @@
         Un pronostico appare solo se il modello conosce entrambe le squadre.
         Quando manca, la scheda dice perche' invece di inventarne uno.
       </p>
+      <p class="spiega">
+        <b>Il Gol/NoGol va letto per quello che e'.</b> Su questo mercato il
+        modello dichiara quasi sempre la media di campionato, perche' e'
+        quanto sa davvero: sui pronostici registrati finora ha detto
+        <b>NG nel 92% dei casi</b>, e la percentuale accanto sta in mediana al
+        52%. Non puo' nemmeno scendere sotto il 50%, perche' le due risposte
+        sommano a cento. Sull'1X2 la storia e' diversa e li' i numeri valgono.
+      </p>
     </div>
 
     <div class="corpo">
@@ -56,8 +64,6 @@
                      <b>{{ "%.2f"|format(p.gol_attesi_casa) }}&ndash;{{ "%.2f"|format(p.gol_attesi_ospite) }}</b></div>
                 <div><span class="voce">Over 2.5</span>
                      <b>{{ (p.prob.over[2.5]*100)|round|int }}%</b></div>
-                <div><span class="voce">Gol/NoGol</span>
-                     <b>{{ (p.prob.btts*100)|round|int }}%</b></div>
                 {# "Risultato" da solo, su una partita da giocare, si legge
                    come il risultato finale: sono i punteggi piu' probabili.
                    Ne compare piu' d'uno quando piu' d'uno supera il 10%:
@@ -80,6 +86,19 @@
                      <b class="esito-scelto tinta-{{ p.esito_previsto }}"
                         >{{ p.esito_previsto }} &middot;
                         {{ (p.probabilita_esito_previsto * 100)|round|int }}%</b></div>
+                {# La stessa cosa sul Gol/NoGol, accanto all'esito e nella
+                   stessa forma. Due differenze volute. Niente velo colorato:
+                   grafite, cenere e magenta vogliono dire casa, pareggio e
+                   trasferta, e tingere "NG" con una di quelle direbbe una
+                   terza cosa in un alfabeto che ne dice due. E la percentuale
+                   non e' un di piu' nemmeno qui, anzi meno che altrove: GG e
+                   NG sommano a uno, quindi il prescelto parte dal 50% per
+                   costruzione — 52.4% di mediana sui 1170 pronostici in
+                   registro. Senza il numero accanto, "NG" si leggerebbe come
+                   una decisione presa. #}
+                <div><span class="voce">Gol/NoGol</span>
+                     <b>{{ p.gol_nogol_previsto }} &middot;
+                        {{ (p.probabilita_gol_nogol_previsto * 100)|round|int }}%</b></div>
               </div>
             {% else %}
               <div class="esito-riga casa" style="grid-template-columns: 1fr">
@@ -155,12 +174,18 @@
         trasferta. Piu' e' netto il risultato, piu' il punteggio e' acceso.
       </p>
       <p class="spiega">
-        Il verdetto in fondo alla riga ha tre colori: <b>verde</b> il
-        punteggio finito sul tabellone era fra quelli che il modello aveva
-        nominato &mdash; gli stessi che si leggono sulle partite da giocare,
-        cioe' tutti quelli sopra il 10% &mdash; <b>giallo</b> soltanto chi
-        vince, <b>rosso</b> nemmeno quello. Il verde non dice quindi "aveva
-        detto 2-0": dice che il 2-0 era in quella rosa.
+        In fondo alla riga i giudizi sono <b>due</b>, perche' sono due domande
+        diverse. <b>Esito</b>: il segno accaduto era quello che il modello
+        preferiva. <b>Punteggio</b>: il risultato finito sul tabellone era fra
+        quelli che aveva nominato &mdash; gli stessi che si leggono sulle
+        partite da giocare, cioe' tutti quelli sopra il 10%. Cerchio verde
+        vuol dire di si', cerchio rosso di no.
+      </p>
+      <p class="spiega">
+        Le due risposte possono discordare, ed e' esattamente il motivo per
+        cui le colonne sono due: una partita finita 1-1 puo' avere l'1-1 fra i
+        punteggi nominati e il segno preferito sull'1. Il verde del punteggio
+        non dice quindi "aveva detto 2-0": dice che il 2-0 era in quella rosa.
       </p>
     </div>
 
@@ -171,7 +196,7 @@
             <tr>
               <th>Quando</th><th>Partita</th><th class="destra">Risultato</th>
               <th class="destra">1</th><th class="destra">X</th><th class="destra">2</th>
-              <th class="destra">Esito</th>
+              <th class="destra">Esito</th><th class="destra">Punteggio</th>
             </tr>
           </thead>
           <tbody>

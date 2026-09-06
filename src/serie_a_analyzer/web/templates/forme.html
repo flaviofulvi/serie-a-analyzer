@@ -136,6 +136,26 @@
   </span>
 {% endmacro %}
 
+{# La pallina: il giudizio di una singola domanda, e l'unica forma del sito
+   che non si disegna col CSS. Un cerchio pieno colorato lo sa leggere
+   chiunque senza istruzioni, e a undici pixel dice piu' di una parola che
+   in due colonne strette non entrerebbe.
+
+   Il carattere e' scritto come entita' HTML per la stessa ragione per cui
+   qui dentro si scrive "cosi'" e non "cosi": i template di questo progetto
+   sono ASCII, e un'emoji infilata a mano nel sorgente e' esattamente il
+   genere di byte che un editor distratto trasforma in punti interrogativi.
+
+   `role="img"` piu' `aria-label` non sono un ornamento: senza, un lettore di
+   schermo annuncia "cerchio grande verde", che e' la descrizione del disegno
+   e non quello che il disegno dice. #}
+{% macro pallina(giusto, cosa) %}
+  {%- set detto = cosa ~ (": azzeccato" if giusto else ": sbagliato") -%}
+  <span class="pallina" role="img" aria-label="{{ detto }}" title="{{ detto }}">
+    {%- if giusto %}&#128994;{% else %}&#128308;{% endif -%}
+  </span>
+{%- endmacro %}
+
 {# Una partita come riga di tabella: quando, chi, com'e' finita, il trittico
    in cifre e il verdetto.
 
@@ -144,8 +164,8 @@
    riga divergono al primo ritocco. Ha tre stati, non due, ed e' l'unica cosa
    delicata:
 
-     conclusa col pronostico   il velo colorato cade sull'esito ACCADUTO, e la
-                               pastiglia dice quanto il modello ci ha preso;
+     conclusa col pronostico   il velo colorato cade sull'esito ACCADUTO, e le
+                               due palline dicono quanto il modello ci ha preso;
      conclusa senza pronostico trattini: nessuno lo chiese in tempo, e adesso
                                non c'e' modo di rifarlo;
      ancora da giocare         le tre percentuali senza velo — non c'e' niente
@@ -175,18 +195,24 @@
       <td class="destra mono {{ 'evidenzia tinta-1' if p.esito_reale == '1' }}">{{ tre[0] }}%</td>
       <td class="destra mono {{ 'evidenzia tinta-X' if p.esito_reale == 'X' }}">{{ tre[1] }}%</td>
       <td class="destra mono {{ 'evidenzia tinta-2' if p.esito_reale == '2' }}">{{ tre[2] }}%</td>
-      {# Tre gradini invece di due: il punteggio era fra quelli nominati,
-         azzeccato il solo esito, sbagliato. A dirlo e' il colore della
-         pastiglia. #}
-      <td class="destra">
-        {% if p.precisione %}
-          <span class="verdetto {{ p.precisione }}">{{ p.precisione_testo }}</span>
-        {% else %}
-          <span class="verdetto attesa">da giocare</span>
-        {% endif %}
-      </td>
+      {# Due domande, due colonne, dal 7 settembre 2026. Prima era una
+         pastiglia sola a tre gradini — verde il punteggio, giallo il solo
+         esito, rosso niente — e Juventus-Milan del 6 settembre ha mostrato
+         che i due giudizi non stanno in fila: finita 1-1, con l'1-1 fra i
+         punteggi nominati e l'1 come segno preferito, la riga usciva verde
+         con meta' del giudizio sbagliato. Da quando i punteggi nominati sono
+         fino a cinque possono avere segni diversi fra loro, e una scala sola
+         non li puo' piu' ordinare.
+         Il terzo stato resta detto a parole e occupa tutte e due le colonne:
+         due palline grigie si leggerebbero come due giudizi. #}
+      {% if p.giudicabile %}
+        <td class="destra">{{ pallina(p.pronostico_azzeccato, "esito") }}</td>
+        <td class="destra">{{ pallina(p.risultato_azzeccato, "punteggio") }}</td>
+      {% else %}
+        <td class="destra" colspan="2"><span class="verdetto attesa">da giocare</span></td>
+      {% endif %}
     {% else %}
-      <td class="destra fioco" colspan="4">&mdash;</td>
+      <td class="destra fioco" colspan="5">&mdash;</td>
     {% endif %}
   </tr>
 {% endmacro %}

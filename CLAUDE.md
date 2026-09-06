@@ -719,11 +719,17 @@ variabili e non un rifacimento. L'alfabeto dei fatti era indaco/grigio/arancio
 e ora è **grafite = 1, cenere = X, magenta = 2**: la scala va dal piombo al
 colore invece che da una tinta a un'altra, cioè spende **un colore vivo solo**
 in tutta la pagina. La conseguenza è voluta: con tutto il resto in carta e
-inchiostro, il verde, l'oro e il rosso del giudizio diventano l'unica altra
-tinta che si vede. Quei tre **non sono cambiati** ed è una richiesta esplicita
+inchiostro, il verde e il rosso del giudizio diventano l'unica altra tinta che
+si vede. Quei colori **non sono cambiati** ed è una richiesta esplicita
 dell'utente — sono l'unica cosa che il lettore ha già imparato a leggere.
-L'arancio non torna: era il vicino di casa dell'oro del verdetto, e a undici
-pixel le due colonne devono restare distinguibili. Chi tocca la palette deve
+Dal 7 settembre 2026 però non escono più da `:root`: il giudizio è disegnato
+con due emoji (vedi «le due palline» qui sotto), quindi il verde e il rosso li
+sceglie il sistema operativo. È l'unico punto del sito in cui un colore non è
+una variabile, ed è dichiarato qui perché una regola con un'eccezione taciuta
+non è più una regola. L'oro se n'è andato con la pastiglia a tre gradini, e
+con lui le variabili `--esatto` e `--parziale`; `--allarme` resta, lo usa il
+muro dei Brier. L'arancio non torna comunque: era il vicino di casa di
+quell'oro, e a undici pixel le due colonne devono restare distinguibili. Chi tocca la palette deve
 cambiare anche le **parole**: quattro template nominano i colori a voce
 («grafite ha vinto la casa, magenta l'ospite»), e una pagina che spiega un
 colore e ne mostra un altro è peggio di una che non spiega niente.
@@ -757,27 +763,48 @@ arrivato il campionato. La riga di quelle tabelle è una macro condivisa con
 l'hub (`riga_risultato` in `forme.html`) e ha **tre** stati e non due: il
 terzo, «da giocare», non esisteva perché l'hub mostra solo partite concluse, e
 senza di esso una partita futura avrebbe una pastiglia vuota — che si legge
-come «sbagliato». La pastiglia del verdetto in fondo alla riga ha tre gradini, e dal 3
-settembre 2026 il piu' alto — il verde — vale per **ogni punteggio nominato
-in pagina**, non solo per il primo: prima della partita l'anteprima ne scrive
-fino a cinque, tutti sopra il 10% e messi li' apposta per dire che fra quelli
-il modello non sta scegliendo, e giudicare poi sul solo primo cambierebbe la
-domanda a partita finita. La lista e' **la stessa** che l'anteprima mostra
-(`punteggi_probabili` in `web/views.py`), non una ricalcolata con la stessa
-soglia: due liste sarebbero uguali oggi e divergerebbero al primo ritocco,
-con la pagina che nomina cinque punteggi e la pastiglia che ne premia
-quattro. Due conseguenze da non scambiare per guasti: il gradino alto e' piu'
-facile di prima, quindi i verdi di ieri e quelli di oggi non si contano
-insieme; e non e' una misura del modello — quelle stanno in `/pronostici`,
-nel Brier e nella calibrazione, e nessuna passa di qui.
+come «sbagliato».
+
+In fondo alla riga il giudizio sta in **due colonne** e non in una, dal 7
+settembre 2026: l'**esito** (il segno accaduto era quello che il modello
+preferiva) e il **punteggio** (il risultato era fra quelli che aveva
+nominato). Ognuna è un cerchio pieno, verde o rosso — `pallina` in
+`forme.html`, `pronostico_azzeccato` e `risultato_azzeccato` in
+`web/views.py`. Prima era una pastiglia sola a tre gradini, verde/oro/rosso, e
+a farla cadere è stata **una partita**: Juventus-Milan del 6 settembre 2026,
+finita 1-1, col modello che dava l'1 al 45% e nominava 1-0 e 1-1 fra i
+punteggi probabili. La pastiglia guardava il punteggio per primo, trovava
+l'1-1 nella rosa e scriveva «azzeccato» in verde su una riga in cui il segno
+era sbagliato. Non era un difetto di quel codice ma della domanda: una scala
+sola deve mettere i due giudizi **in fila**, e in fila non stanno da quando i
+punteggi nominati sono fino a cinque e **possono avere segni diversi fra
+loro** — «il punteggio era fra quelli detti» non implica più «il segno era
+quello». Due domande, due risposte, due colonne, e nessuna promuove l'altra.
+
+Il resto della regola del 3 settembre 2026 vale identico, ed è quello che ha
+reso possibile la discordanza: il verde del punteggio conta **ogni punteggio
+nominato in pagina** e non solo il primo — prima della partita l'anteprima ne
+scrive fino a cinque, tutti sopra il 10% e messi lì apposta per dire che fra
+quelli il modello non sta scegliendo, e giudicare poi sul solo primo
+cambierebbe la domanda a partita finita. La lista è **la stessa** che
+l'anteprima mostra (`punteggi_probabili` in `web/views.py`), non una
+ricalcolata con la stessa soglia: due liste sarebbero uguali oggi e
+divergerebbero al primo ritocco, con la pagina che nomina cinque punteggi e la
+pallina che ne premia quattro. Due conseguenze da non scambiare per guasti:
+quella colonna è più facile di un confronto col solo punteggio più probabile,
+quindi i verdi di prima del 3 settembre e quelli di dopo non si contano
+insieme; e non è una misura del modello — quelle stanno in `/pronostici`, nel
+Brier e nella calibrazione, e nessuna passa di qui. Il terzo stato della riga
+resta uno solo e resta detto **a parole**: «da giocare» occupa tutte e due le
+colonne, perché due cerchi spenti si leggerebbero come due giudizi.
 Accanto ai punteggi probabili la pagina scrive anche **l'esito che il modello
 sceglie** — 1, X o 2 — con la sua percentuale a fianco (`esito_previsto` e
 `probabilita_esito_previsto` in `web/views.py`, sull'hub e sulla scheda
 partita). Tre cose da sapere. Non è un mercato nuovo: è la stessa somma di
-celle che già tingeva il favorito nella scheda squadra e che decide il gradino
-di mezzo del verdetto, e resta **una sola** — un secondo argmax scritto
-altrove sarebbe uguale oggi e divergerebbe al primo ritocco, con la pagina che
-nomina un esito e la pastiglia che ne premia un altro. La percentuale non è un
+celle che già tingeva il favorito nella scheda squadra e che decide la pallina
+dell'esito, e resta **una sola** — un secondo argmax scritto altrove sarebbe
+uguale oggi e divergerebbe al primo ritocco, con la pagina che nomina un esito
+e la pallina che ne premia un altro. La percentuale non è un
 ornamento: il prescelto ha una mediana del 49% e in una partita su sette sta
 sotto il 40% (misurato sui 1154 pronostici in registro il 5 settembre 2026),
 quindi «1» da solo direbbe che il modello ha deciso mentre quasi sempre sta
@@ -785,6 +812,29 @@ indicando il meno incerto dei tre. E la **X non esce quasi mai** — zero volte
 su 1154, perché il pareggio non ha mai passato il 33.5% — il che non è un
 guasto ma una proprietà del calcio: chi la incontra deve poterla riconoscere
 invece di andare a cercare il bug.
+
+Accanto a quell'esito, dal 7 settembre 2026 e su richiesta dell'utente, la
+stessa forma sul **Gol/NoGol**: «NG · 52%» (`gol_nogol_previsto` e
+`probabilita_gol_nogol_previsto`). Non è un mercato nuovo — è la `prob.btts`
+che la scheda partita già mostrava, detta come scelta invece che come
+probabilità secca, e la cella grezza di prima è stata sostituita, non
+affiancata. Ma una scelta ha un'autorità che una probabilità non ha, e qui il
+modello sceglie pochissimo: misurato sui 1170 pronostici in registro il 7
+settembre 2026, dice **NG 1071 volte su 1170** (il 92%), la P(GG) non ha mai
+passato il 55.2% e la percentuale del prescelto sta in mediana al **52.4%**,
+sotto il 55% in tre casi su quattro. C'è anche un pavimento aritmetico: GG e
+NG sommano a uno, quindi il numero scritto **non può scendere sotto il 50%**
+— è la stessa cosa che ha fatto scartare la doppia chance, un piano più in
+basso. Da qui le due regole in pagina. La percentuale non si può togliere: «NG»
+da solo si leggerebbe come una decisione presa. E l'hub dichiara il limite
+accanto alle partite, con le parole che la scheda partita usa già («dichiara
+quasi sempre la media di campionato, perché è quanto sa davvero») più il 92%
+misurato — prima quel limite era scritto solo nella scheda partita, e lì la
+cifra era una probabilità fra tante, non la risposta del modello.
+La sigla **non prende il velo colorato** dell'esito, ed è la regola del colore
+applicata: grafite, cenere e magenta vogliono dire casa, pareggio e trasferta,
+e tingere «NG» con una di quelle direbbe una terza cosa in un alfabeto che ne
+dice due.
 La scheda partita mostra anche gol, formazioni e pagelle
 quando i dettagli ci sono, e dice quando non ci sono. Mostra inoltre gli
 **indisponibili**, che sono l'unica cosa che quella pagina sappia dire su una
@@ -1009,6 +1059,13 @@ se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
   l'esito scritto         05/09/2026   1, X o 2 accanto ai punteggi, con la
                                        sua percentuale; la doppia chance
                                        resta senza regola di scelta
+  le due palline          07/09/2026   il giudizio in due colonne — esito e
+                                       punteggio — al posto della pastiglia a
+                                       tre gradini; le fa cadere Juventus-
+                                       Milan 1-1 del 6 settembre
+  il Gol/NoGol scelto     07/09/2026   «NG · 52%» accanto all'esito sull'hub,
+                                       col limite dichiarato: NG nel 92% dei
+                                       pronostici, e il 50% e' un pavimento
 
 ### Le idee che sembrano buone e non lo sono
 
