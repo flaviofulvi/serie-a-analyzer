@@ -110,6 +110,13 @@ A LOGICA (per esempio "1X")
   dira' "X" per conto suo e questa riga smettera' di aggiungere qualcosa: ed
   e' il modo giusto in cui deve finire.
 
+  Su una partita finita la sigla prende la sua pallina verde o rossa come le
+  altre due (vedi "le tre palline in fondo alla riga"). Quel cerchio racconta
+  com'e' andata quella partita li' e non e' un punteggio: sommare i verdi
+  della colonna per dire quanto vale il metodo e' esattamente la cosa che la
+  regola qui sopra vieta. E sarebbe anche un conto gonfiato — dove la sigla
+  aggiunge il pareggio copre due segni su tre.
+
 QUANDO NON C'E' NESSUNA PARTITA IN PROGRAMMA
   A campionato in corso e' una sosta, o la stagione finita. Se il campionato
   non e' finito e la pagina resta vuota, vuol dire che il calendario della
@@ -148,29 +155,48 @@ I COLORI
   pareggio, magenta = ha vinto la trasferta. Piu' e' netto il risultato, piu'
   il punteggio e' acceso.
 
-LE DUE PALLINE IN FONDO ALLA RIGA
-  Sono **due giudizi diversi**, e per questo sono due colonne:
+LE TRE PALLINE IN FONDO ALLA RIGA
+  Sono **tre giudizi diversi**, e per questo sono tre colonne:
 
     ESITO       il segno accaduto era quello che il modello preferiva
     PUNTEGGIO   il risultato finito sul tabellone era fra quelli che aveva
                 nominato — gli stessi che si leggono sulle partite da giocare,
                 cioe' tutti quelli sopra il 10%
+    A LOGICA    il segno accaduto era fra quelli della sigla a logica: uno
+                solo se c'e' scritto "1" o "2", due se c'e' scritto "1X" o
+                "X2"
 
-  Cerchio verde vuol dire di si', cerchio rosso di no. Le due risposte
-  **possono discordare**, ed e' esattamente il motivo per cui le colonne sono
-  due: una partita finita 1-1 puo' avere l'1-1 fra i punteggi nominati e il
-  segno preferito sull'1. Il verde del punteggio non dice quindi "aveva detto
-  2-0": dice che il 2-0 era in quella rosa.
+  Cerchio verde vuol dire di si', cerchio rosso di no. Le risposte **possono
+  discordare**, ed e' esattamente il motivo per cui le colonne sono tre. Una
+  partita finita 1-1 puo' avere l'1-1 fra i punteggi nominati e il segno
+  preferito sull'1: il verde del punteggio non dice quindi "aveva detto 2-0",
+  dice che il 2-0 era in quella rosa. E se le due squadre si somigliavano, la
+  sigla a logica aveva aggiunto il pareggio: quella stessa partita accende la
+  terza pallina mentre la prima resta rossa.
 
-  Due cose da non scambiare per guasti. La colonna del punteggio e' piu'
-  facile di un confronto col solo punteggio piu' probabile, quindi i verdi di
-  prima del 3 settembre 2026 e quelli di dopo non si contano insieme. E non e'
-  una misura del modello: quelle stanno nel registro, nel Brier e nella
-  calibrazione, e nessuna passa di qui.
+  QUANTO SONO FACILI, CHE E' LA COSA DA SAPERE PER NON LEGGERLE MALE
+  Le tre colonne non hanno la stessa difficolta', quindi tre verdi in fila non
+  vogliono dire tre volte bravo:
 
-  Su una partita ancora da giocare al posto delle due palline c'e' scritto
-  "da giocare", a parole e su tutte e due le colonne: due cerchi spenti si
-  leggerebbero come due giudizi negativi.
+    ESITO       un segno su tre. E' la piu' dura, ed e' l'unica che
+                corrisponde a cio' che il modello misura davvero
+    PUNTEGGIO   fino a cinque punteggi su tutti quelli possibili — piu' facile
+                di un confronto col solo punteggio piu' probabile, tanto che i
+                verdi di prima del 3 settembre 2026 e quelli di dopo non si
+                contano insieme
+    A LOGICA    un segno su tre quando la sigla e' secca, DUE su tre quando
+                aggiunge il pareggio. Nel secondo caso ci prende molto piu'
+                spesso per pura aritmetica
+
+  E nessuna delle tre e' una misura del modello: quelle stanno nel registro,
+  nel Brier e nella calibrazione, e nessuna passa di qui. Vale in particolare
+  per la terza — la sigla a logica non ha un punteggio suo e non deve averlo
+  (il perche' e' scritto piu' avanti, dove si parla della sigla stessa), e
+  contare quei verdi sarebbe il modo di dargliene uno per sbaglio.
+
+  Su una partita ancora da giocare al posto delle palline c'e' scritto "da
+  giocare", a parole e su tutte e tre le colonne: cerchi spenti si
+  leggerebbero come giudizi negativi.
 
 
 ================================================================================
@@ -678,8 +704,9 @@ riprese dal registro; su quelle da giocare vengono dal modello di adesso.
 Le stagioni vecchie mostrano i risultati e **trattini** al posto dei
 pronostici, perche' allora nessuno li scrisse.
 
-Le due palline in fondo alla riga sono le stesse della prima pagina: esito e
-punteggio, due giudizi distinti che possono discordare.
+Le tre palline in fondo alla riga sono le stesse della prima pagina: esito,
+punteggio e a logica — tre giudizi distinti che possono discordare, e che non
+hanno la stessa difficolta'.
 
 Passando a un'altra stagione si arriva sempre alla giornata 1: la stessa
 giornata di un'altra stagione potrebbe non esistere, e un collegamento che

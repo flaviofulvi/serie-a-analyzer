@@ -416,6 +416,43 @@ class RigaPartita:
         return reale == previsto
 
     @property
+    def esito_logico_azzeccato(self) -> bool | None:
+        """L'esito accaduto era fra quelli che la sigla a logica nominava.
+
+        Terza colonna del giudizio, chiesta dall'utente il 9 settembre 2026,
+        e funziona come le altre due: verde se ci ha preso, rosso se no,
+        ``None`` finche' non c'e' niente da giudicare.
+
+        Il confronto e' una appartenenza e non una uguaglianza, ed e' tutto
+        qui il mestiere di questa riga: la sigla E' l'elenco dei segni che
+        accetta — "1" ne accetta uno, "1X" due — quindi si guarda se l'esito
+        accaduto sta dentro. E' la stessa forma di ``risultato_azzeccato``,
+        che chiede se il punteggio sta fra quelli nominati.
+
+        **Non e' una misura, e qui la regola stringe piu' che altrove.** Le
+        altre due colonne gia' non lo sono — le misure stanno in
+        ``/pronostici``, nel Brier e nella calibrazione — ma questa riguarda
+        ``esito_logico``, a cui il lavoro 9 vieta di entrare in qualunque
+        conto (vedi la sua docstring e il difetto A1). Una pallina in tabella
+        racconta a chi guarda com'e' andata quella partita; il divieto colpisce
+        chi volesse contarle, non chi le disegna. Il giorno in cui qualcuno
+        sommasse questi verdi per dire quanto vale il metodo starebbe facendo
+        esattamente la cosa vietata, e nessun test lo fermerebbe: e' scritto
+        qui perche' il posto e' questo.
+
+        E i verdi di questa colonna **non si contano con quelli dell'Esito**,
+        nemmeno a occhio. Dove le due squadre si somigliano la sigla nomina
+        due segni su tre e ci prende molto piu' spesso, per aritmetica e non
+        per bravura — e' la stessa avvertenza che vale per il Punteggio, dove
+        i nominati sono fino a cinque. Tre colonne verdi in fila non vogliono
+        dire tre volte bravo.
+        """
+        reale, logico = self.esito_reale, self.esito_logico
+        if reale is None or logico is None:
+            return None
+        return reale in logico
+
+    @property
     def margine(self) -> float:
         """Quanto e' netto il risultato, da 0 a 1."""
         if not self.conclusa or self.gol_casa is None:
@@ -525,15 +562,21 @@ class RigaPartita:
     def giudicabile(self) -> bool:
         """Se di questa riga si puo' dire com'e' andata.
 
-        Le due palline in fondo rispondono a due domande diverse, ma nascono
-        e spariscono insieme: nessuna delle due ha risposta finche' la partita
-        non e' finita, e un cerchio rosso su una partita da giocare direbbe
-        "sbagliato" di una cosa che nessuno ha ancora visto. E' il terzo stato
-        della riga, quello che si continua a dire a parole.
+        Le palline in fondo — due dal 7 settembre 2026, tre dal 9 — rispondono
+        a domande diverse, ma nascono e spariscono insieme: nessuna ha
+        risposta finche' la partita non e' finita, e un cerchio rosso su una
+        partita da giocare direbbe "sbagliato" di una cosa che nessuno ha
+        ancora visto. E' il terzo stato della riga, quello che si continua a
+        dire a parole, e occupa tutte le colonne del giudizio: cerchi spenti
+        si leggerebbero come giudizi.
 
         Sta qui e non nel template perche' i template non fanno calcoli, e
-        perche' le due colonne devono comparire insieme: chiederlo due volte,
-        una per colonna, e' il modo di ritrovarsene un giorno una sola.
+        perche' le colonne devono comparire insieme: chiederlo una volta per
+        colonna e' il modo di ritrovarsene un giorno una in meno. Che la
+        domanda resti una sola mentre le colonne crescono e' voluto — le tre
+        risposte hanno le stesse condizioni (partita finita e pronostico
+        scritto in tempo), e legarle a una condizione a testa le farebbe
+        divergere al primo ritocco.
         """
         return self.risultato_azzeccato is not None
 

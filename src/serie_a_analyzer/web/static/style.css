@@ -767,14 +767,18 @@ h3 {
   white-space: nowrap;
   border: 1px solid transparent;
 }
-/* --- le due palline del giudizio (ultimi risultati) --------------------
-   Fino al 6 settembre 2026 qui c'era una pastiglia sola a tre gradini —
-   verde il punteggio nominato, oro il solo esito, rosso niente — e i tre
-   colori li dava questo foglio. Adesso i giudizi sono due e ognuno e'
-   binario, quindi la scala di mezzo non ha piu' un gradino da occupare: il
-   verde e l'oro erano due variabili di palette e se ne sono andate con la
-   pastiglia, mentre il rosso resta perche' --allarme lo usa ancora il muro
-   dei Brier.
+/* --- le palline del giudizio (ultimi risultati) ------------------------
+   Due dal 7 settembre 2026, tre dal 9 — esito, punteggio e sigla a logica.
+   Fino al 6 settembre qui c'era una pastiglia sola a tre gradini — verde il
+   punteggio nominato, oro il solo esito, rosso niente — e i tre colori li
+   dava questo foglio. Adesso i giudizi sono binari uno per uno, quindi la
+   scala di mezzo non ha piu' un gradino da occupare: il verde e l'oro erano
+   due variabili di palette e se ne sono andate con la pastiglia, mentre il
+   rosso resta perche' --allarme lo usa ancora il muro dei Brier.
+
+   Che le colonne siano cresciute da una a tre senza toccare una riga di
+   questo foglio e' la prova che la forma e' quella giusta: la regola descrive
+   un cerchio, non una tabella.
 
    Il cerchio pieno lo disegna il carattere emoji, cioe' il sistema
    operativo: e' l'unico punto del sito in cui un colore non esce da una
@@ -782,9 +786,10 @@ h3 {
    legenda e uguale su ogni tema. Chi vuole tornare al CSS riscrive questa
    regola e la macro `pallina` in forme.html, e non deve cercare altrove.
 
-   Il corpo e' piu' piccolo del testo apposta: a misura piena due cerchi
-   pieni in fondo alla riga peserebbero piu' del risultato, che e' il fatto,
-   e il giudizio non deve gridare piu' forte di cio' che giudica. */
+   Il corpo e' piu' piccolo del testo apposta: a misura piena i cerchi in
+   fondo alla riga peserebbero piu' del risultato, che e' il fatto, e il
+   giudizio non deve gridare piu' forte di cio' che giudica. Da quando sono
+   tre la ragione vale una volta e mezza. */
 .pallina {
   font-size: .8125rem;
   line-height: 1;

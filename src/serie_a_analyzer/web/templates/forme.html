@@ -205,14 +205,21 @@
          non li puo' piu' ordinare.
          Il terzo stato resta detto a parole e occupa tutte e due le colonne:
          due palline grigie si leggerebbero come due giudizi. #}
+      {# Dal 9 settembre 2026 le colonne sono tre: l'ultima giudica la sigla a
+         logica con la stessa regola delle altre due — verde se l'esito
+         accaduto era fra quelli che nominava. I tre verdi non si sommano:
+         dove le squadre si somigliano la sigla ne nomina due su tre e ci
+         prende molto piu' spesso, per aritmetica e non per bravura. Il
+         perche' per esteso sta in `esito_logico_azzeccato`. #}
       {% if p.giudicabile %}
         <td class="destra">{{ pallina(p.pronostico_azzeccato, "esito") }}</td>
         <td class="destra">{{ pallina(p.risultato_azzeccato, "punteggio") }}</td>
+        <td class="destra">{{ pallina(p.esito_logico_azzeccato, "a logica") }}</td>
       {% else %}
-        <td class="destra" colspan="2"><span class="verdetto attesa">da giocare</span></td>
+        <td class="destra" colspan="3"><span class="verdetto attesa">da giocare</span></td>
       {% endif %}
     {% else %}
-      <td class="destra fioco" colspan="5">&mdash;</td>
+      <td class="destra fioco" colspan="6">&mdash;</td>
     {% endif %}
   </tr>
 {% endmacro %}

@@ -2500,12 +2500,14 @@ def test_la_pallina_dice_a_voce_quello_che_il_colore_dice_a_occhio(client_col_pa
     assert 'aria-label="punteggio: azzeccato"' in pagina or            'aria-label="punteggio: sbagliato"' in pagina
 
 
-def test_una_partita_da_giocare_non_prende_due_palline_grigie(client, motore):
+def test_una_partita_da_giocare_non_prende_palline_grigie(client, motore):
     """Il terzo stato resta uno, e resta detto a parole.
 
-    Due cerchi spenti sarebbero due giudizi su una partita che nessuno ha
-    ancora visto: e' la stessa ragione per cui la pastiglia di prima non
-    poteva restare vuota.
+    Cerchi spenti sarebbero giudizi su una partita che nessuno ha ancora
+    visto: e' la stessa ragione per cui la pastiglia di prima non poteva
+    restare vuota. Le colonne del giudizio sono tre dal 9 settembre 2026 e la
+    scritta le occupa tutte — questo assert e' anche cio' che se ne accorge il
+    giorno in cui qualcuno ne aggiunge una quarta e dimentica il colspan.
     """
     dataset = motore.snapshot().dataset
     stagione = dataset.stagioni()[0]
@@ -2517,7 +2519,7 @@ def test_una_partita_da_giocare_non_prende_due_palline_grigie(client, motore):
     pagina = client.get(f"/giornata/{futura.matchday}?stagione={stagione}").text
 
     assert "da giocare" in pagina
-    assert 'colspan="2"' in pagina, "il terzo stato occupa tutte e due le colonne"
+    assert 'colspan="3"' in pagina, "il terzo stato occupa tutte le colonne del giudizio"
 
 
 
@@ -2698,6 +2700,122 @@ def test_l_esito_a_logica_non_e_un_mercato_e_non_finisce_nel_registro():
 
     assert all("logic" not in mercato for mercato, _, _ in mercati)
     assert all(selezione not in ("1X", "X2") for _, selezione, _ in mercati)
+
+
+# ---- la terza pallina: il giudizio sulla sigla a logica ---------------------
+#
+# Chiesta dall'utente il 9 settembre 2026, lo stesso giorno della sigla. Ha la
+# forma delle altre due — verde, rosso, o niente finche' la partita non e'
+# finita — e la regola e' un'appartenenza: la sigla E' l'elenco dei segni che
+# accetta, quindi si guarda se l'esito accaduto sta dentro.
+#
+# Il confine del lavoro 9 non si muove di un millimetro: disegnare un cerchio
+# non e' misurare. Il divieto colpisce chi volesse SOMMARE questi verdi per
+# dire quanto vale il metodo, ed e' scritto dove puo' stare — nella docstring
+# di `esito_logico_azzeccato` e nel test del mercato qui sopra, che continua a
+# valere identico.
+
+
+def test_la_sigla_secca_si_giudica_come_un_esito_qualunque():
+    """Squadre lontane: la sigla dice "1" e vale quanto un 1 secco."""
+    riga = _riga(_probabilita(_LONTANE), 2, 1)
+    assert riga.esito_logico == "1"
+    assert riga.esito_logico_azzeccato is True
+
+    perso = _riga(_probabilita(_LONTANE), 0, 1)
+    assert perso.esito_logico_azzeccato is False
+
+
+def test_il_pareggio_accende_la_terza_pallina_e_spegne_la_prima():
+    """Il caso per cui la colonna esiste, ed e' il gemello di Juventus-Milan.
+
+    Squadre vicine, quindi la sigla aggiunge la X: "1X". Finisce in pareggio.
+    L'esito preferito dal modello era l'1 — sbagliato — ma il pareggio era fra
+    i segni che la sigla nominava, quindi la terza pallina e' verde mentre la
+    prima e' rossa. Due domande diverse, due risposte diverse: la stessa
+    ragione per cui il 7 settembre 2026 la pastiglia unica e' caduta.
+    """
+    riga = _riga(_probabilita(_VICINE), 1, 1)
+    assert riga.esito_logico == "1X"
+    assert riga.esito_previsto == "1"
+    assert riga.pronostico_azzeccato is False
+    assert riga.esito_logico_azzeccato is True
+
+
+def test_la_doppia_non_copre_il_terzo_segno():
+    """"1X" non e' un salvacondotto: se vince la trasferta e' rossa.
+
+    Serve perche' due segni su tre sono tanti e la colonna sembra facile —
+    lo e' — ma non e' gratis: il segno lasciato fuori la spegne come
+    qualunque altro.
+    """
+    riga = _riga(_probabilita(_VICINE), 0, 1)
+    assert riga.esito_logico == "1X"
+    assert riga.esito_logico_azzeccato is False
+
+
+def test_la_doppia_dalla_parte_della_trasferta_si_giudica_uguale():
+    vicine = {(ospite, casa): p for (casa, ospite), p in _VICINE.items()}
+    prob = _probabilita(vicine)
+
+    assert _riga(prob, 1, 1).esito_logico == "X2"
+    assert _riga(prob, 1, 1).esito_logico_azzeccato is True
+    assert _riga(prob, 1, 2).esito_logico_azzeccato is True
+    assert _riga(prob, 2, 1).esito_logico_azzeccato is False
+
+
+def test_le_tre_palline_nascono_e_spariscono_insieme():
+    """Una condizione sola per tre colonne, ed e' voluto.
+
+    Le tre risposte vogliono le stesse due cose — la partita finita e un
+    pronostico scritto in tempo — e legarle a una condizione a testa e' il
+    modo di ritrovarsi un giorno con due palline e un buco.
+    """
+    from serie_a_analyzer.web.views import RigaPartita
+
+    da_giocare = RigaPartita(
+        id=1, casa="Inter", ospite="Lecce", casa_id=1, ospite_id=6,
+        quando="sabato 22 ago, 18:30", giornata=1, conclusa=False,
+        gol_casa=None, gol_ospite=None, prob=_probabilita(_VICINE),
+    )
+    assert da_giocare.giudicabile is False
+    assert da_giocare.esito_logico_azzeccato is None
+
+    senza_modello = _riga(None, 1, 1)
+    assert senza_modello.giudicabile is False
+    assert senza_modello.esito_logico_azzeccato is None
+
+
+def test_l_hub_mostra_tre_colonne_di_giudizio(client):
+    """La colonna c'e' in testata e in riga, su tutte e due le tabelle.
+
+    L'hub e la giornata disegnano le righe con la STESSA macro, quindi una
+    intestazione aggiunta a una sola delle due lascerebbe le palline sotto la
+    colonna sbagliata senza che niente lo segnali.
+    """
+    hub = client.get("/").text
+    assert ">A logica</th>" in hub
+
+    giornata = client.get("/giornata/1?stagione=2026").text
+    assert giornata.count(">A logica</th>") == 1
+
+
+def test_una_riga_giudicata_porta_tre_palline(client_col_passato):
+    """Tre cerchi per riga, non due: si contano nel corpo della tabella.
+
+    Vuole il mondo con i pronostici gia' congelati: senza una riga di registro
+    scritta prima del fischio la pagina non giudica niente, ed e' giusto cosi'
+    — questo test non lo dimentichi e finisca per passare a vuoto.
+    """
+    import re
+
+    corpo = re.search(r"<tbody>(.*?)</tbody>", client_col_passato.get("/").text, re.S)
+    assert corpo is not None
+    righe = re.findall(r"<tr>(.*?)</tr>", corpo.group(1), re.S)
+    giudicate = [r for r in righe if "class=\"pallina\"" in r]
+    assert giudicate, "nessuna riga giudicata nell'hub"
+    for riga in giudicate:
+        assert riga.count("class=\"pallina\"") == 3
 
 
 def test_l_hub_scrive_l_esito_a_logica(client):

@@ -799,10 +799,12 @@ terzo, «da giocare», non esisteva perché l'hub mostra solo partite concluse, 
 senza di esso una partita futura avrebbe una pastiglia vuota — che si legge
 come «sbagliato».
 
-In fondo alla riga il giudizio sta in **due colonne** e non in una, dal 7
-settembre 2026: l'**esito** (il segno accaduto era quello che il modello
-preferiva) e il **punteggio** (il risultato era fra quelli che aveva
-nominato). Ognuna è un cerchio pieno, verde o rosso — `pallina` in
+In fondo alla riga il giudizio sta in **tre colonne** e non in una:
+l'**esito** (il segno accaduto era quello che il modello preferiva) e il
+**punteggio** (il risultato era fra quelli che aveva nominato) dal 7 settembre
+2026, e dal 9 — su richiesta dell'utente — la sigla **a logica** (il segno
+accaduto era fra quelli che nominava: uno se secca, due se col pareggio,
+`esito_logico_azzeccato`). Ognuna è un cerchio pieno, verde o rosso — `pallina` in
 `forme.html`, `pronostico_azzeccato` e `risultato_azzeccato` in
 `web/views.py`. Prima era una pastiglia sola a tre gradini, verde/oro/rosso, e
 a farla cadere è stata **una partita**: Juventus-Milan del 6 settembre 2026,
@@ -829,8 +831,22 @@ quella colonna è più facile di un confronto col solo punteggio più probabile,
 quindi i verdi di prima del 3 settembre e quelli di dopo non si contano
 insieme; e non è una misura del modello — quelle stanno in `/pronostici`, nel
 Brier e nella calibrazione, e nessuna passa di qui. Il terzo stato della riga
-resta uno solo e resta detto **a parole**: «da giocare» occupa tutte e due le
-colonne, perché due cerchi spenti si leggerebbero come due giudizi.
+resta uno solo e resta detto **a parole**: «da giocare» occupa tutte le
+colonne del giudizio, perché cerchi spenti si leggerebbero come giudizi.
+
+Che le colonne siano cresciute da una a tre senza toccare né il foglio di
+stile né la macro `pallina` è la prova che la forma regge, e due regole la
+tengono. `giudicabile` resta **una domanda sola** per tutte e tre: le tre
+risposte hanno le stesse condizioni — partita finita e pronostico scritto in
+tempo — e una condizione per colonna le farebbe divergere al primo ritocco.
+E le tre **non hanno la stessa difficoltà**, che è la cosa da non dimenticare
+leggendole: l'esito è un segno su tre, il punteggio fino a cinque celle, la
+sigla a logica **due segni su tre** quando aggiunge il pareggio. Tre verdi in
+fila non vogliono dire tre volte bravo, e `ISTRUZIONI.txt` lo dichiara in una
+tabellina apposta. La terza colonna **non allenta il divieto del lavoro 9**:
+disegnare un cerchio non è misurare, ma sommare quei cerchi lo sarebbe — il
+divieto colpisce chi li contasse, e sta scritto nella docstring di
+`esito_logico_azzeccato` perché in un test non ci starebbe.
 Accanto ai punteggi probabili la pagina scrive anche **l'esito che il modello
 sceglie** — 1, X o 2 — con la sua percentuale a fianco (`esito_previsto` e
 `probabilita_esito_previsto` in `web/views.py`, sull'hub e sulla scheda
@@ -893,6 +909,15 @@ divieto è scritto in un test apposta, perché è l'unico posto in cui può
 stare. Seconda: **non ha una percentuale accanto**, al contrario delle altre
 due sigle, e l'assenza è voluta — una cifra lo farebbe sembrare misurato.
 Terza: niente velo colorato, per la ragione già detta sopra.
+
+Dal 9 settembre la sigla ha però **una pallina sua** in fondo alla riga, come
+l'esito e il punteggio, e il confine va detto con precisione perché è sottile:
+disegnare un cerchio su una partita non è misurare — le altre due colonne già
+non lo sono — mentre **sommare quei cerchi lo sarebbe**, e sarebbe anche un
+conto gonfiato, perché dove la sigla aggiunge il pareggio copre due segni su
+tre. Il divieto della prima regola colpisce quindi chi li contasse, non chi li
+disegna, e sta nella docstring di `esito_logico_azzeccato`: in un test non ci
+starebbe, perché ciò che va impedito è un conto che nessuno ha ancora scritto.
 
 La soglia è **10 punti** e non è un gusto: viene dal difetto P1, che misura lo
 scarto della X a +7.7 sotto i 5 punti di distacco, +4.9 fra 5 e 10, e lo trova
@@ -1195,6 +1220,10 @@ comincia il 6 passi prima di qui.
                                        ≥10 punti, 1X o X2 se meno. Non è un
                                        mercato: fuori da ogni misura. La
                                        soglia esce dal difetto P1
+  la terza pallina        09/09/2026   il giudizio sulla sigla a logica,
+                                       accanto a esito e punteggio. Le tre
+                                       colonne non hanno la stessa
+                                       difficoltà e i verdi non si sommano
 
 ### Le idee che sembrano buone e non lo sono
 
