@@ -9,10 +9,6 @@
 <section class="apertura">
   <p class="occhiello">Serie A &middot; stagione in corso</p>
   <h1>Nessuna statistica per giocatore</h1>
-  <p class="sommario">
-    I tabellini arrivano <b>a partita conclusa</b>, insieme al recupero dei
-    dettagli.
-  </p>
 </section>
 
 <section class="blocco">
@@ -24,13 +20,8 @@
     <div class="riquadro-vuoto">
       <h2>Partite concluse nell'archivio: {{ archivio.partite_concluse }}</h2>
       <p>
-        Finche' la stagione non e' cominciata &mdash; o finche' la raccolta non
-        ha chiuso la prima giornata &mdash; qui non c'e' niente da mostrare.
-      </p>
-      <p>
-        Se le partite concluse sono parecchie e questa pagina resta vuota, i
-        dettagli non sono stati raccolti: lo dice <a href="/stato">lo
-        stato</a>, e li recupera la raccolta giornaliera.
+        Se sono parecchie e questa pagina resta vuota, i dettagli non sono
+        stati raccolti: lo dice <a href="/stato">lo stato</a>.
       </p>
     </div>
   </div>
@@ -44,16 +35,6 @@
     {% if stagione %}stagione {{ stagione }}/{{ "%02d"|format((stagione + 1) % 100) }}{% else %}nessuna stagione{% endif %}
   </p>
   <h1>{{ quanti }} giocatori visti in campo</h1>
-  <p class="sommario">
-    Le classifiche sono di <b>un campionato per volta</b>: sommare quattro
-    stagioni metterebbe davanti chi ha giocato piu' anni, non chi ha segnato
-    di piu'. La carriera intera sta nella scheda del singolo giocatore.
-  </p>
-  <p class="sommario">
-    Chi non e' mai entrato non compare: l'archivio sa solo cio' che e'
-    successo in campo, <b>non le rose ufficiali</b>. Un acquisto mai impiegato
-    non c'e', ed e' giusto cosi'.
-  </p>
 
   {% if stagioni|length > 1 %}
     <nav class="navigazione annate" aria-label="Scegli la stagione">
@@ -72,14 +53,9 @@
   <div class="lato">
     <p class="occhiello">Chi segna</p>
     <h2>Marcatori</h2>
-    <p class="spiega">
-      Conti di questa stagione soltanto: <b>{{ con_tabellino }}</b> partite
-      col tabellino su {{ concluse }} concluse
-      {%- if concluse %} ({{ (con_tabellino * 100 // concluse) }}%){% endif %}.
-      {% if con_tabellino < concluse %}
-        Le partite che mancano non sono perse: i tabellini si rileggono
-        dall'id, e l'id non scade.
-      {% endif %}
+    <p class="dato">
+      <b>{{ con_tabellino }}</b> partite col tabellino su {{ concluse }}
+      concluse{% if concluse %} ({{ (con_tabellino * 100 // concluse) }}%){% endif %}.
     </p>
   </div>
 
@@ -118,14 +94,6 @@
   <div class="lato">
     <p class="occhiello">Le altre classifiche</p>
     <h2>Assist e voti</h2>
-    <p class="spiega">
-      Il voto medio conta solo chi ha <b>almeno cinque partite</b> con un voto:
-      una media su una partita sola non e' una media.
-    </p>
-    <p class="spiega">
-      Nessuna di queste pagine costa richieste all'API &mdash; e' tutto
-      materiale gia' sul disco, pagato dalla raccolta giornaliera.
-    </p>
   </div>
 
   <div class="corpo">
@@ -162,7 +130,7 @@
             </tbody>
           </table>
         {% else %}
-          <p class="spiega">
+          <p class="dato">
             Nessun giocatore ha ancora abbastanza partite con un voto perche'
             la media significhi qualcosa.
           </p>

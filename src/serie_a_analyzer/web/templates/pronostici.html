@@ -14,27 +14,11 @@
        sarebbe un fatto osservato, e nessuno l'ha osservato. Il database
        potrebbe essere pieno e semplicemente non rispondere. #}
     <h1>Il registro non si legge</h1>
-    <p class="sommario">
-      Non e' vuoto: e' <b>illeggibile</b>. Finche' non torna, questa pagina
-      non puo' dire cosa fu scritto &mdash; e non vuol dire che non sia stato
-      scritto niente. I pronostici gia' dati non si perdono: il registro e'
-      append-only e nessuno lo sta riscrivendo.
-    </p>
   {% elif totale %}
     <h1>{{ totale }} pronostic{{ "o" if totale == 1 else "i" }},
         {{ verificati }} gia' verificat{{ "o" if verificati == 1 else "i" }}</h1>
-    <p class="sommario">
-      Un pronostico registrato <b>non si aggiorna e non si cancella</b>: il
-      database lo impedisce. Questa pagina e' quella promessa messa in fila
-      &mdash; cosa era stato detto, quando, e com'e' andata a finire.
-    </p>
   {% else %}
     <h1>Il registro e' vuoto</h1>
-    <p class="sommario">
-      I pronostici si scrivono da soli quando il modello viene stimato su una
-      partita <b>ancora da giocare</b>. Su una gia' cominciata il registro
-      rifiuta di scrivere, ed e' la regola che rende sensato tutto il resto.
-    </p>
   {% endif %}
 </section>
 
@@ -43,53 +27,6 @@
     <div class="lato">
       <p class="occhiello">Cosa avevo detto</p>
       <h2>Uno per riga</h2>
-      <p class="spiega">
-        In cima ci sono le partite <b>ancora da giocare</b>, dalla piu'
-        vicina: il pronostico e' gia' scritto e non cambiera' piu'. E' li' che
-        questa pagina non somiglia a una tabella di risultati. Subito sotto,
-        dopo il salto, ricominciano le <b>gia' giocate</b> dalla piu' recente:
-        quelle una risposta ce l'hanno.
-      </p>
-      <p class="spiega">
-        Le percentuali sono quelle <b>di allora</b>, riprese dal registro tale
-        e quale. Sull'hub una partita da giocare mostra invece il modello di
-        adesso, che nel frattempo puo' aver visto altre giornate: se i due
-        numeri non coincidono, la differenza e' il tempo passato.
-      </p>
-      <p class="spiega">
-        La casella colorata e' l'esito <b>accaduto davvero</b>, e dice quanta
-        fiducia il modello ci aveva messo.
-      </p>
-      <p class="spiega">
-        Il giudizio e' il <b>Brier</b> della singola partita, sommato sui tre
-        esiti come nel backtest: <b>0</b> se il modello aveva dato il 100% a
-        cio' che e' successo, <b>0.667</b> se aveva detto un terzo a testa,
-        <b>2</b> nel caso peggiore. Non c'e' una colonna "azzeccato": su un
-        pronostico probabilistico e' proprio la domanda sbagliata, ed e' il
-        motivo per cui il Brier esiste.
-      </p>
-      {% if ripetute %}
-        <p class="spiega">
-          Una partita puo' comparire <b>piu' di una volta</b>, e non e' un
-          errore: se il modello cambia idea prima del fischio d'inizio la riga
-          vecchia non si tocca, se ne aggiunge una nuova.
-          {% if modi|length > 1 %}
-            Lo stesso vale per il pronostico rifatto quando escono le
-            formazioni ufficiali: e' una riga a parte e non sostituisce
-            l'altra, e la colonna "tipo" dice quale e' quale.
-          {% endif %}
-        </p>
-      {% endif %}
-      {% if totale > mostrate %}
-        <p class="spiega">
-          In elenco <b>{{ partite_mostrate }}</b> partite, cioe'
-          {{ mostrate }} righe su {{ totale }} pronostici in archivio: le
-          <b>piu' vicine al fischio d'inizio</b> da una parte e dall'altra,
-          non le ultime del calendario. Con una stagione intera in archivio
-          l'elenco per data finiva a maggio, e le partite gia' giocate &mdash;
-          le sole con una risposta &mdash; restavano fuori pagina.
-        </p>
-      {% endif %}
     </div>
 
     <div class="corpo">
@@ -162,17 +99,7 @@
         </table>
       </div>
 
-      <p class="chiave">
-        Brier piu' basso = meglio &middot; 0.667 e' quanto vale tirare a caso
-        &middot; la casella tinta e' l'esito accaduto
-      </p>
 
-      <p class="nota">
-        I numeri qui sopra sono <b>singole partite</b>, e una partita per volta
-        non dice niente sul modello: un pronostico dato al 30% che si avvera
-        non e' un errore. Il conto che conta e' la media, ed e'
-        <a href="/">sull'hub</a>, accanto alla sua baseline.
-      </p>
     </div>
   </section>
 {% elif salute.registro_leggibile %}
@@ -180,21 +107,10 @@
     <div class="lato">
       <p class="occhiello">Come si riempie</p>
       <h2>Da dove arrivano</h2>
-      <p class="spiega">
-        Ogni volta che il modello viene ristimato, le partite in programma
-        ricevono il loro pronostico e quello resta scritto. Nessuno lo
-        riscrive: se il modello cambia idea, nasce una riga nuova.
-      </p>
     </div>
     <div class="corpo">
       <div class="riquadro-vuoto">
         <h2>Nessun pronostico in archivio</h2>
-        <p>
-          Succedera' da solo appena in archivio ci sara' una partita ancora da
-          giocare. Si registrano quelle che si giocano entro pochi giorni: piu'
-          in la' non sarebbe un pronostico, perche' il modello non ha ancora
-          visto le partite che glielo farebbero cambiare.
-        </p>
         <p>
           Ultimo giorno raccolto:
           <strong>{{ salute.ultimo_giorno_raccolto or "nessuno" }}</strong>.

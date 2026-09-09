@@ -153,6 +153,27 @@ def margine_gol(gol_casa: int, gol_ospite: int) -> float:
 SOGLIA_RISULTATO_PROBABILE = 0.10
 
 
+# Quanto devono distaccarsi le due squadre perche' l'esito a logica smetta di
+# nominare il pareggio (lavoro 9, concordato il 9 settembre 2026). E' il
+# distacco fra le DUE SQUADRE, |P(1) - P(2)|, col pareggio fuori dal conto:
+# non e' una delle due, e' cio' che si aggiunge quando le due non si
+# distinguono.
+#
+# I dieci punti non sono un gusto, vengono dal difetto P1: rigiocate quattro
+# stagioni, sotto i 10 punti di distacco il modello dichiara la X al 27.9%
+# mentre nella realta' esce il 34.8% delle volte (244 partite, 2.3 errori
+# standard), e sopra i 10 lo scarto sparisce (+1.6) per poi cambiare segno.
+# La soglia sta dove sta il difetto.
+#
+# Chi la sposta sappia in che direzione sbaglia. Sotto i 5 punti scatta
+# sull'11% delle partite e lascia fuori gare in cui il difetto c'e' ancora
+# tutto; sopra i 15 arriva al 31% e comincia a comprendere gare dove lo
+# scarto e' gia' negativo, cioe' dove nominare la X e' peggio che tacerla.
+# A 10 punti scatta sul 20%, che e' la proprieta' che serve: una regola che
+# scattasse su meta' delle partite non starebbe scegliendo niente.
+SOGLIA_ESITO_LOGICO = 0.10
+
+
 @dataclass
 class RigaPartita:
     """Una partita come appare in elenco, con o senza pronostico."""
@@ -297,6 +318,74 @@ class RigaPartita:
         if self.prob is None:
             return None
         return max(self.prob.btts, self.prob.no_btts)
+
+    @property
+    def esito_logico(self) -> str | None:
+        """L'esito matematico detto a voce umana: «1», «2», «1X» o «X2».
+
+        Concordato con l'utente il 9 settembre 2026 (lavoro 9). Guarda una
+        cosa sola, il distacco fra le **due squadre**: se sono lontane nomina
+        la favorita e basta, se sono vicine le aggiunge il pareggio.
+
+        **Non e' un mercato, ed e' la regola che lo tiene in piedi.** Non ha
+        un Brier, non entra nel registro, non lo risolve ``outcomes.py``, non
+        compare nell'accuratezza ne' nella calibrazione. E' un calcolo che
+        avviene DOPO il modello e come conseguenza di cio' che il modello ha
+        detto: se un giorno il modello cambia idea, cambia idea anche questo,
+        senza che nessuno lo ritocchi. A migliorare ci pensa l'esito
+        matematico; questo lo racconta.
+
+        Il divieto non e' pedanteria. Un secondo esito in pagina ha l'aspetto
+        di un secondo pronostico, e il giorno in cui qualcuno lo salvasse
+        «per misurarlo» avremmo due risposte alla stessa domanda contate come
+        due osservazioni: e' il difetto A1, che costo' un anno di misure
+        sbagliate prima che qualcuno se ne accorgesse.
+
+        Perche' non e' un vezzo, e qui sta la parte misurata: nelle partite in
+        cui questa regola aggiunge il pareggio, il pareggio e' PIU' probabile
+        di quanto il modello dichiari — 27.9% detto contro 34.8% accaduto, che
+        e' il difetto P1. La riga non inventa niente, mette in parole una cosa
+        che sappiamo e che il modello non sa ancora dire da solo. Il giorno in
+        cui P1 verra' curato, ``esito_previsto`` dira' «X» per conto suo e
+        questa smettera' di aggiungere qualcosa: ed e' il modo giusto in cui
+        deve finire.
+
+        La favorita e' sempre una delle due squadre, mai il pareggio, e non
+        e' una svista: ``esito_previsto`` puo' valere «X» in teoria, ma qui la
+        domanda e' «chi delle due», e il pareggio e' cio' che si aggiunge a
+        quella risposta. Nei 1154 pronostici in registro la X non e' comunque
+        mai stata la piu' probabile, nemmeno una volta.
+        """
+        if self.prob is None:
+            return None
+        favorita = "1" if self.prob.home_win >= self.prob.away_win else "2"
+        distacco = abs(self.prob.home_win - self.prob.away_win)
+        if distacco >= SOGLIA_ESITO_LOGICO:
+            return favorita
+        return "1X" if favorita == "1" else "X2"
+
+    @property
+    def distacco_fra_le_squadre(self) -> float | None:
+        """Quanto si distaccano le due squadre, da 0 a 1, pareggio escluso.
+
+        E' il numero su cui ``esito_logico`` decide, e la scheda partita lo
+        scrive: una sigla che cambia senza dire in base a cosa si legge come
+        un capriccio. Il pareggio non entra qui per la stessa ragione per cui
+        non entra nella soglia — non e' una delle due squadre.
+        """
+        if self.prob is None:
+            return None
+        return abs(self.prob.home_win - self.prob.away_win)
+
+    @property
+    def esito_logico_col_pareggio(self) -> bool:
+        """L'esito a logica ha aggiunto la X, cioe' le due squadre son vicine.
+
+        Serve al template per dire *perche'* c'e' scritto «1X» invece di «1»,
+        che e' l'unica cosa che quella sigla non sa spiegare da sola.
+        """
+        logico = self.esito_logico
+        return logico is not None and len(logico) == 2
 
     @property
     def pronostico_azzeccato(self) -> bool | None:

@@ -13,12 +13,6 @@
   <h1>Giornata {{ numero }}</h1>
   <p class="sommario">
     {{ partite|length }} partit{{ "a" if partite|length == 1 else "e" }}.
-    {# La regola di sempre, detta dove serve: qui si guardano anche giornate
-       vecchissime, ed e' proprio li' che un ricalcolo sembrerebbe una
-       previsione azzeccata. #}
-    Sulle partite gia' cominciate le percentuali sono quelle
-    <b>congelate prima del fischio d'inizio</b>, riprese dal registro; su
-    quelle da giocare vengono dal modello di adesso.
   </p>
 </section>
 
@@ -26,17 +20,6 @@
   <div class="lato">
     <p class="occhiello">Sfogliare</p>
     <h2>Le altre giornate</h2>
-    <p class="spiega">
-      Dove ci sono trattini il pronostico non fu registrato in tempo: prima
-      che questo programma esistesse nessuno lo scrisse, e adesso non c'e'
-      modo di rifarlo. Non e' un dato mancante, e' una domanda che nessuno
-      pose.
-    </p>
-    <p class="spiega">
-      Le due palline in fondo alla riga sono due giudizi distinti: se il
-      <b>segno</b> accaduto era quello che il modello preferiva, e se il
-      <b>punteggio</b> era fra quelli che aveva nominato. Possono discordare.
-    </p>
   </div>
 
   <div class="corpo">

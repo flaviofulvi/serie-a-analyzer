@@ -729,10 +729,44 @@ una variabile, ed è dichiarato qui perché una regola con un'eccezione taciuta
 non è più una regola. L'oro se n'è andato con la pastiglia a tre gradini, e
 con lui le variabili `--esatto` e `--parziale`; `--allarme` resta, lo usa il
 muro dei Brier. L'arancio non torna comunque: era il vicino di casa di
-quell'oro, e a undici pixel le due colonne devono restare distinguibili. Chi tocca la palette deve
-cambiare anche le **parole**: quattro template nominano i colori a voce
-(«grafite ha vinto la casa, magenta l'ospite»), e una pagina che spiega un
-colore e ne mostra un altro è peggio di una che non spiega niente.
+quell'oro, e a undici pixel le due colonne devono restare distinguibili.
+Chi tocca la palette doveva fin qui cambiare anche le **parole**, perché
+quattro template nominavano i colori a voce («grafite ha vinto la casa,
+magenta l'ospite»). Dal 9 settembre 2026 quel vincolo non c'è più, e non
+perché qualcuno l'abbia allentato: le spiegazioni sono uscite dal sito (vedi
+«le pagine mostrano i numeri» qui sotto) e con loro le frasi che nominavano i
+colori. Il legame fra tinta e significato adesso vive in un posto solo, la
+testa del foglio di stile, più `ISTRUZIONI.txt` per chi legge il sito. Chi
+cambia la palette cambia due file, non sei.
+
+**Le pagine mostrano i numeri, le istruzioni stanno in un file.** Deciso
+dall'utente il 9 settembre 2026, ed è il cambio più grosso mai fatto
+all'aspetto del sito: **86 paragrafi** tolti dai template e riscritti interi
+in `ISTRUZIONI.txt`, che si legge quando serve. Ogni `.blocco` era due
+colonne — a sinistra il titolo con la sua spiegazione, ferma mentre si
+scorreva la tabella; a destra i dati — e adesso è una sola: il titolo passa
+sopra, i dati prendono tutta la larghezza. La classe `.spiega` non esiste più,
+né nei template né nel foglio di stile, e nemmeno `.chiave`, che disegnava le
+legende sotto i grafici.
+
+Quello che è rimasto in pagina è **un fatto sull'archivio, mai una
+spiegazione**, e ha una classe sua (`.dato`) apposta perché il nome dica da
+solo quando qualcosa è nel posto sbagliato: «30 partite col tabellino su 30
+concluse», «tabellino non ancora definitivo», «troppi pochi dati», i tre
+parametri misurati sotto le forze, la data in cui un pronostico fu congelato.
+Sono rimasti anche i **limiti che il progetto pretende accanto al numero** —
+il Gol/NoGol e l'Over/Under, gli indisponibili e la panchina che il pronostico
+non usa, i pesi che non vedono i difensori — ma ridotti a una riga: il
+ragionamento dietro sta nel file.
+
+Due test tengono il confine (`test_i_template_non_contengono_spiegazioni`,
+`test_il_file_delle_istruzioni_esiste_e_parla_di_ogni_pagina`), e il perché
+sta scritto lì: quei paragrafi sono nati **uno per volta e ognuno con una
+buona ragione**, ogni volta che qualcuno aveva in mano un fatto misurato e la
+voglia di raccontarlo lì accanto. È esattamente così che ricomincerebbero. Il
+posto dove raccontarlo adesso è `ISTRUZIONI.txt`, che va tenuto aggiornato
+insieme alla pagina: un sito senza spiegazioni e un file che non le contiene
+sono la stessa cosa che averle perse.
 
 Il sito ha un **logo** (`static/logo.png`) e da lì un nome: **Il Pinguino
 Fatto Meglio**. L'immagine sta in tre posti — la testata, `rel="icon"` e
@@ -825,16 +859,56 @@ passato il 55.2% e la percentuale del prescelto sta in mediana al **52.4%**,
 sotto il 55% in tre casi su quattro. C'è anche un pavimento aritmetico: GG e
 NG sommano a uno, quindi il numero scritto **non può scendere sotto il 50%**
 — è la stessa cosa che ha fatto scartare la doppia chance, un piano più in
-basso. Da qui le due regole in pagina. La percentuale non si può togliere: «NG»
-da solo si leggerebbe come una decisione presa. E l'hub dichiara il limite
-accanto alle partite, con le parole che la scheda partita usa già («dichiara
-quasi sempre la media di campionato, perché è quanto sa davvero») più il 92%
-misurato — prima quel limite era scritto solo nella scheda partita, e lì la
-cifra era una probabilità fra tante, non la risposta del modello.
+basso. Da qui la regola che resta in pagina: la percentuale non si può
+togliere, perché «NG» da solo si leggerebbe come una decisione presa.
+L'hub dichiarava anche il limite a parole, accanto alle partite; **dal 9
+settembre 2026 non più**, ed è una decisione dell'utente e non una svista —
+quel paragrafo era fra quelli che ha chiesto di togliere per nome. Il limite
+resta dichiarato nella **scheda partita**, accanto all'Over/Under e con le
+parole di sempre, e per esteso in `ISTRUZIONI.txt`; il test
+`test_il_limite_del_gol_nogol_e_dichiarato_dove_stanno_i_numeri` sorveglia
+quello che è rimasto. Chi rimette una riga sull'hub non stia sbagliando: sta
+tornando indietro su una scelta presa, e va chiesto prima.
 La sigla **non prende il velo colorato** dell'esito, ed è la regola del colore
 applicata: grafite, cenere e magenta vogliono dire casa, pareggio e trasferta,
 e tingere «NG» con una di quelle direbbe una terza cosa in un alfabeto che ne
 dice due.
+
+Accanto a quei due, dal 9 settembre 2026 e su richiesta dell'utente, una terza
+sigla: l'**esito a logica** (`esito_logico`, `distacco_fra_le_squadre` e
+`SOGLIA_ESITO_LOGICO` in `web/views.py`). Guarda una cosa sola — quanto si
+distaccano le **due squadre**, `|P(1) − P(2)|`, col pareggio fuori dal conto —
+e scrive «1» o «2» quando sono lontane, «1X» o «X2» quando sono vicine. Non è
+un mercato nuovo e nemmeno un secondo pronostico: è l'esito matematico
+raccontato a voce umana, e se il modello cambia idea cambia idea anche lui,
+senza che nessuno lo ritocchi.
+
+Tre cose lo tengono al suo posto, e la prima è la sola che conti davvero.
+**Non entra in nessuna misura**: niente `righe_mercati`, niente registro,
+niente `outcomes.py`, nessun Brier. Un secondo esito in pagina ha l'aspetto di
+un secondo pronostico, e il giorno in cui qualcuno lo salvasse «per misurarlo»
+ogni partita avrebbe due risposte alla stessa domanda contate come due
+osservazioni — è il difetto A1, che costò un anno di misure sbagliate; il
+divieto è scritto in un test apposta, perché è l'unico posto in cui può
+stare. Seconda: **non ha una percentuale accanto**, al contrario delle altre
+due sigle, e l'assenza è voluta — una cifra lo farebbe sembrare misurato.
+Terza: niente velo colorato, per la ragione già detta sopra.
+
+La soglia è **10 punti** e non è un gusto: viene dal difetto P1, che misura lo
+scarto della X a +7.7 sotto i 5 punti di distacco, +4.9 fra 5 e 10, e lo trova
+sparito sopra (+1.6, poi negativo). Scatta sul 20% delle partite; sotto i 5
+scenderebbe all'11% lasciando fuori gare in cui il difetto c'è tutto, sopra i
+15 salirebbe al 31% comprendendo gare in cui nominare la X è peggio che
+tacerla. La favorita è sempre **una delle due squadre e mai il pareggio**: la
+domanda è «chi delle due», e la X è ciò che si aggiunge a quella risposta, non
+una terza risposta.
+
+E c'è una cosa misurata dietro, che la scheda partita dichiara: proprio nelle
+partite in cui questa riga aggiunge il pareggio, il pareggio esce **più spesso
+di quanto il modello dica** — 27.9% dichiarato contro 34.8% accaduto su quattro
+stagioni rigiocate. È il difetto P1, non curato. Il giorno in cui lo sarà,
+`esito_previsto` dirà «X» per conto suo e questa riga smetterà di aggiungere
+qualcosa, ed è il modo giusto in cui deve finire.
 La scheda partita mostra anche gol, formazioni e pagelle
 quando i dettagli ci sono, e dice quando non ci sono. Mostra inoltre gli
 **indisponibili**, che sono l'unica cosa che quella pagina sappia dire su una
@@ -951,10 +1025,18 @@ raccolta.
   batte le baseline (Brier 0.589 nel 2024/25 e 0.594 nel 2025/26, contro
   0.667 di chi tira a caso), mentre su Over 2.5 e Gol/NoGol il modello — dopo
   la compressione dei gol — *pareggia* con la media di campionato invece di
-  batterla: le pagine lo dichiarano accanto al mercato, con queste parole
-  («su questi esiti dichiara quasi sempre la media di campionato, perché è
-  quanto sa davvero»). Stessa regola quando una squadra non ha storia
+  batterla: la scheda partita lo dichiara accanto al mercato, con queste
+  parole («su questi esiti dichiara quasi sempre la media di campionato,
+  perché è quanto sa davvero»). Stessa regola quando una squadra non ha storia
   sufficiente: si mostra il motivo, non un pronostico inventato.
+  Dal 9 settembre 2026 questa regola ha una **forma nuova e un confine più
+  stretto**, e sono due cose diverse. La forma: il limite è una riga sola
+  accanto al numero, non un paragrafo — il ragionamento dietro sta in
+  `ISTRUZIONI.txt`. Il confine: la regola vale dove il numero si legge per
+  esteso, cioè la scheda partita, e **non più su ogni pagina che lo nomini di
+  passaggio** — l'hub mostra «NG · 52%» senza la riga accanto, per decisione
+  dell'utente. Chi allarga di nuovo il confine sta rifacendo una scelta già
+  presa, non correggendo un difetto.
 - La valutazione è **Brier score, log loss e calibrazione**, non "percentuale
   di pronostici azzeccati" (predire sempre "1" dà già ~45%).
 - Due misure diverse, da non confondere: il **backtest** rigioca il passato con
@@ -1004,13 +1086,22 @@ fosse, questa sezione è l'unica traccia che ne rimane.
 **I numeri dei lavori non si riusano**: quelli chiusi lasciano il posto vuoto,
 così i riferimenti nei commenti del codice continuano a puntare alla cosa
 giusta. Vale anche per i numeri dei difetti, che nel file unito conservano le
-lettere che avevano. Al 7 settembre 2026 restano aperti **C1** (l'unico con
-una scadenza: prima del 24 settembre), il **6**, l'**1**, il **2** e il
-**5**, ed è anche l'ordine in cui conviene affrontarli. Solo il 5 costa una
+lettere che avevano. Al 9 settembre 2026 restano aperti **C1** (l'unico con
+una scadenza: prima del 24 settembre), il **6**, l'**1**, il **2**, il **5**
+e il difetto **P1**, ed è anche l'ordine in cui conviene affrontarli
+— tranne P1, che non è in coda con gli altri: aspetta una quinta stagione, e
+prima di allora rifarlo darebbe lo stesso numero. Solo il 5 costa una
 richiesta; tutto il resto è gratis e si paga in tempo.
 
-**6 — il vantaggio di casa.** L'unico che si possa cominciare oggi: non
-aspetta nessun dato e non costa richieste. `home_advantage` è l'ultimo
+Il 9 — chiuso lo stesso giorno in cui è nato — saltava il **7**, e P1 salta
+la **O**: i due motivi sono diversi. Del 7
+non si può sapere se `DA_FARE.txt` l'avesse già usato — quel file non era
+tracciato da git — e un posto vuoto in più costa meno di un riferimento che
+punta a due cose; «O1» e «01», invece, in un commento di codice sono la
+stessa cosa.
+
+**6 — il vantaggio di casa.** Si comincia oggi: non aspetta nessun dato e
+non costa richieste. `home_advantage` è l'ultimo
 parametro del progetto mai passato dal backtest, e vale 0.0798 (la casa segna
 ×1.08) contro il ×1.16 di tutto l'archivio. Non è un errore — con l'emivita di
 180 giorni il campione efficace è di 234 partite equivalenti su 1541, e lì
@@ -1035,6 +1126,29 @@ esattamente il metodo del lavoro 1 e ne ha la stessa dipendenza.
 **5 — gli xG della stagione in corso.** Si aspetta il downgrade, e la prova è
 **una richiesta**: `/fixtures/statistics?fixture=<una partita del 2026>` dice
 se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
+
+**P1 — il pareggio nelle partite equilibrate.** Un difetto **misurato e non
+curato**, ed è la differenza che conta. Dove le due squadre si somigliano
+(`|P(1) − P(2)|` sotto i 10 punti) il modello mette il pareggio ultimo fra i
+tre mentre nella realtà arriva primo: su 244 partite dice X al 27.9% contro
+un 34.8% reale, +6.9 punti e 2.3 errori standard. Il buco sta tutto nelle
+quattro caselle che `rho` governa — 0-0 e 1-1 valgono +5.9 dei +6.9, dal 2-2
+in su restano +0.4 — quindi la leva è dentro la matrice, che è anche l'unico
+posto in cui potrebbe stare senza rompere la regola dei mercati come somme di
+celle. La cura provata (uno scostamento di `rho` che agisce solo dove le
+squadre si somigliano) ha perfino un **ottimo interno** a −0.20 e migliora la
+misura onesta di 0.0010, ma la prova appaiata partita per partita si ferma a
+**1.33 errori standard** e con la regola del progetto non passa: è rumore
+finché non c'è più archivio. Si rimisura a **fine 2026/27**, con una quinta
+stagione mai vista. Tre cose da non perdere per strada: la fascia è stata
+scelta *dopo* aver visto i dati; il difetto è di **calibrazione**, che la
+correzione migliora davvero (da +6.9 a +2.7), e chi cerca la metrica che gli
+dà ragione la trova sempre; i mercati dei gol non si muovono, coerentemente
+con quanto già verificato il 22 agosto 2026. Un'ultima cosa che lega P1 al
+lavoro 6: il `rho` del modello acceso oggi vale **+0.0340**, cioè il verso
+che i pareggi li toglie invece di aggiungerli, ed è lo stesso `rho` che il 6
+elenca fra i parametri di lega a cui l'emivita si applica per sbaglio. Chi
+comincia il 6 passi prima di qui.
 
 ### Cosa è già stato fatto, perché nessuno lo rifaccia
 
@@ -1072,6 +1186,15 @@ se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
   il Gol/NoGol scelto     07/09/2026   «NG · 52%» accanto all'esito sull'hub,
                                        col limite dichiarato: NG nel 92% dei
                                        pronostici, e il 50% e' un pavimento
+  il sito senza istruzioni 09/09/2026  86 paragrafi tolti dai template e
+                                       riscritti in `ISTRUZIONI.txt`; il
+                                       titolo sopra i dati, niente colonna
+                                       laterale; resta solo `.dato`, cioè un
+                                       fatto sull'archivio
+  l'esito a logica        09/09/2026   1 o 2 secco se le due squadre distano
+                                       ≥10 punti, 1X o X2 se meno. Non è un
+                                       mercato: fuori da ogni misura. La
+                                       soglia esce dal difetto P1
 
 ### Le idee che sembrano buone e non lo sono
 
@@ -1102,7 +1225,12 @@ l'elenco, perché è la parte che si tende a riproporre.
   il pavimento da un terzo a due terzi**, e una regola così finirebbe per
   ri-etichettare le partite che il modello aveva già deciso. Le tre
   percentuali restano dove sono — scheda partita e registro — senza che
-  nessuno scelga al posto di chi legge.
+  nessuno scelga al posto di chi legge. **Da non confondere col lavoro 9**,
+  che è nato dopo e non è la stessa idea: quello scrive la doppia *accanto* al
+  secco e non al suo posto, non viene misurato da niente, e soprattutto la sua
+  soglia non sta sulla probabilità della doppia — il numero col pavimento a
+  due terzi che uccide questa — ma sul distacco fra le due squadre, dove P1 ha
+  misurato un difetto vero.
 - **una «forza dell'allenatore»** che viaggia da una squadra all'altra: non è
   identificabile con un campionato solo. Non è nemmeno la strada provata.
 - **i mercati dei gol con una coda più grassa** (binomiale negativa o simili):

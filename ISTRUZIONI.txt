@@ -1,0 +1,796 @@
+================================================================================
+ISTRUZIONI — Il Pinguino Fatto Meglio
+Come si leggono le pagine del sito, e cosa vuol dire ogni numero.
+================================================================================
+
+Nato il 9 settembre 2026, per decisione dell'utente: le spiegazioni stavano
+nella colonna a fianco di ogni tabella e sporcavano la pagina. Sono state
+tolte da li' e messe qui intere. Il sito adesso mostra i numeri e i titoli;
+il perche' di ogni numero sta in questo file.
+
+Non e' un file di lavoro. I lavori aperti stanno in LAVORI.txt, il come e il
+perche' del codice in CLAUDE.md. Qui c'e' solo cosa significa quello che si
+vede a schermo.
+
+Le uniche parole rimaste nelle pagine sono di due tipi, e non sono
+spiegazioni:
+  - i FATTI SUI DATI: "troppi pochi dati", "il tabellino non e' ancora
+    definitivo", "nessun pronostico fu registrato". Dicono com'e' messo
+    l'archivio in quel punto, e senza di loro un numero si leggerebbe come
+    solido quando non lo e'.
+  - i DUE AVVISI DI GUASTO in cima a ogni pagina (modello non convergente,
+    registro illeggibile). Compaiono solo quando qualcosa e' rotto.
+
+
+================================================================================
+LA REGOLA CHE TIENE INSIEME TUTTO IL SITO
+================================================================================
+
+Ogni percentuale di ogni pagina viene da UN SOLO oggetto: la matrice dei
+risultati esatti, cioe' la probabilita' di ogni punteggio possibile (0-0, 1-0,
+0-1, 1-1, e cosi' via).
+
+  1X2          e' la somma delle caselle in cui vince la casa, pareggiano,
+               vince la trasferta
+  Over 2.5     e' la somma delle caselle in cui i gol totali sono tre o piu'
+  Gol/NoGol    e' la somma delle caselle in cui segnano entrambe
+  doppia chance e' la somma di due delle tre barre dell'1X2
+
+Da qui una proprieta' che val la pena sapere: **due numeri del sito non
+possono contraddirsi fra loro**, perche' sono somme delle stesse caselle. Se
+un giorno si contraddicessero, sarebbe un guasto e non un'opinione diversa.
+
+
+================================================================================
+LA PRIMA PAGINA — le partite in programma
+================================================================================
+
+LE TRE BARRE (1, X, 2)
+  Partono tutte dallo stesso zero: la piu' lunga e' l'esito che il modello
+  ritiene piu' probabile. Un pronostico appare solo se il modello conosce
+  entrambe le squadre; quando manca, la scheda dice perche' invece di
+  inventarne uno.
+
+GOL ATTESI
+  La media della distribuzione, non una previsione del punteggio: 2.11 non
+  vuol dire "segnera' due gol", vuol dire che su tante partite come questa la
+  media sarebbe quella.
+
+PIU' PROBABILE / PIU' PROBABILI
+  I punteggi piu' probabili, non il risultato finale. Ne compare piu' d'uno
+  quando piu' d'uno supera il 10%: nominare solo il primo farebbe sembrare
+  deciso un modello che su una partita equilibrata da' 12% al primo e 11% al
+  secondo. L'etichetta si accorda da sola, singolare o plurale.
+
+ESITO (per esempio "1 · 45%")
+  E' la barra piu' lunga qui sopra, detta a parole. La percentuale accanto non
+  e' un ornamento: in mediana vale il 49% e in una partita su sette sta sotto
+  il 40%, quindi il modello sta indicando **il meno incerto dei tre**, non una
+  certezza. "1" da solo si leggerebbe come una decisione presa.
+
+  La X non esce quasi mai — zero volte su 1154 pronostici, perche' il pareggio
+  non ha mai passato il 33.5%. Non e' un guasto, e' una proprieta' del calcio.
+
+  Il velo colorato e' lo stesso alfabeto di tutto il sito: grafite = ha vinto
+  la casa, cenere = pareggio, magenta = ha vinto la trasferta. Un velo e' una
+  previsione, un velo con la riga sotto e' un fatto accaduto.
+
+GOL/NOGOL (per esempio "NG · 52%")
+  **Va letto per quello che e'.** Su questo mercato il modello dichiara quasi
+  sempre la media di campionato, perche' e' quanto sa davvero: sui pronostici
+  registrati finora ha detto NG nel 92% dei casi, e la percentuale accanto sta
+  in mediana al 52.4%, sotto il 55% in tre casi su quattro.
+
+  C'e' anche un pavimento aritmetico: GG e NG sommano a uno, quindi il numero
+  scritto non puo' scendere sotto il 50%. Sull'1X2 la storia e' diversa e li'
+  i numeri valgono.
+
+  La sigla non prende il velo colorato, ed e' voluto: grafite, cenere e
+  magenta vogliono dire casa, pareggio e trasferta, e tingere "NG" con una di
+  quelle direbbe una terza cosa in un alfabeto che ne dice due.
+
+A LOGICA (per esempio "1X")
+  **Non e' un secondo pronostico.** E' l'esito qui sopra detto in un altro
+  modo: si guarda quanto si distaccano le due squadre — |P(1) - P(2)|, col
+  pareggio fuori dal conto — e se sono vicine si nomina anche il pareggio, da
+  cui 1X o X2 invece di 1 o 2.
+
+  La soglia e' 10 punti percentuali. Non e' un gusto: rigiocando quattro
+  stagioni, sotto i 10 punti di distacco il modello dichiara il pareggio al
+  27.9% mentre nella realta' esce il 34.8% delle volte, e sopra i 10 lo scarto
+  sparisce. La riga esiste per dire a voce quello che il modello non sa ancora
+  dire da solo.
+
+  **Non ha una percentuale accanto, e l'assenza e' voluta**: non e' misurato.
+  Non finisce nel registro dei pronostici, non ha un Brier, non entra
+  nell'accuratezza. Una cifra accanto lo farebbe sembrare misurato. A dire
+  quanto vale il modello restano l'1X2 e le misure della prima pagina.
+
+  Il giorno in cui quel difetto del pareggio verra' curato, l'esito normale
+  dira' "X" per conto suo e questa riga smettera' di aggiungere qualcosa: ed
+  e' il modo giusto in cui deve finire.
+
+QUANDO NON C'E' NESSUNA PARTITA IN PROGRAMMA
+  A campionato in corso e' una sosta, o la stagione finita. Se il campionato
+  non e' finito e la pagina resta vuota, vuol dire che il calendario della
+  stagione non e' ancora stato letto: arriva con la prima raccolta della
+  giornata e costa una richiesta sola. La raccolta gira quattro volte al
+  giorno e legge due cose diverse — il calendario di tutta la stagione, che
+  dice chi gioca contro chi, e una finestra di tre giorni (ieri, oggi, domani)
+  che e' l'unica a vedere i risultati mentre arrivano. Se l'ultimo giorno
+  raccolto e' vecchio di piu' di un giorno, c'e' qualcosa che non va
+  nell'attivita' pianificata.
+
+
+================================================================================
+LA PRIMA PAGINA — ultimi risultati
+================================================================================
+
+DA DOVE VENGONO LE PERCENTUALI
+  Il pronostico mostrato e' quello **congelato prima del fischio d'inizio**,
+  ripreso dal registro tale e quale. Non viene ricalcolato, ed e' la regola
+  piu' importante del sito: il modello di oggi ha gia' visto questi risultati,
+  e i suoi numeri sembrerebbero piu' azzeccati senza esserlo mai stati. Un
+  ricalcolo e' un ricordo travestito da previsione.
+
+I TRATTINI
+  Dove ci sono trattini il pronostico non fu registrato in tempo, e adesso non
+  c'e' modo di rifarlo. Non e' un dato mancante: e' una domanda che nessuno
+  pose. Vale per tutte le stagioni precedenti al registro, che in pagina non
+  hanno percentuali.
+
+LA CASELLA COLORATA
+  E' l'esito **accaduto davvero**, non quello che il modello preferiva: dice
+  quanta probabilita' il modello aveva messo su cio' che poi e' successo.
+
+I COLORI
+  Sempre lo stesso alfabeto: grafite = ha vinto la squadra di casa, cenere =
+  pareggio, magenta = ha vinto la trasferta. Piu' e' netto il risultato, piu'
+  il punteggio e' acceso.
+
+LE DUE PALLINE IN FONDO ALLA RIGA
+  Sono **due giudizi diversi**, e per questo sono due colonne:
+
+    ESITO       il segno accaduto era quello che il modello preferiva
+    PUNTEGGIO   il risultato finito sul tabellone era fra quelli che aveva
+                nominato — gli stessi che si leggono sulle partite da giocare,
+                cioe' tutti quelli sopra il 10%
+
+  Cerchio verde vuol dire di si', cerchio rosso di no. Le due risposte
+  **possono discordare**, ed e' esattamente il motivo per cui le colonne sono
+  due: una partita finita 1-1 puo' avere l'1-1 fra i punteggi nominati e il
+  segno preferito sull'1. Il verde del punteggio non dice quindi "aveva detto
+  2-0": dice che il 2-0 era in quella rosa.
+
+  Due cose da non scambiare per guasti. La colonna del punteggio e' piu'
+  facile di un confronto col solo punteggio piu' probabile, quindi i verdi di
+  prima del 3 settembre 2026 e quelli di dopo non si contano insieme. E non e'
+  una misura del modello: quelle stanno nel registro, nel Brier e nella
+  calibrazione, e nessuna passa di qui.
+
+  Su una partita ancora da giocare al posto delle due palline c'e' scritto
+  "da giocare", a parole e su tutte e due le colonne: due cerchi spenti si
+  leggerebbero come due giudizi negativi.
+
+
+================================================================================
+LA PRIMA PAGINA — come stanno andando i pronostici
+================================================================================
+
+COS'E'
+  Solo pronostici congelati **prima** del fischio d'inizio, confrontati col
+  risultato vero. E' la misura onesta, ed e' diversa dal backtest: il backtest
+  rigioca il passato col modello di oggi, questa usa solo cio' che era stato
+  scritto in tempo.
+
+IL PUNTEGGIO E' IL BRIER
+  Piu' basso e' meglio. Misura quanto la fiducia dichiarata era meritata, non
+  la percentuale di azzeccati — che dicendo sempre "1" arriverebbe gia' al
+  45%, ed e' il motivo per cui quella colonna non esiste da nessuna parte.
+
+LA BASELINE
+  E' cio' che otterrebbe chi ripete ogni volta la frequenza media di quel
+  esito senza guardare le squadre. E' il muro da superare, ed e' la tacca
+  sulla barra. La parte piena della barra e' quanto il modello la sfonda.
+
+PARTITE / ESITI
+  Due numeri e non uno, perche' non sono la stessa cosa. Le dieci linee
+  Over/Under di una partita sono decise dallo stesso punteggio: "200 esiti" su
+  venti partite conta dieci volte la sostanza vera. Il verdetto guarda le
+  **partite**, e sotto le 30 per mercato dichiara che il numero non vale
+  ancora.
+
+ACCADUTO / PREVISTO
+  Le due percentuali affiancate a destra dovrebbero somigliarsi: quante volte
+  l'esito e' **accaduto** e quanto il modello lo dava per probabile. Se la
+  seconda e' molto piu' alta della prima, il modello e' troppo sicuro di se'.
+
+COSA ASPETTARSI, MERCATO PER MERCATO
+  Sull'1X2 il modello batte le sue baseline: nel backtest 0.589 nel 2024/25 e
+  0.594 nel 2025/26, contro 0.667 di chi tira a caso. Su Over 2.5 e Gol/NoGol
+  **pareggia** con la media di campionato invece di batterla, e non e' un
+  difetto da aggiustare: sui gol la sua risoluzione e' quasi zero, e la
+  compressione dei gol serve a togliere il movimento che non serve. Toglie un
+  danno, non aggiunge una capacita'.
+
+
+================================================================================
+LA PRIMA PAGINA — quando dico 30%, succede il 30% delle volte?
+================================================================================
+
+E' la domanda piu' facile da capire e la piu' difficile da superare, ed e' la
+seconda lettura degli stessi esiti che il Brier riassume in un numero: si puo'
+avere un buon Brier ed essere sistematicamente troppo sicuri di se'.
+
+COME SI LEGGE
+  I pronostici sull'esito finale vengono divisi in fasce secondo la
+  percentuale dichiarata, e per ogni fascia si guarda quante volte quell'esito
+  e' poi successo davvero. La **tacca** e' quello che il modello dichiarava, la
+  **barra** quello che e' accaduto.
+
+  Uno scarto **negativo** vuol dire che il modello prometteva piu' di quanto la
+  realta' abbia mantenuto: e' troppa sicurezza, ed e' il difetto che il Brier
+  da solo non fa vedere.
+
+SI GUARDA FASCIA PER FASCIA, MAI LA MEDIA COL SEGNO
+  Sull'esito finale le tre percentuali di una partita sommano a uno e un esito
+  solo si avvera: quello che una fascia promette di troppo un'altra lo promette
+  di meno, e il saldo con segno torna a zero **per costruzione** senza dire
+  niente. Per questo il riassunto e' lo scarto in valore assoluto.
+
+PERCHE' SOLO L'1X2
+  E' il mercato in cui il modello sa qualcosa, e le sue tre probabilita'
+  coprono una gamma larga. Su Over/Under, dopo la compressione, le fasce si
+  accalcherebbero tutte in una.
+
+FASCE POVERE
+  Una fascia con pochi esiti dentro resta in tabella e lo dichiara: farla
+  sparire nasconderebbe che il modello in quella fascia ci e' andato, e quante
+  volte. Quelle righe ballano da sole.
+
+
+================================================================================
+LA PRIMA PAGINA — il modello contro il mercato
+================================================================================
+
+E' **il confronto che conta**. Le quote di chiusura dei bookmaker incorporano
+infortuni, formazioni e il denaro di chi scommette: batterle e' difficile, e
+pareggiare e' gia' un buon risultato. Battere chi tira a caso non dimostra
+nulla.
+
+COME SI LEGGE
+  La tacca sulla barra qui sono **le quote**: arrivarci vuol dire valere quanto
+  il mercato. Nella colonna della differenza, un numero **negativo** vuol dire
+  che il modello ha fatto meglio delle quote su quegli esiti.
+
+SU QUALI PARTITE
+  Solo quelle per cui esistono **entrambe** le cose, pronostico congelato e
+  quota di consenso. Misurare il modello su tutte le partite e il mercato su un
+  sottoinsieme diverso darebbe un numero privo di significato.
+
+DA DOVE VENGONO LE QUOTE
+  Sono l'ultima lettura prima del fischio d'inizio — la chiusura non e' un
+  campo ma un momento — ripulite dal margine del banco e mediate fra i
+  bookmaker. Il consenso e' la **mediana**, che un book fuori linea non sposta.
+
+
+================================================================================
+LA PRIMA PAGINA — le formazioni ufficiali (compare solo quando c'e' qualcosa)
+================================================================================
+
+Su alcune partite il pronostico viene fatto **due volte**: una appena la
+partita compare in calendario, e una quando escono le formazioni ufficiali,
+pesando chi gioca davvero. Nessuna delle due sostituisce l'altra: due
+pronostici sulla stessa partita sono l'unico modo di scoprire se rifarli
+serve.
+
+Il confronto si fa **solo sulle partite che hanno tutti e due** i pronostici.
+Misurare il primo su tutte le partite e il secondo su una parte direbbe quale
+gruppo era piu' facile da indovinare, non quale pronostico era migliore.
+
+Differenza **negativa** = rifare il pronostico con le formazioni ha migliorato
+le cose. Punteggio piu' basso = meglio, come sempre.
+
+Se il secondo non fara' meglio, quel lavoro **si butta**. Non e' un'opinione
+contro un'altra: e' il modello che dice che quel peso non c'era.
+
+La sezione non c'e' finche' di pronostici con le formazioni non ne esiste
+nessuno, ed e' giusto: una tabella vuota si leggerebbe come "provato e non ha
+reso", che e' diverso da "non ancora provato".
+
+
+================================================================================
+LA PRIMA PAGINA — classifica e forza stimata
+================================================================================
+
+CLASSIFICA
+  I punti fatti, non le forze stimate: sono due cose diverse e questa e' quella
+  che decide il campionato.
+
+  L'ultima colonna, "secondo il modello", e' **dove starebbe la squadra se
+  contasse la forza stimata invece dei punti**. Non e' una previsione di dove
+  finira': e' il posto che occuperebbe oggi con un altro metro. Dove i due
+  numeri si allontanano c'e' una squadra che sta rendendo piu' — o meno — di
+  quanto abbia mostrato in campo. Un numero positivo vuol dire che il modello
+  la mette piu' in alto di dov'e'.
+
+  Le colonne: G giocate, V vinte, N pareggi, P perse, GF gol fatti, GS gol
+  subiti, DR differenza reti.
+
+  Nelle prime giornate la classifica dice piu' su chi hanno incontrato le
+  squadre che su quanto valgono; la colonna del modello, che guarda anche le
+  stagioni passate, e' il numero meno ballerino dei due.
+
+  Le parita' si rompono con gli **scontri diretti**, come in Serie A, ma solo
+  quando le squadre in parita' hanno gia' completato fra loro andata e ritorno.
+  Quando non e' ancora cosi' decide la differenza reti: e' il caso di gran
+  parte della stagione, e vuol dire che l'ordine puo' non coincidere con quello
+  della classifica ufficiale.
+
+FORZA STIMATA DELLE SQUADRE
+  Scostamenti dalla media del campionato, su scala logaritmica. Attacco +0.30
+  significa "segna circa il 35% in piu' della squadra media". Le partite
+  recenti pesano di piu': una di sei mesi fa vale la meta' di una di oggi.
+
+  Ci sono **tutte** le squadre che il modello conosce, non solo quelle di
+  quest'anno: l'archivio contiene piu' campionati, e chi e' retrocesso resta in
+  tabella marcato "fuori quest'anno". Non e' una classifica della Serie A: e'
+  cosa c'e' dentro il modello.
+
+  Sotto la tabella, quando il modello e' pronto: il fattore campo, il rho e il
+  **campione efficace**, cioe' a quante partite equivalgono quelle osservate
+  dopo il decadimento temporale. E' molto piu' piccolo del numero di partite,
+  ed e' normale.
+
+
+================================================================================
+LA SCHEDA PARTITA — esito finale
+================================================================================
+
+Le tre barre partono dallo stesso zero: la piu' lunga e' l'esito che il modello
+ritiene piu' probabile.
+
+SU UNA PARTITA GIA' COMINCIATA
+  Le probabilita' sono quelle **congelate prima del fischio d'inizio**, con la
+  data in cui furono registrate. Sono il pronostico vero, quello su cui si
+  viene giudicati, e non vengono ricalcolate: il modello di oggi ha visto anche
+  questo risultato e darebbe numeri piu' azzeccati che nessuno aveva prima.
+
+  Tre conseguenze, tutte volute: la griglia dei risultati esatti viene dalla
+  matrice congelata e non da una nuova; l'affidabilita' sparisce, perche'
+  misura il modello di *adesso* e accanto a un pronostico di allora
+  descriverebbe una stima diversa e piu' informata; e una partita giocata senza
+  riga nel registro non mostra nessun pronostico e dice perche'.
+
+DOPPIA CHANCE
+  Non e' un calcolo a parte: e' la somma di due delle tre barre qui sopra. Le
+  tre doppie sommano a **2 per costruzione**, perche' ogni esito e' contato due
+  volte, quindi la piu' alta non puo' scendere sotto i due terzi — "12" e' sopra
+  il 67% nel 99.9% delle partite, cioe' equivale a scrivere "qualcuno vincera'".
+  Per questo il sito le mostra e non ne sceglie nessuna al posto di chi legge.
+
+I DUE MODI IN CUI UN PRONOSTICO PUO' NON ESSERCI
+  Sono diversi e vanno detti diversi. **Nessun pronostico fu registrato**: la
+  partita e' cominciata e nel registro non c'e' niente scritto prima del
+  fischio d'inizio — non si rimedia piu'. **Nessun pronostico disponibile**: il
+  modello non conosce almeno una delle due squadre, e questo si risolvera' da
+  solo quando avranno giocato.
+
+
+================================================================================
+LA SCHEDA PARTITA — il pronostico rifatto con le formazioni
+================================================================================
+
+Compare solo se esiste davvero. Quando sono uscite le formazioni ufficiali il
+pronostico e' stato **rifatto**, pesando chi scende in campo davvero, e il
+vecchio non e' stato sostituito: restano tutti e due.
+
+IL PRONOSTICO GRANDE IN CIMA RESTA IL SECCO
+  Non perche' sia migliore — e' esattamente cio' che non si sa ancora — ma
+  perche' e' l'unico che esiste per ogni partita: una testata che cambia fonte
+  a seconda di cosa c'e' sul disco mostrerebbe due cose diverse su due partite
+  della stessa giornata.
+
+PRIMA DEL FISCHIO D'INIZIO, ATTENZIONE A COSA C'E' IN CIMA
+  Finche' la partita non comincia, il pronostico grande e' il **modello di
+  adesso**, non una delle due righe della tabella: puo' aver visto altre
+  partite nel frattempo, quindi i numeri possono non coincidere con la colonna
+  "Secco". Le due colonne vengono **tutte e due dal registro**, ed e' l'unico
+  modo di confrontarle: sono state scritte nello stesso mondo, e la loro
+  differenza racconta le formazioni e non il tempo passato. Dopo il fischio
+  d'inizio anche la testata diventa la riga secca e i tre numeri coincidono.
+
+IL LIMITE DEL METODO, che e' un confine e non un difetto da correggere
+  **Quanto pesa un giocatore si misura da cio' che fa davanti** — gol, assist e
+  tiri. Vede quindi gli attaccanti e quasi non vede i difensori: se manca un
+  centrale o un portiere, qui risulta **quasi gratis**, e non e' vero.
+
+QUANDO LE DUE COLONNE COINCIDONO
+  Se nessun esito si e' mosso di un punto percentuale, le formazioni hanno
+  **confermato**. Non e' lavoro sprecato: e' l'informazione che chi gioca oggi
+  e' chi ci si aspettava. "Non e' cambiato niente" e' un esito, non un vuoto.
+
+
+================================================================================
+LA SCHEDA PARTITA — su cosa si basa (affidabilita')
+================================================================================
+
+Serve perche' il modello risponde **sempre**, anche su una squadra di cui sa
+poco: in quel caso non inventa nulla, la tiene vicina alla media della Serie A.
+Ne esce un pronostico prudente — spesso un pareggio o un 1-0 — che dall'esterno
+somiglia a un pronostico informato. Questa sezione e' la differenza.
+
+Dice **due** cose, e mostrarne una sola inganna piu' che tacerle entrambe.
+
+  LA BARRA        quanto la forza di ogni squadra viene dalle sue partite. Il
+                  resto lo dice la media del campionato, non i dati di quella
+                  squadra.
+  LA COLONNA      quanto sono vecchi quei dati **misurati da oggi**. Non e'
+  "ULTIMA"        contenuta nella barra: il modello pesa le partite in base a
+                  quanto sono vecchie *rispetto all'ultima che conosce*, non
+                  rispetto a oggi, quindi un archivio fermo da mesi ha pesi
+                  identici a uno di ieri e risulterebbe "solido". Oltre
+                  un'emivita dall'ultima partita nota nessuna stima si chiama
+                  solida, per quante partite abbia dietro.
+
+NON E' L'ACCURATEZZA
+  Quella si misura **dopo**, su decine di partite gia' giocate, e sta in fondo
+  alla prima pagina. Questa si sa **prima**, e non dipende da come andra' a
+  finire. Si mostra a coppie perche' e' un confronto fra le due squadre.
+
+
+================================================================================
+LA SCHEDA PARTITA — ha cambiato allenatore
+================================================================================
+
+Compare quando una delle due squadre ha cambiato guida negli ultimi sei mesi.
+Basta una squadra sola: che il Milan abbia cambiato allenatore non dice niente
+di falso sull'avversario.
+
+Il modello pesa una partita solo in base a **quanto e' vecchia**: una di sei
+mesi fa vale la meta' di una di oggi. Non sa pero' che nel frattempo la squadra
+ha cambiato guida, quindi le partite della gestione precedente entrano nella
+stima **a peso pieno**, come se le avesse giocate la stessa squadra.
+
+IL PRONOSTICO NON NE TIENE CONTO, ED E' UNA SCELTA MISURATA
+  Rigiocando quattro stagioni intere, far pesare meno le partite della gestione
+  precedente **peggiora** i pronostici, in tutte e quattro separatamente: il
+  Brier 1X2 va da 0.5968 col fattore a 1.00 (correzione spenta) a 0.6003 col
+  fattore a 0.00. La correzione fa due cose insieme — toglie una squadra che non
+  esiste piu' e toglie **partite vere** — e la seconda si paga sempre. In parte
+  perche' lo shrinkage tira gia' verso la media chi ha poche partite recenti, in
+  parte perche' un esonero arriva dopo una serie anormalmente brutta, che
+  rientrerebbe da sola.
+
+  La macchina c'e' ed e' spenta: si riaccende solo rifacendo quella misura.
+
+OLTRE I SEI MESI NON COMPARE
+  Le partite della gestione precedente pesano gia' quasi zero per conto loro, e
+  allarmare allora significherebbe allarmare per un problema che il decadimento
+  temporale ha gia' risolto.
+
+
+================================================================================
+LA SCHEDA PARTITA — indisponibili
+================================================================================
+
+Infortunati e squalificati come risultavano nella lettura **piu' vicina al
+fischio d'inizio**. E' l'unica cosa che quella pagina sappia dire su una
+partita non ancora giocata: le formazioni, i gol e le pagelle arrivano dopo.
+
+Il momento della lettura conta: la lista letta a partita finita sa chi non e'
+sceso in campo davvero, e usarla per pronosticare sarebbe barare.
+
+CHI E' IN DUBBIO STA IN UNA LISTA SEPARATA
+  Perche' e' un'altra informazione: puo' giocare. Mescolarlo agli assenti
+  farebbe leggere come sicuro cio' che sicuro non e'. Solo "assente" e' un
+  fatto.
+
+IL PRONOSTICO NON TIENE CONTO DI QUESTE ASSENZE
+  Il modello stima la forza di una squadra, e la squadra e' la stessa che ci
+  giochi il suo migliore o la sua riserva. Quanto pesi chi manca e' un lavoro
+  ancora da fare.
+
+SE LA SEZIONE NON C'E' AFFATTO
+  Vuol dire che di quella partita non esiste nessuna lettura. Una sezione vuota
+  si leggerebbe come "non manca nessuno", che e' un'informazione, e sarebbe
+  inventata.
+
+
+================================================================================
+LA SCHEDA PARTITA — over / under
+================================================================================
+
+I gol attesi sono la media della distribuzione, non una previsione del
+punteggio. Anche queste percentuali escono dalla stessa matrice: Over 2.5 e' la
+somma di tutte le caselle in cui i gol totali sono tre o piu'.
+
+IL TOTALE E' DI PROPOSITO VICINO ALLA MEDIA DI CAMPIONATO
+  Qualunque siano le due squadre. Sui gol totali il modello si tiene solo il
+  20% della differenza che vedrebbe (la percentuale esatta e' scritta in
+  pagina). Sapere chi e' piu' forte dice bene **chi vince** e male **quanti
+  gol**, e rigiocando quattro stagioni quelle differenze sono risultate rumore:
+  dichiararle costava punti. Il rapporto fra le due squadre, quello che decide
+  l'1X2, non viene toccato.
+
+L'AVVISO CHE RESTA IN PAGINA, per intero
+  Su questi esiti — e sul Gol/NoGol — il modello dichiara quasi sempre la media
+  di campionato, perche' e' quanto sa davvero. Lasciato libero di variare faceva
+  **peggio** di quella media in tutte e quattro le stagioni rigiocate; ora si
+  muove poco e arriva a pareggiarla, non a batterla. Sull'1X2 la storia e'
+  diversa e li' i numeri valgono: qui non aspettarsi che una partita si stacchi
+  molto dall'altra.
+
+CHI TIENE LA PORTA CHIUSA
+  "Segnano entrambe" e le due porte inviolate sono, come tutto il resto, somme
+  di caselle della stessa matrice.
+
+
+================================================================================
+LA SCHEDA PARTITA — tutti i risultati esatti
+================================================================================
+
+E' la matrice da cui viene tutto il resto: 1X2, Over/Under e Gol/NoGol sono
+**somme di queste caselle**, ed e' anche il motivo per cui non possono
+contraddirsi fra loro.
+
+Piu' e' intensa la casella, piu' e' probabile il punteggio. Il bordo scuro
+marca il piu' probabile di tutti. I tasselli sotto la griglia dicono quali zone
+sono vittoria casa, pareggio e vittoria trasferta.
+
+Nessun risultato esatto supera il 13%, e non e' un difetto del modello: e' il
+calcio. Per questo la pagina nomina fino a cinque punteggi invece di uno.
+
+L'ESITO CHE NE ESCE
+  La piu' alta delle tre barre in cima alla pagina, scritta a parole, con la
+  sua percentuale accanto — quasi sempre sotto la meta': il modello indica il
+  meno incerto dei tre, non una certezza. Su una partita gia' cominciata esce
+  dalla matrice **congelata** insieme a tutto il resto della sezione.
+
+  Accanto c'e' l'esito **a logica**, che e' spiegato in fondo alla sezione
+  "prima pagina" di questo file: stessa regola, stessa soglia di dieci punti,
+  e nessuna percentuale perche' non e' misurato. La scheda partita scrive anche
+  di quanto si distaccano le due squadre in quella partita, che e' il numero su
+  cui la sigla decide.
+
+
+================================================================================
+LA SCHEDA PARTITA — gol, formazioni, scontri diretti
+================================================================================
+
+FORMAZIONI
+  Le formazioni scese in campo, con accanto cosa ha fatto ciascuno. Sono
+  dettagli gia' sul disco: leggerli non costa nessuna richiesta all'API. Dove
+  il tabellino manca le colonne dicono "—", non uno zero che sembrerebbe un
+  dato.
+
+  In panchina i casi sono **tre e non due**: un trattino vuol dire "non lo so",
+  "non entrato" vuol dire che si sa che non e' entrato.
+
+QUANDO IL TABELLINO NON E' ANCORA DEFINITIVO
+  L'avviso in pagina dice il vero: l'API sta ancora servendo la lettura del
+  feed live — minuti fermi a meta' partita, nessun gol — invece del tabellino
+  finale, quindi minuti, gol e voti restano vuoti. Non e' un dato mancante: il
+  risultato e i marcatori sono giusti. Viene richiesto da solo finche' non si
+  consolida, e quelle partite non entrano nei conti dei giocatori — un
+  tabellino provvisorio non e' parziale, e' sbagliato.
+
+QUANDO NON C'E' NESSUNA FORMAZIONE
+  I dettagli si recuperano dall'id in qualsiasi momento — non hanno la finestra
+  di tre giorni delle partite — quindi e' solo questione di budget: la raccolta
+  giornaliera ci torna sopra.
+
+SCONTRI DIRETTI
+  Sono in pagina perche' raccontano qualcosa, **non perche' entrino nel
+  modello**: due partite a stagione sono un campione troppo piccolo perche' il
+  segnale superi il rumore. La pillola "campo invertito" dice che quella volta
+  giocavano al contrario.
+
+
+================================================================================
+IL REGISTRO — /pronostici
+================================================================================
+
+E' l'unica pagina che non e' una misura ma un **registro**: la domanda non e'
+"cosa penso adesso" ma "cosa fu scritto". Per questo legge dal registro anche
+prima del fischio d'inizio, al contrario di tutte le altre pagine, e i due
+numeri possono divergere.
+
+Un pronostico registrato **non si aggiorna e non si cancella**: il database lo
+impedisce con un trigger, non per convenzione. Questa pagina e' quella promessa
+messa in fila.
+
+L'ORDINE
+  In cima le partite **ancora da giocare**, dalla piu' vicina: il pronostico e'
+  gia' scritto e non cambiera' piu'. E' li' che questa pagina non somiglia a una
+  tabella di risultati. Dopo il salto ricominciano le **gia' giocate** dalla
+  piu' recente: quelle una risposta ce l'hanno.
+
+  Quando l'elenco e' piu' corto dell'archivio, sono le partite **piu' vicine al
+  fischio d'inizio** da una parte e dall'altra, non le ultime del calendario:
+  con una stagione intera in archivio l'elenco per data finirebbe a maggio, e le
+  partite giocate — le sole con una risposta — resterebbero fuori pagina.
+
+LE PERCENTUALI SONO QUELLE DI ALLORA
+  Riprese dal registro tale e quale. Sulla prima pagina una partita da giocare
+  mostra invece il modello di adesso, che nel frattempo puo' aver visto altre
+  giornate: se i due numeri non coincidono, la differenza e' il tempo passato.
+
+LA CASELLA COLORATA
+  E' l'esito **accaduto davvero**, e dice quanta fiducia il modello ci aveva
+  messo.
+
+IL GIUDIZIO E' IL BRIER DELLA SINGOLA PARTITA
+  Sommato sui tre esiti come nel backtest: **0** se il modello aveva dato il
+  100% a cio' che e' successo, **0.667** se aveva detto un terzo a testa, **2**
+  nel caso peggiore. Piu' basso e' meglio.
+
+  Non c'e' una colonna "azzeccato": su un pronostico probabilistico e' proprio
+  la domanda sbagliata, ed e' il motivo per cui il Brier esiste.
+
+  E una partita per volta non dice niente sul modello: un pronostico dato al
+  30% che si avvera non e' un errore. Il conto che conta e' la media, e sta
+  sulla prima pagina accanto alla sua baseline.
+
+"DA CONFRONTARE"
+  Giocata ma non ancora confrontata: succede fra il risultato e la ristima
+  successiva, e si risolve da sola.
+
+UNA PARTITA PUO' COMPARIRE PIU' DI UNA VOLTA
+  E non e' un errore: se il modello cambia idea prima del fischio d'inizio la
+  riga vecchia non si tocca, se ne aggiunge una nuova. Lo stesso vale per il
+  pronostico rifatto con le formazioni ufficiali: e' una riga a parte e non
+  sostituisce l'altra, e la colonna "tipo" dice quale e' quale — colonna che
+  compare solo se di tipi ce n'e' piu' d'uno.
+
+  Le misure invece contano **una riga per partita**, l'ultima prima del via:
+  cinque ristime della stessa partita sono cinque tentativi sulla stessa
+  domanda, non cinque osservazioni.
+
+SE IL REGISTRO E' VUOTO
+  I pronostici si scrivono da soli quando il modello viene stimato su una
+  partita **ancora da giocare**. Su una gia' cominciata il registro rifiuta di
+  scrivere, ed e' la regola che rende sensato tutto il resto. Si registrano
+  quelle che si giocano entro pochi giorni: piu' in la' non sarebbe un
+  pronostico, perche' il modello non ha ancora visto le partite che glielo
+  farebbero cambiare.
+
+SE IL REGISTRO NON SI LEGGE
+  Non e' vuoto: e' **illeggibile** — file mancante, schema vecchio o database
+  occupato. Finche' non torna, questa pagina non puo' dire cosa fu scritto, e
+  non vuol dire che non sia stato scritto niente. I pronostici gia' dati non si
+  perdono: il registro e' append-only e nessuno lo sta riscrivendo.
+
+
+================================================================================
+IL CALENDARIO — /calendario e /giornata
+================================================================================
+
+"Calendario" non e' una pagina: e' un rimando alla giornata che si sta per
+giocare, cosi' chi ci arriva non deve sapere a che numero e' arrivato il
+campionato.
+
+Da li' si sfogliano tutte le giornate di tutte le stagioni in archivio. La
+regola di sempre vale identica su una giornata del 2023: sulle partite gia'
+cominciate le percentuali sono quelle **congelate prima del fischio d'inizio**,
+riprese dal registro; su quelle da giocare vengono dal modello di adesso.
+
+Le stagioni vecchie mostrano i risultati e **trattini** al posto dei
+pronostici, perche' allora nessuno li scrisse.
+
+Le due palline in fondo alla riga sono le stesse della prima pagina: esito e
+punteggio, due giudizi distinti che possono discordare.
+
+Passando a un'altra stagione si arriva sempre alla giornata 1: la stessa
+giornata di un'altra stagione potrebbe non esistere, e un collegamento che
+porta a un 404 e' peggio di uno che porta all'inizio.
+
+
+================================================================================
+I GIOCATORI — /giocatori, /giocatore, /squadra
+================================================================================
+
+Nessuna di queste pagine costa richieste all'API: e' tutto materiale gia' sul
+disco, pagato dalla raccolta giornaliera.
+
+LE CLASSIFICHE SONO DI UN CAMPIONATO PER VOLTA
+  Sommare quattro stagioni metterebbe davanti chi ha giocato piu' anni, non chi
+  ha segnato di piu'. La carriera intera sta nella scheda del singolo
+  giocatore, che invece somma **tutte** le annate in archivio: sono due domande
+  opposte, e ogni pagina risponde alla sua.
+
+CHI NON E' MAI ENTRATO NON COMPARE
+  L'archivio sa solo cio' che e' successo in campo, **non le rose ufficiali**.
+  Un acquisto mai impiegato non c'e', ed e' giusto cosi'. Vale anche per "la
+  rosa vista dall'archivio" nella scheda squadra, che non e' la rosa ufficiale
+  ma chi ha giocato almeno un minuto — e di una stagione sola, perche' sommarne
+  quattro metterebbe li' giocatori ceduti anni fa con "presenze" che sono il
+  totale di quattro campionati.
+
+LE PRESENZE
+  Contano le partite giocate almeno un minuto: chi resta in panchina non
+  compare.
+
+IL VOTO MEDIO
+  Nelle classifiche conta solo chi ha **almeno cinque partite** con un voto:
+  una media su una partita sola non e' una media. Nella scheda del giocatore e'
+  calcolato sulle partite in cui un voto c'era, non su tutte quelle giocate:
+  contare le altre come zero abbasserebbe la media di chi ha giocato di piu'.
+  Se nessuna partita aveva un voto la media non esiste, e non viene inventata.
+
+SU QUANTE PARTITE SONO I CONTI
+  Le pagine lo dichiarano: quante partite hanno il tabellino sulle concluse.
+  Nel conto entrano solo le partite di cui possediamo l'archivio grezzo, non le
+  stagioni 2022-2024, che arrivano dalla cache come elenco di risultati e i
+  tabellini non li hanno mai avuti — contarle farebbe sembrare parziale una
+  copertura piena. Le partite che mancano non sono perse: i tabellini si
+  rileggono dall'id, e l'id non scade.
+
+I COLORI DEI PUNTEGGI
+  Sempre scritti casa-trasferta, e il colore segue quella scrittura: grafite ha
+  vinto la squadra di casa, magenta l'ospite, cenere pareggio. Nella scheda del
+  giocatore, da che parte stava lo dice la pillola accanto all'avversario.
+
+SE LE PAGINE SONO VUOTE
+  I tabellini arrivano a partita conclusa, insieme al recupero dei dettagli. Se
+  le partite concluse sono parecchie e la pagina resta vuota, i dettagli non
+  sono stati raccolti: lo dice /stato, e li recupera la raccolta giornaliera.
+
+
+================================================================================
+I DUE AVVISI CHE RESTANO IN CIMA A OGNI PAGINA
+================================================================================
+
+Compaiono solo quando qualcosa e' rotto. Nel funzionamento normale non c'e'
+niente, ed e' il caso di sempre.
+
+IL MODELLO NON HA RAGGIUNTO LA CONVERGENZA
+  L'ottimizzatore si e' fermato sul tetto delle iterazioni invece che
+  sull'ottimo: le forze delle squadre sono l'ultimo tentativo, non la stima. Le
+  percentuali continuano a essere mostrate perche' nasconderle direbbe "non lo
+  so" al posto di "lo so male", e sono due cose diverse. Vanno pero' lette
+  sapendo questo.
+
+IL REGISTRO DEI PRONOSTICI NON SI LEGGE
+  Non e' vuoto: e' illeggibile. Le pagine che mostrano cosa era stato
+  pronosticato, e tutte le misure di accuratezza, restano indietro finche' non
+  torna. I pronostici gia' scritti non si perdono.
+
+
+================================================================================
+IL PIEDE DI PAGINA
+================================================================================
+
+Quattro numeri, e uno va letto con attenzione.
+
+  PARTITE IN ARCHIVIO   il totale, con sotto da dove vengono: la raccolta
+                        giornaliera, le stagioni ricomprate (che hanno
+                        tabellini, formazioni ed eventi) e quelle importate da
+                        un file (che hanno solo i risultati). Le due voci sono
+                        separate perche' non sono la stessa cosa. Le importate
+                        oggi valgono **zero**, e non e' un guasto: la 2025/26 e'
+                        stata anche ricomprata, e il dataset preferisce il dato
+                        pagato — altrimenti il campionato risulterebbe giocato
+                        due volte.
+  MODELLO STIMATO SU    partite e squadre conosciute. Le squadre sono piu' di
+                        venti perche' l'archivio contiene piu' campionati.
+  ULTIMO GIORNO         se e' vecchio di piu' di un giorno, c'e' qualcosa che
+  RACCOLTO              non va nell'attivita' pianificata.
+  BUDGET API DI OGGI    si azzera a mezzanotte **UTC**, non a mezzanotte
+                        italiana: d'estate sono le 2 di notte.
+
+
+================================================================================
+DOVE STA IL RESTO
+================================================================================
+
+  /stato        la diagnostica in JSON: cosa sa il sistema, budget residuo,
+                pronostici registrati, esiti risolti. Si apre in una scheda
+                nuova, cosi' la pagina che si stava guardando resta dov'e'.
+  "Aggiorna"    non guarda: ristima il modello, registra i pronostici delle
+                partite in programma e risolve gli esiti. E' un bottone e non
+                un collegamento apposta — le righe che scrive non si
+                cancellano, e un collegamento il browser puo' seguirlo da solo.
+  CLAUDE.md     il perche' di come e' fatto il codice, e le idee misurate e
+                scartate.
+  LAVORI.txt    cosa resta da fare, con tempi, scadenze e costo in richieste.

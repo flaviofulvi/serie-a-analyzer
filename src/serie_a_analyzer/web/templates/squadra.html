@@ -18,10 +18,6 @@
     <div class="lato">
       <p class="occhiello">In programma</p>
       <h2>Prossime partite</h2>
-      <p class="spiega">
-        Le percentuali sono 1, X e 2 nell'ordine in cui compaiono sulla
-        scheda della partita.
-      </p>
     </div>
     <div class="corpo">
       <div class="tabella-avvolgente">
@@ -58,22 +54,9 @@
     <p class="occhiello">Chi e' sceso in campo</p>
     <h2>La rosa vista dall'archivio</h2>
     {% if rosa %}
-      <p class="spiega">
-        {{ rosa|length }} giocatori, dai piu' impiegati. <b>Non e' la rosa
-        ufficiale</b>: e' chi ha giocato almeno un minuto nelle partite che
-        l'archivio ha visto. Un acquisto mai impiegato non compare, ed e'
-        giusto cosi' &mdash; l'archivio non ne sa nulla.
-      </p>
-      <p class="spiega">
-        Ed e' di <b>una stagione sola</b>, la
-        {{ stagione_rosa }}/{{ "%02d"|format((stagione_rosa + 1) % 100) }}:
-        l'archivio ne contiene quattro, e sommarle metterebbe qui giocatori
-        ceduti anni fa con "presenze" che sono il totale di quattro
-        campionati. La carriera intera sta nella scheda del singolo giocatore.
-      </p>
-      <p class="spiega">
-        Conti costruiti sulle {{ con_tabellino }} partite con tabellino, sulle
-        {{ concluse }} concluse di quel campionato.
+      <p class="dato">
+        {{ con_tabellino }} partite con tabellino sulle {{ concluse }} concluse
+        di quel campionato.
       </p>
     {% endif %}
   </div>
@@ -114,11 +97,6 @@
       <div class="riquadro-vuoto">
         <h2>Nessuna statistica per giocatore</h2>
         <p>
-          I tabellini arrivano a partita conclusa: finche' la stagione non e'
-          entrata nel vivo &mdash; o finche' la raccolta non ha recuperato i
-          dettagli &mdash; questa tabella resta vuota.
-        </p>
-        <p>
           Delle stagioni 2022-2024 l'archivio conserva i risultati, non i
           tabellini.
         </p>
@@ -132,11 +110,6 @@
     <div class="lato">
       <p class="occhiello">Gia' giocate</p>
       <h2>Ultimi risultati</h2>
-      <p class="spiega">
-        Il punteggio e' scritto casa&ndash;trasferta e colorato di
-        conseguenza: <b>grafite</b> ha vinto chi giocava in casa,
-        <b>magenta</b> chi era ospite, <b>cenere</b> pareggio.
-      </p>
     </div>
     <div class="corpo">
       <div class="tabella-avvolgente">

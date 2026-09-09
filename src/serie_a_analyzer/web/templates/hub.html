@@ -10,18 +10,8 @@
   <p class="occhiello">Serie A &middot; stagione in corso</p>
   {% if prossime %}
     <h1>{{ prossime|length }} partit{{ "a" if prossime|length == 1 else "e" }} in programma</h1>
-    <p class="sommario">
-      Ogni percentuale di questa pagina viene dalla <b>stessa matrice dei
-      risultati esatti</b>: 1X2, Over/Under e Gol/NoGol sono somme delle sue
-      caselle, quindi non possono contraddirsi fra loro.
-    </p>
   {% else %}
     <h1>Nessuna partita in programma</h1>
-    <p class="sommario">
-      In archivio non c'e' nessun incontro ancora da giocare. A campionato in
-      corso e' <b>una sosta</b>, o la stagione finita; sotto ci sono comunque
-      i risultati e come stanno andando i pronostici.
-    </p>
   {% endif %}
 </section>
 
@@ -30,22 +20,6 @@
     <div class="lato">
       <p class="occhiello">In programma</p>
       <h2>Prossime partite</h2>
-      <p class="spiega">
-        Le tre barre partono tutte dallo stesso zero: la piu' lunga e'
-        l'esito che il modello ritiene piu' probabile.
-      </p>
-      <p class="spiega">
-        Un pronostico appare solo se il modello conosce entrambe le squadre.
-        Quando manca, la scheda dice perche' invece di inventarne uno.
-      </p>
-      <p class="spiega">
-        <b>Il Gol/NoGol va letto per quello che e'.</b> Su questo mercato il
-        modello dichiara quasi sempre la media di campionato, perche' e'
-        quanto sa davvero: sui pronostici registrati finora ha detto
-        <b>NG nel 92% dei casi</b>, e la percentuale accanto sta in mediana al
-        52%. Non puo' nemmeno scendere sotto il 50%, perche' le due risposte
-        sommano a cento. Sull'1X2 la storia e' diversa e li' i numeri valgono.
-      </p>
     </div>
 
     <div class="corpo">
@@ -99,14 +73,24 @@
                 <div><span class="voce">Gol/NoGol</span>
                      <b>{{ p.gol_nogol_previsto }} &middot;
                         {{ (p.probabilita_gol_nogol_previsto * 100)|round|int }}%</b></div>
+                {# L'esito a logica: lo stesso pronostico raccontato a voce
+                   umana, guardando quanto si distaccano le due squadre. Non e'
+                   un mercato e non ha una percentuale accanto APPOSTA — una
+                   cifra lo farebbe sembrare misurato, e non lo e': e' una
+                   lettura derivata da cio' che il modello ha gia' detto qui
+                   sopra. Niente velo colorato per la stessa ragione del
+                   Gol/NoGol: grafite, cenere e magenta dicono casa, pareggio
+                   e trasferta, e "1X" non e' nessuna delle tre. #}
+                <div><span class="voce">A logica</span>
+                     <b>{{ p.esito_logico }}</b></div>
               </div>
             {% else %}
               <div class="esito-riga casa" style="grid-template-columns: 1fr">
                 <span class="chi">{{ p.casa }} &middot; {{ p.ospite }}</span>
               </div>
               <p class="senza-pronostico">
-                Nessun pronostico: almeno una delle due squadre non ha ancora
-                storia sufficiente nel modello.
+                Nessun pronostico: una delle due squadre non ha ancora storia
+                sufficiente.
               </p>
             {% endif %}
           </a>
@@ -119,25 +103,10 @@
     <div class="lato">
       <p class="occhiello">In programma</p>
       <h2>Come arrivano le partite</h2>
-      <p class="spiega">
-        La raccolta gira quattro volte al giorno e legge due cose diverse: il
-        <b>calendario</b> di tutta la stagione, che dice chi gioca contro chi,
-        e una <b>finestra di tre giorni</b> — ieri, oggi, domani — che e'
-        l'unica a vedere i risultati mentre arrivano.
-      </p>
-      <p class="spiega">
-        Se l'ultimo giorno raccolto e' vecchio di piu' di un giorno, c'e'
-        qualcosa che non va nell'attivita' pianificata.
-      </p>
     </div>
     <div class="corpo">
       <div class="riquadro-vuoto">
         <h2>L'archivio non contiene incontri futuri</h2>
-        <p>
-          Se il campionato non e' finito, vuol dire che il calendario della
-          stagione non e' ancora stato letto: arriva con la prima raccolta
-          della giornata, e costa una richiesta sola.
-        </p>
         <p>
           Ultimo giorno raccolto:
           <strong>{{ salute.ultimo_giorno_raccolto or "nessuno" }}</strong>,
@@ -153,40 +122,6 @@
     <div class="lato">
       <p class="occhiello">Gia' giocate</p>
       <h2>Ultimi risultati</h2>
-      <p class="spiega">
-        Il pronostico mostrato e' quello <b>congelato prima del fischio
-        d'inizio</b>, ripreso dal registro tale e quale. Non viene ricalcolato:
-        il modello di oggi ha gia' visto questi risultati, e i suoi numeri
-        sembrerebbero piu' azzeccati senza esserlo mai stati.
-      </p>
-      <p class="spiega">
-        Dove ci sono trattini il pronostico non fu registrato in tempo, e
-        adesso non c'e' modo di rifarlo.
-      </p>
-      <p class="spiega">
-        La casella colorata e' l'esito <b>accaduto davvero</b>, non quello che
-        il modello preferiva: dice quanta probabilita' il modello aveva messo
-        su cio' che poi e' successo.
-      </p>
-      <p class="spiega">
-        Il colore e' sempre lo stesso alfabeto: <b>grafite</b> ha vinto la
-        squadra di casa, <b>cenere</b> pareggio, <b>magenta</b> ha vinto la
-        trasferta. Piu' e' netto il risultato, piu' il punteggio e' acceso.
-      </p>
-      <p class="spiega">
-        In fondo alla riga i giudizi sono <b>due</b>, perche' sono due domande
-        diverse. <b>Esito</b>: il segno accaduto era quello che il modello
-        preferiva. <b>Punteggio</b>: il risultato finito sul tabellone era fra
-        quelli che aveva nominato &mdash; gli stessi che si leggono sulle
-        partite da giocare, cioe' tutti quelli sopra il 10%. Cerchio verde
-        vuol dire di si', cerchio rosso di no.
-      </p>
-      <p class="spiega">
-        Le due risposte possono discordare, ed e' esattamente il motivo per
-        cui le colonne sono due: una partita finita 1-1 puo' avere l'1-1 fra i
-        punteggi nominati e il segno preferito sull'1. Il verde del punteggio
-        non dice quindi "aveva detto 2-0": dice che il 2-0 era in quella rosa.
-      </p>
     </div>
 
     <div class="corpo">
@@ -215,18 +150,6 @@
     <div class="lato">
       <p class="occhiello">La misura onesta</p>
       <h2>Come stanno andando i pronostici</h2>
-      <p class="spiega">
-        Solo pronostici congelati <b>prima</b> del fischio d'inizio,
-        confrontati col risultato vero. Il punteggio e' il <b>Brier</b>:
-        piu' basso e' meglio, e misura quanto la fiducia dichiarata era
-        meritata &mdash; non la percentuale di azzeccati, che dicendo sempre
-        "1" arriverebbe gia' al 45%.
-      </p>
-      <p class="spiega">
-        La <b>baseline</b> e' cio' che otterrebbe chi ripete ogni volta la
-        frequenza media di quell'esito senza guardare le squadre. E' il muro
-        da superare, ed e' la tacca sulla barra.
-      </p>
     </div>
 
     <div class="corpo">
@@ -264,22 +187,15 @@
         </table>
       </div>
 
-      <p class="chiave">
-        <i></i> la tacca e' la baseline &middot; <em></em> quanto il modello la sfonda
-      </p>
 
-      <p class="nota">
-        Le due percentuali affiancate a destra dovrebbero somigliarsi: quante
-        volte l'esito e' <b>accaduto</b> e quanto il modello lo dava per
-        probabile. Se la seconda e' molto piu' alta della prima, il modello e'
-        troppo sicuro di se'.
-        {% if accuratezza_1x2 %}
-          Sull'1X2, contato per partita come nel backtest:
+      {% if accuratezza_1x2 %}
+        <p class="nota">
+          1X2 per partita, come nel backtest:
           <b>{{ "%.4f"|format(accuratezza_1x2.brier) }}</b>
           su {{ accuratezza_1x2.n_partite }} partite, contro
           <b>{{ "%.4f"|format(accuratezza_1x2.baseline_caso) }}</b> di chi tira a caso.
-        {% endif %}
-      </p>
+        </p>
+      {% endif %}
     </div>
   </section>
 {% endif %}
@@ -293,24 +209,6 @@
     <div class="lato">
       <p class="occhiello">La fiducia dichiarata</p>
       <h2>Quando dico 30%, succede il 30% delle volte?</h2>
-      <p class="spiega">
-        E' la domanda piu' facile da capire e la piu' difficile da superare.
-        I pronostici sull'<b>esito finale</b> vengono divisi in fasce secondo
-        la percentuale dichiarata, e per ogni fascia si guarda quante volte
-        quell'esito e' poi successo davvero.
-      </p>
-      <p class="spiega">
-        La <b>tacca</b> e' quello che il modello dichiarava, la <b>barra</b>
-        quello che e' accaduto. Uno scarto <b>negativo</b> vuol dire che il
-        modello prometteva piu' di quanto la realta' abbia mantenuto: e'
-        troppa sicurezza, ed e' il difetto che il Brier da solo non fa vedere.
-      </p>
-      <p class="spiega">
-        Si guarda <b>fascia per fascia</b>, mai la media: sull'esito finale le
-        tre percentuali di una partita sommano a uno e un esito solo si
-        avvera, quindi quello che una fascia promette di troppo un'altra lo
-        promette di meno, e il saldo torna a zero da solo senza dire niente.
-      </p>
     </div>
 
     <div class="corpo">
@@ -347,10 +245,6 @@
         </table>
       </div>
 
-      <p class="chiave">
-        <i></i> la tacca e' quanto il modello dichiarava &middot; la barra e'
-        quanto e' successo
-      </p>
 
       {% if calibrazione_verdetto %}
         <p class="nota">
@@ -358,15 +252,12 @@
           <b>{{ "%.0f"|format(calibrazione_verdetto.scarto_medio * 100) }}
           punti</b> percentuali su {{ calibrazione_verdetto.partite }}
           partite ({{ calibrazione_verdetto.n }} esiti).
-          {% if not calibrazione_verdetto.abbastanza %}
-            Sono <b>troppo poche</b> perche' il numero valga: con poche partite
-            per fascia lo scarto e' quasi tutto rumore, e all'inizio della
-            stagione e' normale che sia cosi'.
-          {% elif calibrazione_verdetto.fasce_povere %}
+          {%- if not calibrazione_verdetto.abbastanza %}
+            Sono <b>troppo poche</b> perche' il numero valga.
+          {%- elif calibrazione_verdetto.fasce_povere %}
             {{ calibrazione_verdetto.fasce_povere }} fasce su
-            {{ calibrazione|length }} hanno ancora pochi esiti dentro: quelle
-            righe ballano da sole.
-          {% endif %}
+            {{ calibrazione|length }} hanno ancora pochi esiti dentro.
+          {%- endif %}
         </p>
       {% endif %}
     </div>
@@ -378,17 +269,6 @@
     <div class="lato">
       <p class="occhiello">Il confronto che conta</p>
       <h2>Il modello contro il mercato</h2>
-      <p class="spiega">
-        Le quote di chiusura dei bookmaker incorporano infortuni, formazioni e
-        il denaro di chi scommette: batterle e' difficile, e <b>pareggiare e'
-        gia' un buon risultato</b>.
-      </p>
-      <p class="spiega">
-        Il confronto usa solo gli esiti per cui esistono entrambe le cose,
-        pronostico congelato e quota, su <b>{{ partite_confrontate }}</b>
-        partite. Le quote sono l'ultima lettura prima del fischio d'inizio,
-        ripulite dal margine del banco e mediate fra i bookmaker.
-      </p>
     </div>
 
     <div class="corpo">
@@ -423,15 +303,7 @@
         </table>
       </div>
 
-      <p class="chiave">
-        <i></i> qui la tacca sono le quote &middot; arrivarci vuol dire valere
-        quanto il mercato
-      </p>
 
-      <p class="nota">
-        Differenza negativa = il modello ha fatto meglio delle quote su quegli
-        esiti.
-      </p>
     </div>
   </section>
 {% endif %}
@@ -445,24 +317,6 @@
     <div class="lato">
       <p class="occhiello">Serve rifarlo?</p>
       <h2>Le formazioni ufficiali</h2>
-      <p class="spiega">
-        Su alcune partite il pronostico viene fatto <b>due volte</b>: una
-        appena la partita compare in calendario, e una quando escono le
-        formazioni ufficiali, pesando chi gioca davvero. Nessuna delle due
-        sostituisce l'altra.
-      </p>
-      <p class="spiega">
-        Qui si vede se la seconda e' servita, su <b>{{ confronto_modi_partite }}</b>
-        partite che hanno tutti e due i pronostici. Solo quelle: misurare il
-        primo su tutte le partite e il secondo su una parte direbbe quale
-        gruppo era piu' facile da indovinare, non quale pronostico era
-        migliore.
-      </p>
-      <p class="spiega">
-        Se il secondo non fara' meglio, quel lavoro <b>si butta</b>. Non e'
-        un'opinione contro un'altra: e' il modello che dice che quel peso non
-        c'era.
-      </p>
     </div>
 
     <div class="corpo">
@@ -497,10 +351,6 @@
         </table>
       </div>
 
-      <p class="nota">
-        Differenza negativa = rifare il pronostico con le formazioni ha
-        migliorato le cose. Punteggio piu' basso = meglio, come sempre.
-      </p>
     </div>
   </section>
 {% endif %}
@@ -510,36 +360,6 @@
     <div class="lato">
       <p class="occhiello">Il campionato</p>
       <h2>Classifica</h2>
-      <p class="spiega">
-        I punti fatti, non le forze stimate: sono due cose diverse e questa e'
-        quella che decide il campionato.
-      </p>
-      <p class="spiega">
-        L'ultima colonna e' <b>dove starebbe la squadra se contasse la forza
-        stimata invece dei punti</b>. Non e' una previsione di dove finira': e'
-        il posto che occuperebbe oggi con un altro metro. Dove i due numeri si
-        allontanano c'e' una squadra che sta rendendo piu' — o meno — di quanto
-        abbia mostrato in campo.
-      </p>
-      {% set giornate = classifica|map(attribute="giocate")|max %}
-      {% if giornate < 5 %}
-        <p class="spiega">
-          Siamo alla giornata <b>{{ giornate }}</b>: a questo punto la
-          classifica dice piu' su chi hanno incontrato le squadre che su quanto
-          valgono. La colonna del modello, che guarda anche le stagioni
-          passate, e' il numero meno ballerino dei due.
-        </p>
-      {% endif %}
-      {% set con_pareggi = classifica|selectattr("criterio")|first %}
-      {% if con_pareggi %}
-        <p class="spiega">
-          Le parita' si rompono con gli <b>scontri diretti</b>, come in Serie A,
-          ma solo quando le squadre in parita' hanno gia' completato fra loro
-          andata e ritorno. Quando non e' ancora cosi' decide la differenza
-          reti: e' il caso di gran parte della stagione, e vuol dire che
-          l'ordine puo' non coincidere con quello della classifica ufficiale.
-        </p>
-      {% endif %}
     </div>
 
     <div class="corpo">
@@ -593,11 +413,6 @@
         </table>
       </div>
 
-      <p class="chiave">
-        G giocate &middot; V vinte &middot; N pareggi &middot; P perse &middot;
-        DR differenza reti &middot; nell'ultima colonna un numero positivo vuol
-        dire che il modello la mette piu' in alto di dov'e'
-      </p>
     </div>
   </section>
 {% endif %}
@@ -607,23 +422,8 @@
     <div class="lato">
       <p class="occhiello">Dentro il modello</p>
       <h2>Forza stimata delle squadre</h2>
-      <p class="spiega">
-        Scostamenti dalla media del campionato, su scala logaritmica. Attacco
-        <b>+0.30</b> significa "segna circa il 35% in piu' della squadra media".
-      </p>
-      <p class="spiega">
-        Le partite recenti pesano di piu': una di sei mesi fa vale la meta' di
-        una di oggi.
-      </p>
-      <p class="spiega">
-        Ci sono <b>tutte</b> le squadre che il modello conosce, non solo le
-        {{ squadre_in_corso }} di quest'anno: l'archivio contiene piu'
-        campionati, e chi e' retrocesso resta in tabella marcato
-        <b>fuori quest'anno</b>. Non e' una classifica della Serie A: e' cosa
-        c'e' dentro il modello.
-      </p>
       {% if modello %}
-        <p class="spiega">
+        <p class="dato">
           Fattore campo <b>{{ "%+.3f"|format(modello.home_advantage) }}</b>,
           rho <b>{{ "%+.3f"|format(modello.rho) }}</b>, campione efficace
           <b>{{ modello.effective_sample_size|round|int }}</b> partite su

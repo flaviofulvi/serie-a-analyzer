@@ -293,27 +293,29 @@ a:hover { text-decoration-color: currentColor; }
    sparirebbe senza un errore. */
 main.contenitore { display: block; padding-block: 3.5rem 5rem; }
 
-/* Il blocco: la spiegazione a sinistra, i dati a destra. La spiegazione
-   resta ferma mentre si scorre la tabella — e' li' per essere consultata
-   *mentre* si guardano i numeri, non prima. */
+/* Il blocco: il titolo sopra, i dati sotto a tutta larghezza.
+   Fino al 9 settembre 2026 erano due colonne — il titolo con la sua
+   spiegazione a sinistra, ferma mentre si scorreva la tabella — e le
+   spiegazioni sono state tolte dal sito e messe in ISTRUZIONI.txt. Senza di
+   loro una colonna di 15rem accanto ai numeri conteneva tre parole e
+   quattordici centimetri di vuoto, quindi non esiste piu': del lato resta
+   l'etichetta, che passa sopra i dati.
+   `.disteso` non distingue piu' niente ed e' rimasta nei template perche'
+   toglierla da nove pagine non cambia una riga di resa. */
 .blocco {
   display: grid;
-  grid-template-columns: 15rem 1fr;
-  gap: 3.5rem;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
   align-items: start;
-  margin-bottom: 5.5rem;
+  margin-bottom: 5rem;
 }
 .blocco:last-child { margin-bottom: 0; }
-/* Senza questo le due colonne del blocco non possono stringersi sotto la
-   larghezza del loro contenuto, e una tabella larga allarga tutta la
-   pagina invece di scorrere dentro il suo `.tabella-avvolgente` — che e'
-   esattamente cio' che il ritaglio per schermi stretti si aspetta. */
+/* Senza questo il blocco non puo' stringersi sotto la larghezza del suo
+   contenuto, e una tabella larga allarga tutta la pagina invece di scorrere
+   dentro il suo `.tabella-avvolgente` — che e' esattamente cio' che il
+   ritaglio per schermi stretti si aspetta. */
 .blocco > * { min-width: 0; }
-.lato { position: sticky; top: 2rem; }
-/* Quando i dati sono troppo larghi per stare accanto alla spiegazione
-   (le tabelle dei giocatori), il lato passa sopra e il corpo prende tutto. */
-.blocco.disteso { grid-template-columns: 1fr; gap: 1.75rem; }
-.blocco.disteso .lato { position: static; max-width: 46rem; }
+.lato { position: static; }
 
 .occhiello {
   font-family: var(--dati);
@@ -353,14 +355,19 @@ h3 {
   margin: 2rem 0 .75rem;
 }
 
-.spiega {
+/* Un fatto sull'archivio, non una spiegazione: "N partite col tabellino su M",
+   "nessun assente dichiarato", il modulo di una formazione. E' quello che e'
+   rimasto in pagina dopo il 9 settembre 2026, e la classe si chiama `dato`
+   apposta — se un giorno qui ricomparisse un discorso, il nome direbbe da
+   solo che e' nel posto sbagliato. Il posto giusto e' ISTRUZIONI.txt. */
+.dato {
   font-size: .9375rem;
   line-height: 1.62;
   color: var(--fioco);
   margin: 0 0 1rem;
 }
-.spiega:last-child { margin-bottom: 0; }
-.spiega b, .spiega strong { color: var(--inchiostro); font-weight: 600; }
+.dato:last-child { margin-bottom: 0; }
+.dato b, .dato strong { color: var(--inchiostro); font-weight: 600; }
 
 .nota {
   font-size: .875rem;
@@ -840,23 +847,6 @@ h3 {
 .colonna-muro { width: 12rem; min-width: 10rem; }
 th.colonna-muro { text-align: left; }
 
-.chiave {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  flex-wrap: wrap;
-  font-family: var(--dati);
-  font-size: .6875rem;
-  color: var(--fioco);
-  margin-top: 1rem;
-}
-.chiave i { display: inline-block; width: 2px; height: .75rem; background: var(--inchiostro); }
-.chiave em { display: inline-block; width: 1.25rem; height: .375rem; border-radius: 3px;
-             background: var(--allarme); }
-/* Nella chiave dell'affidabilita' il campione non e' un eccesso ma il
-   riempimento stesso: stesso inchiostro della barra che descrive. */
-.chiave em.dati { background: var(--inchiostro); }
-
 /* ---- il calibro: promesso contro mantenuto ----------------------------- */
 
 /* La quarta forma, e l'unica che mette a confronto una promessa con quello
@@ -1060,8 +1050,7 @@ th.colonna-muro { text-align: left; }
 /* ---- schermi stretti --------------------------------------------------- */
 
 @media (max-width: 900px) {
-  .blocco { grid-template-columns: 1fr; gap: 1.75rem; margin-bottom: 4rem; }
-  .lato { position: static; max-width: 46rem; }
+  .blocco { margin-bottom: 4rem; }
 }
 
 @media (max-width: 640px) {

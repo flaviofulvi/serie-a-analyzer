@@ -49,7 +49,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -e ".[dev]"
 
-pytest                          # 532 test
+pytest                          # 759 test
 python scripts/demo_engine.py   # dimostrazione su dati sintetici
 ```
 
@@ -338,8 +338,16 @@ ricostruzione.
 Due cose che la pagina dice invece di nascondere: quando una squadra non ha
 storia sufficiente non compare un pronostico inventato ma il motivo, e accanto
 all'Over/Under c'e' scritto che su quegli esiti il modello dichiara quasi
-sempre la media di campionato — con il perche', e col totale atteso che ne
-esce volutamente schiacciato verso quella media.
+sempre la media di campionato — col totale atteso che ne esce volutamente
+schiacciato verso quella media.
+
+**Le spiegazioni non sono in pagina.** Fino al 9 settembre 2026 ogni tabella
+aveva accanto la sua colonna di testo; adesso le pagine mostrano il titolo e i
+numeri, e il come si leggono sta tutto in **`ISTRUZIONI.txt`**, alla radice del
+progetto. Quello che resta a schermo e' un fatto sull'archivio — "30 partite
+col tabellino su 30 concluse", "troppi pochi dati", "tabellino non ancora
+definitivo" — piu' i limiti del modello, ridotti a una riga accanto al numero
+a cui si riferiscono.
 
 ## Il modello
 
@@ -460,7 +468,8 @@ un pareggio e quattro sconfitte)
 
 **Il punto onesto: si pareggia con la baseline, non la si batte.** La
 compressione toglie un danno, non aggiunge una capacita'. Chi si aspettava di
-saper pronosticare i gol resta deluso, e le pagine lo dicono con queste parole.
+saper pronosticare i gol resta deluso, e la scheda partita lo dice con queste
+parole.
 
 La calibrazione mostra il prima e il dopo meglio di ogni altra cosa. Sull'1X2 e'
 buona nella fascia centrale (scarti dell'1-3%) e peggiora agli estremi, dove i
@@ -596,7 +605,7 @@ src/serie_a_analyzer/
     views.py         dal dominio a cio' che i template disegnano
     templates/       hub, scheda partita, registro, giocatori
     static/          foglio di stile
-tests/               651 test
+tests/               759 test
 scripts/
   demo_engine.py         dimostrazione su dati sintetici
   backtest.py            il modello contro una stagione vera, giornata per giornata

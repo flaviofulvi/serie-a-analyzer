@@ -36,23 +36,15 @@
         {% if p.pronostico_perduto %}
           <h2>Nessun pronostico fu registrato</h2>
           <p>
-            Questa partita e' gia' cominciata e nel registro non c'e' niente
-            che sia stato scritto <b>prima</b> del fischio d'inizio.
-          </p>
-          <p>
-            Un pronostico non si puo' fare adesso: il modello e' stato
-            ristimato includendo il risultato di questa stessa partita, quindi
-            saprebbe gia' com'e' finita. Il numero che ne uscirebbe non
-            sarebbe un pronostico ma un ricordo, e mostrarlo direbbe che il
-            modello ci aveva visto giusto quando nessuno gli aveva chiesto
-            niente.
+            La partita e' gia' cominciata e nel registro non c'e' niente che
+            sia stato scritto <b>prima</b> del fischio d'inizio. Adesso non si
+            rimedia piu'.
           </p>
         {% else %}
           <h2>Nessun pronostico disponibile</h2>
           <p>
             Il modello non conosce almeno una delle due squadre: senza partite
-            giocate non c'e' una forza da stimare. Inventarne una sarebbe peggio
-            che ammettere di non saperlo.
+            giocate non c'e' una forza da stimare.
           </p>
         {% endif %}
       </div>
@@ -64,27 +56,6 @@
   <div class="lato">
     <p class="occhiello">Chi vince</p>
     <h2>Esito finale</h2>
-    {% if p.congelato %}
-      <p class="spiega">
-        Partita <b>gia' cominciata</b>. Le probabilita' qui accanto sono
-        quelle <b>congelate prima del fischio d'inizio</b>{% if p.quando_congelato %},
-        registrate {{ p.quando_congelato }}{% endif %}: sono il pronostico
-        vero, quello su cui si viene giudicati.
-      </p>
-      <p class="spiega">
-        Non vengono ricalcolate. Il modello di oggi ha visto anche questo
-        risultato e darebbe numeri piu' azzeccati che nessuno aveva prima.
-      </p>
-    {% else %}
-      <p class="spiega">
-        Le tre barre partono dallo stesso zero: la piu' lunga e' l'esito che
-        il modello ritiene piu' probabile.
-      </p>
-    {% endif %}
-    <p class="spiega">
-      La <b>doppia chance</b> non e' un calcolo a parte: e' la somma di due
-      delle tre barre qui sopra.
-    </p>
   </div>
 
   <div class="corpo">
@@ -98,6 +69,15 @@
         <div><span class="voce">X2 &middot; {{ p.ospite }} o pari</span><b>{{ (p.prob.away_or_draw*100)|round(1) }}%</b></div>
       </div>
     </div>
+
+    {% if p.congelato %}
+      {# La provenienza del numero, non una spiegazione: un ricalcolo a
+         partita finita sarebbe un ricordo travestito da previsione. #}
+      <p class="dato">
+        Probabilita' <b>congelate prima del fischio d'inizio</b>{% if p.quando_congelato %},
+        registrate {{ p.quando_congelato }}{% endif %}. Non vengono ricalcolate.
+      </p>
+    {% endif %}
   </div>
 </section>
 
@@ -110,48 +90,6 @@
   <div class="lato">
     <p class="occhiello">Con le formazioni</p>
     <h2>Il pronostico rifatto</h2>
-    <p class="spiega">
-      Quando sono uscite le formazioni ufficiali il pronostico e' stato
-      <b>rifatto</b>, pesando chi scende in campo davvero. Il vecchio non e'
-      stato sostituito: restano tutti e due, ed e' voluto. Due pronostici
-      sulla stessa partita sono l'unico modo di scoprire se rifarli
-      <b>serve</b> — fra qualche mese si confrontano i punteggi e si vede.
-    </p>
-    {% if p.congelato %}
-      <p class="spiega">
-        Il pronostico grande in cima alla pagina e' quello <b>secco</b>, cioe'
-        il primo. Non perche' sia migliore: perche' e' l'unico che esiste per
-        ogni partita, e cambiare fonte a seconda di cosa c'e' sul disco
-        mostrerebbe due cose diverse su due partite della stessa giornata.
-      </p>
-    {% else %}
-      {# Prima del fischio d'inizio la testata non e' nessuna delle due righe
-         qui sotto: e' il modello di ADESSO, che nel frattempo puo' aver visto
-         altre partite. Dirla "il secco" era falso e si vedeva — i numeri in
-         cima non corrispondono alla colonna Secco — proprio nella pagina che
-         esiste per confrontare due pronostici. #}
-      <p class="spiega">
-        Attenzione a cosa c'e' in cima alla pagina: finche' la partita non
-        comincia, quel pronostico e' il <b>modello di adesso</b>, non una
-        delle due righe qui sotto. Puo' aver visto altre partite nel
-        frattempo, quindi i numeri possono non coincidere con la colonna
-        <b>Secco</b>.
-      </p>
-      <p class="spiega">
-        Le due colonne qui sotto vengono <b>tutte e due dal registro</b>, ed e'
-        l'unico modo di confrontarle: sono state scritte nello stesso mondo, e
-        la loro differenza racconta le formazioni e non il tempo passato. Dopo
-        il fischio d'inizio anche la testata diventa la riga secca, e i tre
-        numeri tornano a coincidere.
-      </p>
-    {% endif %}
-    <p class="spiega">
-      Un limite da sapere, che non e' un difetto da correggere ma un confine
-      del metodo: <b>quanto pesa un giocatore si misura da cio' che fa
-      davanti</b> — gol, assist e tiri. Vede quindi gli attaccanti e quasi non
-      vede i difensori: se manca un centrale o un portiere, qui risulta
-      <b>quasi gratis</b>, e non e' vero.
-    </p>
   </div>
 
   <div class="corpo">
@@ -198,17 +136,44 @@
     </div>
 
     {% if confronto_formazioni.spostamento_massimo < 0.01 %}
-      <p class="spiega">
+      <p class="dato">
         Le formazioni hanno <b>confermato</b>: nessun esito si e' mosso di un
-        punto percentuale. Non e' un lavoro sprecato, e' l'informazione che
-        chi gioca oggi e' chi ci si aspettava.
+        punto percentuale.
       </p>
     {% endif %}
 
-    <p class="chiave">
-      {% if confronto_formazioni.quando_secco %}secco scritto {{ confronto_formazioni.quando_secco }}{% endif %}
-      {% if confronto_formazioni.quando_ufficiale %}&middot; rifatto {{ confronto_formazioni.quando_ufficiale }}{% endif %}
-      &middot; nessuno dei due e' stato ricalcolato dopo
+    {# Da quale delle due righe viene il pronostico grande in cima: prima del
+       via da nessuna delle due (e' il modello di adesso, che nel frattempo
+       puo' aver visto altre partite), dopo dalla riga secca. Detto perche' i
+       tre numeri possono non coincidere proprio dove sono affiancati. #}
+    {% if p.congelato %}
+      <p class="dato">
+        Il pronostico in cima alla pagina e' quello <b>secco</b>, cioe' il
+        primo.
+      </p>
+    {% else %}
+      <p class="dato">
+        Finche' la partita non comincia, il pronostico in cima alla pagina e'
+        il <b>modello di adesso</b> e non una di queste due righe.
+      </p>
+    {% endif %}
+
+    {# Il limite del metodo, dichiarato accanto ai numeri come vuole la regola
+       del progetto: i pesi vedono chi sta davanti. #}
+    <p class="dato">
+      I pesi si misurano da gol, assist e tiri, quindi vedono gli attaccanti e
+      quasi non i <b>difensori</b>: un centrale o un portiere che salta la
+      partita risulta qui <b>quasi gratis</b>, e non e' vero.
+    </p>
+
+    {# Due date, non una legenda: sono il fatto che rende confrontabili le due
+       colonne — scritte nello stesso mondo, nessuna ricalcolata dopo. #}
+    <p class="dato">
+      {% if confronto_formazioni.quando_secco %}secco scritto
+        {{ confronto_formazioni.quando_secco }}{% endif %}
+      {%- if confronto_formazioni.quando_ufficiale %} &middot; rifatto
+        {{ confronto_formazioni.quando_ufficiale }}{% endif %}
+      &middot; nessuno dei due e' stato ricalcolato dopo.
     </p>
   </div>
 </section>
@@ -219,31 +184,6 @@
   <div class="lato">
     <p class="occhiello">Quanto fidarsi</p>
     <h2>Su cosa si basa</h2>
-    <p class="spiega">
-      Il modello risponde <b>sempre</b>, anche su una squadra di cui sa poco:
-      in quel caso non inventa nulla, la tiene vicina alla <b>media della
-      Serie A</b>. Ne esce un pronostico prudente — spesso un pareggio o un
-      1-0 — che dall'esterno somiglia a un pronostico informato. Qui c'e' la
-      differenza.
-    </p>
-    <p class="spiega">
-      La barra e' quanto la forza di ogni squadra viene dalle sue partite. Il
-      resto lo dice la media del campionato, non i dati di quella squadra.
-    </p>
-    {% if affidabilita|selectattr("stantia")|first %}
-      <p class="spiega">
-        <b>La barra da sola non basta, qui.</b> Il modello pesa le partite in
-        base a quanto sono vecchie <em>rispetto all'ultima che conosce</em>,
-        non rispetto a oggi: se l'archivio e' fermo da mesi, i suoi dati gli
-        sembrano freschi lo stesso. Guarda la colonna <b>Ultima</b>: e' quella
-        che dice di che squadra sta davvero parlando.
-      </p>
-    {% endif %}
-    <p class="spiega">
-      Non e' l'accuratezza: quella si misura <b>dopo</b>, su decine di partite
-      gia' giocate, e sta in fondo alla <a href="/">pagina principale</a>.
-      Questo si sa <b>prima</b>, e non dipende da come andra' a finire.
-    </p>
   </div>
 
   <div class="corpo">
@@ -278,9 +218,6 @@
       </table>
     </div>
 
-    <p class="chiave">
-      <em class="dati"></em> quanto parlano i dati della squadra &middot; il vuoto e' la media di lega
-    </p>
   </div>
 </section>
 {% endif %}
@@ -290,25 +227,16 @@
   <div class="lato">
     <p class="occhiello">La panchina</p>
     <h2>Ha cambiato allenatore</h2>
-    <p class="spiega">
-      Il modello pesa una partita solo in base a <b>quanto e' vecchia</b>: una
-      di sei mesi fa vale la meta' di una di oggi. Non sa pero' che nel
-      frattempo la squadra ha cambiato guida, quindi le partite della gestione
-      precedente entrano nella stima <b>a peso pieno</b>, come se le avesse
-      giocate la stessa squadra.
-    </p>
     {% if panchine|selectattr("conta")|first %}
-      <p class="spiega">
-        Il pronostico <b>ne tiene conto</b>: le partite giocate sotto l'altro
-        allenatore pesano meno delle altre.
+      <p class="dato">
+        Il pronostico <b>ne tiene conto</b>: le partite dell'altra gestione
+        pesano meno.
       </p>
     {% else %}
-      <p class="spiega">
-        Il pronostico qui sopra <b>non ne tiene conto</b>, ed e' una scelta
-        misurata e non una dimenticanza: rigiocando quattro stagioni intere,
-        far pesare meno le partite della gestione precedente <b>peggiora</b> i
-        pronostici, in tutte e quattro. Cio' che si guadagna a dimenticare una
-        squadra diversa e' meno di cio' che si perde buttando via partite vere.
+      <p class="dato">
+        Il pronostico <b>non ne tiene conto</b>, ed e' una scelta misurata:
+        far pesare meno le partite della gestione precedente peggiora i
+        pronostici in tutte e quattro le stagioni rigiocate.
       </p>
     {% endif %}
   </div>
@@ -339,10 +267,6 @@
       </table>
     </div>
 
-    <p class="chiave">
-      si dichiara solo un cambio degli ultimi sei mesi &middot; piu' indietro
-      le partite di prima pesano gia' quasi zero da sole
-    </p>
   </div>
 </section>
 {% endif %}
@@ -352,22 +276,8 @@
   <div class="lato">
     <p class="occhiello">Chi non gioca</p>
     <h2>Indisponibili</h2>
-    <p class="spiega">
-      Infortunati e squalificati come risultavano nella lettura piu' vicina al
-      fischio d'inizio. E' l'unica cosa che questa pagina sappia dire su una
-      partita non ancora giocata: le formazioni, i gol e le pagelle arrivano
-      dopo.
-    </p>
-    <p class="spiega">
-      Chi e' <b>in dubbio</b> sta in una lista separata perche' e' un'altra
-      informazione: puo' giocare. Mescolarlo agli assenti farebbe leggere come
-      sicuro cio' che sicuro non e'.
-    </p>
-    <p class="spiega">
-      Il pronostico qui sopra <b>non tiene conto</b> di queste assenze: il
-      modello stima la forza di una squadra, e la squadra e' la stessa che ci
-      giochi il suo migliore o la sua riserva. Quanto pesi chi manca e' un
-      lavoro ancora da fare.
+    <p class="dato">
+      Il pronostico <b>non tiene conto</b> di queste assenze.
     </p>
   </div>
 
@@ -391,7 +301,7 @@
               </tbody>
             </table>
           {% else %}
-            <p class="spiega">Nessun assente dichiarato.</p>
+            <p class="dato">Nessun assente dichiarato.</p>
           {% endif %}
 
           {% if b.in_dubbio %}
@@ -418,27 +328,14 @@
   <div class="lato">
     <p class="occhiello">Quanti gol</p>
     <h2>Over / Under</h2>
-    <p class="spiega">
-      I gol attesi sono la media della distribuzione, non una previsione del
-      punteggio: <b>2.11</b> non vuol dire "segnera' due gol", vuol dire che
-      su tante partite come questa la media sarebbe quella.
-    </p>
-    <p class="spiega">
-      Anche queste percentuali escono dalla stessa matrice: Over 2.5 e' la
-      somma di tutte le caselle in cui i gol totali sono tre o piu'.
-    </p>
     {% if salute.compressione_gol is not none and salute.compressione_gol < 1 %}
-    <p class="spiega">
-      Il <b>totale</b> qui accanto e' di proposito vicino alla media del
-      campionato, {{ "%.2f"|format(salute.media_gol_lega) }} gol a partita,
-      qualunque siano le due squadre: sui gol totali il modello si tiene solo
-      il <b>{{ (salute.compressione_gol * 100)|round|int }}%</b> della
-      differenza che vedrebbe. Sapere chi e' piu' forte dice bene
-      <b>chi vince</b> e male <b>quanti gol</b>, e rigiocando quattro stagioni
-      quelle differenze sono risultate rumore: dichiararle costava punti.
-      Il rapporto fra le due squadre, quello che decide l'1X2, non viene
-      toccato.
-    </p>
+      <p class="dato">
+        Il totale e' di proposito vicino alla media del campionato,
+        {{ "%.2f"|format(salute.media_gol_lega) }} gol a partita: sui gol il
+        modello si tiene il
+        <b>{{ (salute.compressione_gol * 100)|round|int }}%</b> della
+        differenza che vedrebbe. Il rapporto fra le due squadre non e' toccato.
+      </p>
     {% endif %}
   </div>
 
@@ -476,13 +373,9 @@
         </table>
 
         <p class="avviso">
-          <strong>Attenzione all'Over/Under.</strong> Su questi esiti — e sul
-          Gol/NoGol — il modello dichiara quasi sempre la media di campionato,
-          perche' e' quanto sa davvero. Lasciato libero di variare faceva
-          <em>peggio</em> di quella media in tutte e quattro le stagioni
-          rigiocate; ora si muove poco e arriva a pareggiarla, non a batterla.
-          Sull'1X2 la storia e' diversa e li' i numeri valgono: qui non
-          aspettarsi che una partita si stacchi molto dall'altra.
+          Su questi esiti &mdash; e sul Gol/NoGol &mdash; il modello dichiara
+          quasi sempre la <strong>media di campionato</strong>, perche' e'
+          quanto sa davvero.
         </p>
       </div>
     </div>
@@ -494,15 +387,6 @@
   <div class="lato">
     <p class="occhiello">L'oggetto originale</p>
     <h2>Tutti i risultati esatti</h2>
-    <p class="spiega">
-      E' la matrice da cui viene tutto il resto: 1X2, Over/Under e Gol/NoGol
-      sono <b>somme di queste caselle</b>. E' anche il motivo per cui non
-      possono contraddirsi fra loro.
-    </p>
-    <p class="spiega">
-      Piu' e' intensa la casella, piu' e' probabile il punteggio. Il bordo
-      scuro marca il piu' probabile di tutti.
-    </p>
   </div>
 
   <div class="corpo">
@@ -560,12 +444,11 @@
            <b class="esito-scelto tinta-{{ p.esito_previsto }}"
               >{{ p.esito_previsto }} &middot;
               {{ (p.probabilita_esito_previsto * 100)|round(1) }}%</b></div>
+      {# La stessa cosa a voce umana. Senza percentuale apposta: non e'
+         misurato, e una cifra accanto lo farebbe sembrare tale. #}
+      <div><span class="voce">A logica</span>
+           <b>{{ p.esito_logico }}</b></div>
     </div>
-    <p class="spiega">
-      E' la piu' alta delle tre barre in cima alla pagina, scritta a parole.
-      La percentuale le sta accanto apposta: quasi sempre e' sotto la meta',
-      cioe' il modello indica il meno incerto dei tre e non una certezza.
-    </p>
   </div>
 </section>
 {% endif %}
@@ -606,20 +489,11 @@
   <div class="lato">
     <p class="occhiello">Chi e' sceso in campo</p>
     <h2>Formazioni</h2>
-    <p class="spiega">
-      Le formazioni scese in campo, con accanto cosa ha fatto ciascuno. Sono
-      dettagli gia' sul disco: leggerli non costa nessuna richiesta all'API.
-      Dove il tabellino manca le colonne dicono &mdash;, non uno zero che
-      sembrerebbe un dato.
-    </p>
     {% if tabellino_fermo %}
-    <p class="spiega avviso">
-      <strong>Di questa partita il tabellino non e' ancora definitivo.</strong> L'API sta
-      ancora servendo la lettura del feed live &mdash; minuti fermi a meta'
-      partita, nessun gol &mdash; invece del tabellino finale, quindi minuti,
-      gol e voti qui sotto restano vuoti. Non e' un dato mancante: il
-      risultato e i marcatori qui sopra sono giusti. Viene richiesto da solo
-      finche' non si consolida.
+    <p class="avviso">
+      <strong>Tabellino non ancora definitivo.</strong> Minuti, gol e voti
+      restano vuoti; il risultato e i marcatori qui sopra sono giusti. Viene
+      richiesto da solo finche' non si consolida.
     </p>
     {% endif %}
   </div>
@@ -629,7 +503,7 @@
       {% for f in formazioni %}
         <div class="pannello">
           <h2><a href="/squadra/{{ f.squadra_id }}">{{ f.squadra }}</a></h2>
-          <p class="spiega">
+          <p class="dato">
             {{ f.modulo or "modulo non disponibile" }}
             {% if f.allenatore %} &middot; allenatore {{ f.allenatore }}{% endif %}
           </p>
@@ -693,11 +567,7 @@
   <div class="corpo">
     <div class="riquadro-vuoto">
       <h2>Nessuna formazione nell'archivio</h2>
-      <p>
-        I dettagli si recuperano dall'id in qualsiasi momento &mdash; non hanno
-        la finestra di tre giorni delle partite &mdash; quindi e' solo
-        questione di budget: la raccolta giornaliera ci torna sopra.
-      </p>
+      <p>La raccolta giornaliera ci torna sopra: l'id non scade.</p>
     </div>
   </div>
 </section>
@@ -707,11 +577,6 @@
   <div class="lato">
     <p class="occhiello">Precedenti</p>
     <h2>Scontri diretti</h2>
-    <p class="spiega">
-      Sono qui perche' raccontano qualcosa, <b>non perche' entrino nel
-      modello</b>: due partite a stagione sono un campione troppo piccolo
-      perche' il segnale superi il rumore.
-    </p>
   </div>
   <div class="corpo">
     {% if scontri %}

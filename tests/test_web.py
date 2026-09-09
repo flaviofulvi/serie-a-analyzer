@@ -223,9 +223,15 @@ def test_la_scheda_avvisa_del_limite_sull_over_under(client):
     """Il backtest dice che su questi esiti il modello non aggiunge nulla.
 
     Mostrarli senza dirlo sarebbe la cosa piu' disonesta dell'applicazione.
+
+    Dal 9 settembre 2026 l'avviso e' una riga invece di un paragrafo — le
+    spiegazioni del sito sono finite in ISTRUZIONI.txt — ma le sette parole
+    che il progetto pretende sono le stesse: e' su quelle che il test insiste,
+    non sulla lunghezza.
     """
     r = client.get("/partita/9001")
-    assert "Attenzione all'Over/Under" in r.text
+    assert "media di campionato" in r.text
+    assert "quanto sa davvero" in r.text
 
 
 def test_la_scheda_dichiara_la_compressione_dei_gol(client):
@@ -369,7 +375,6 @@ def test_un_archivio_fermo_da_un_anno_viene_dichiarato_tale(tmp_path, monkeypatc
     assert r.status_code == 200
     assert "giorni fa" in r.text
     assert "dati vecchi" in r.text
-    assert "La barra da sola non basta" in r.text
 
 
 def test_un_archivio_fresco_non_grida_al_lupo(client):
@@ -380,8 +385,8 @@ def test_un_archivio_fresco_non_grida_al_lupo(client):
     """
     r = client.get("/partita/9001")
     assert "Su cosa si basa" in r.text
-    assert "La barra da sola non basta" not in r.text
     assert "dati vecchi" not in r.text
+    assert "giorni fa" not in r.text
 
 
 # ---- stato e cache del modello ---------------------------------------------
@@ -575,11 +580,18 @@ def test_la_pagina_giocatori_mostra_i_marcatori(con_dettagli, client):
 
 
 def test_la_pagina_giocatori_dichiara_l_annata(con_dettagli, client):
-    """Una classifica senza annata sopra sarebbe la somma di quattro campionati."""
+    """Una classifica senza annata sopra sarebbe la somma di quattro campionati.
+
+    Fino al 9 settembre 2026 lo diceva un paragrafo; ora lo dice l'annata
+    scritta in cima, che e' il dato e non il discorso. Il test chiede quello:
+    che la pagina nomini la stagione di cui sta parlando.
+    """
+    import re
+
     r = client.get("/giocatori")
 
     assert r.status_code == 200
-    assert "un campionato per volta" in r.text
+    assert re.search(r"stagione \d{4}/\d{2}", r.text)
 
 
 def test_un_annata_inventata_non_e_un_guasto(con_dettagli, client):
@@ -661,7 +673,7 @@ def test_la_scheda_partita_dichiara_il_tabellino_non_definitivo(motore, client):
     r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
 
     assert r.status_code == 200
-    assert "non e&#39; ancora definitivo" in r.text or "non e' ancora definitivo" in r.text
+    assert "non ancora definitivo" in r.text
 
 
 def test_un_tabellino_buono_non_fa_comparire_l_avviso(con_dettagli, client):
@@ -1259,15 +1271,26 @@ def test_l_hub_scrive_il_gol_nogol_scelto(client):
     assert "GG &middot;" in r.text or "NG &middot;" in r.text
 
 
-def test_l_hub_dichiara_il_limite_del_gol_nogol(client):
-    """La regola di progetto: i limiti del modello si dicono dove si legge.
+def test_il_limite_del_gol_nogol_e_dichiarato_dove_stanno_i_numeri(client):
+    """Sui mercati dei gol il modello dichiara quasi sempre la media di lega.
 
-    Sui mercati dei gol il modello dichiara quasi sempre la media di
-    campionato, e scrivere "NG" nella stessa forma dell'1X2 gli darebbe la
-    stessa autorita' senza questa riga accanto.
+    Fino al 9 settembre 2026 il limite stava scritto in due posti: sull'hub,
+    accanto alla sigla, e nella scheda partita accanto all'Over/Under. Il
+    primo se n'e' andato con le spiegazioni laterali, per decisione
+    dell'utente — l'hub mostra la sigla e la sua percentuale, e il perche' sta
+    in ISTRUZIONI.txt. Il secondo **resta**, ed e' quello che questo test
+    protegge: nella pagina dove i mercati dei gol si leggono per esteso, il
+    limite deve stare accanto ai numeri.
+
+    Le due percentuali sull'hub non sono mute nemmeno da sole: il 52% scritto
+    accanto a "NG" e' il modo in cui quella riga dice di non aver deciso
+    niente, ed e' il motivo per cui la cifra non si puo' togliere.
     """
-    r = client.get("/")
-    assert "media di campionato" in r.text
+    partita = client.get("/partita/9001").text
+    assert "media di campionato" in partita
+
+    hub = client.get("/").text
+    assert "Gol/NoGol" in hub, "premessa: la sigla c'e' ancora"
 
 
 def test_il_gol_nogol_non_prende_l_alfabeto_degli_esiti(client):
@@ -2502,12 +2525,32 @@ def test_una_partita_da_giocare_non_prende_due_palline_grigie(client, motore):
 
 
 def test_le_forze_marcano_chi_non_gioca_quest_anno(client, motore):
-    """Il modello conosce quattro stagioni: senza dirlo sembrano tutte di adesso."""
+    """Il modello conosce quattro stagioni: senza dirlo sembrano tutte di adesso.
+
+    Lo diceva un paragrafo accanto alla tabella, e dal 9 settembre 2026 lo dice
+    la pillola sulla riga di chi non c'e' piu'. E' meglio dove sta adesso: la
+    marca sta sulla squadra a cui si riferisce, non in un discorso generale.
+
+    Il campionato finto dei test e' tutto della stagione in corso, quindi
+    nessuna riga sarebbe marcata: si sposta la stagione avanti di un anno, che
+    e' esattamente cio' che accade a fine maggio a ogni squadra retrocessa.
+    """
+    from serie_a_analyzer.data.ingest import current_season
+
     motore.snapshot()
 
     pagina = client.get("/").text
+    assert "Forza stimata delle squadre" in pagina
+    assert "fuori quest'anno" not in pagina, "premessa: giocano tutte quest'anno"
 
-    assert "Ci sono <b>tutte</b> le squadre che il modello conosce" in pagina
+    patch = pytest.MonkeyPatch()
+    patch.setattr(app_module, "current_season", lambda: current_season() + 1)
+    try:
+        pagina = client.get("/").text
+    finally:
+        patch.undo()
+
+    assert "fuori quest'anno" in pagina
 
 
 # ---- vuoto e illeggibile non sono la stessa cosa ----------------------------
@@ -2534,3 +2577,198 @@ def test_un_registro_illeggibile_non_si_chiama_vuoto(motore, monkeypatch):
 
     assert "Il registro non si legge" in pagina
     assert "Il registro e' vuoto" not in pagina
+
+
+# ---- l'esito a logica ---------------------------------------------------------
+#
+# Lavoro 9, concordato con l'utente il 9 settembre 2026. E' l'esito matematico
+# raccontato a voce umana: si guarda quanto si distaccano le DUE SQUADRE e, se
+# sono vicine, al favorito si aggiunge il pareggio.
+#
+# Le righe qui sotto difendono due cose diverse. Le prime che la regola sia
+# quella e non un'altra; l'ultima, che e' la piu' importante, che questa
+# lettura NON diventi mai un mercato: nessun Brier, nessuna riga di registro,
+# nessuna misura. Il giorno in cui qualcuno la salvasse "per misurarla"
+# avremmo due risposte alla stessa domanda contate come due osservazioni, che
+# e' il difetto A1 e costo' un anno di misure sbagliate.
+
+
+# 1 vale 0.60, X 0.22, 2 0.18: le due squadre distano 42 punti, sono lontane.
+_LONTANE = {
+    (2, 1): 0.20, (1, 0): 0.22, (2, 0): 0.18,
+    (1, 1): 0.14, (0, 0): 0.08,
+    (0, 1): 0.10, (1, 2): 0.08,
+}
+
+# 1 vale 0.38, X 0.28, 2 0.34: distano 4 punti, si somigliano.
+_VICINE = {
+    (2, 1): 0.14, (1, 0): 0.16, (2, 0): 0.08,
+    (1, 1): 0.18, (0, 0): 0.10,
+    (0, 1): 0.20, (1, 2): 0.14,
+}
+
+
+def test_due_squadre_lontane_danno_un_esito_secco():
+    riga = _riga(_probabilita(_LONTANE), 2, 1)
+    assert riga.distacco_fra_le_squadre > 0.10
+    assert riga.esito_logico == "1"
+    assert riga.esito_logico_col_pareggio is False
+
+
+def test_due_squadre_vicine_si_prendono_anche_il_pareggio():
+    riga = _riga(_probabilita(_VICINE), 1, 1)
+    assert riga.distacco_fra_le_squadre < 0.10
+    assert riga.esito_logico == "1X"
+    assert riga.esito_logico_col_pareggio is True
+
+
+def test_la_favorita_decide_da_che_parte_sta_il_pareggio():
+    """Le stesse due partite, con la trasferta avanti: 2 secco e X2."""
+    lontane = {(ospite, casa): p for (casa, ospite), p in _LONTANE.items()}
+    vicine = {(ospite, casa): p for (casa, ospite), p in _VICINE.items()}
+
+    assert _riga(_probabilita(lontane), 1, 2).esito_logico == "2"
+    assert _riga(_probabilita(vicine), 1, 2).esito_logico == "X2"
+
+
+def test_il_pareggio_non_e_mai_la_favorita():
+    """La domanda e' "chi delle due", e il pareggio non e' una delle due.
+
+    Anche dove la X e' la piu' probabile dei tre — cosa che nei 1154
+    pronostici in registro non e' mai successa, ma il codice non puo'
+    saperlo — la sigla resta 1X o X2 e mai una "X" da sola: sarebbe una
+    terza risposta a una domanda che ne ammette due.
+    """
+    prob = _probabilita({
+        (1, 1): 0.24, (0, 0): 0.16,                    # pareggio: 0.40
+        (1, 0): 0.16, (2, 1): 0.15,                    # casa:     0.31
+        (0, 1): 0.15, (1, 2): 0.14,                    # trasferta:0.29
+    })
+    riga = _riga(prob, 1, 1)
+    assert riga.prob.draw > riga.prob.home_win
+    assert riga.esito_logico == "1X"
+
+
+def test_la_soglia_separa_davvero_le_due_risposte():
+    """Appena sopra i dieci punti secco, appena sotto doppia.
+
+    Il caso dei dieci punti ESATTI non e' difeso apposta, e la ragione e' che
+    non esiste: il distacco e' una differenza fra due somme di float, e
+    0.35 - 0.25 vale 0.09999999999999998. Pretendere che quel caso cada da un
+    lato preciso vorrebbe dire scrivere un test che passa per caso. Quello che
+    deve reggere e' che la soglia separi, e che a separarla sia il numero che
+    la pagina scrive.
+    """
+    from serie_a_analyzer.web.views import SOGLIA_ESITO_LOGICO
+
+    for celle, atteso in ((_LONTANE, "1"), (_VICINE, "1X")):
+        riga = _riga(_probabilita(celle), 1, 1)
+        sopra = riga.distacco_fra_le_squadre >= SOGLIA_ESITO_LOGICO
+        assert riga.esito_logico == atteso
+        assert sopra == (len(riga.esito_logico) == 1)
+
+
+def test_senza_pronostico_non_si_scrive_nessun_esito_a_logica():
+    """"Non lo so" non diventa una sigla, come sempre in questo progetto."""
+    from serie_a_analyzer.web.views import RigaPartita
+
+    riga = RigaPartita(
+        id=1, casa="Inter", ospite="Lecce", casa_id=1, ospite_id=6,
+        quando="sabato 22 ago, 18:30", giornata=1, conclusa=False,
+        gol_casa=None, gol_ospite=None, prob=None,
+    )
+    assert riga.esito_logico is None
+    assert riga.distacco_fra_le_squadre is None
+    assert riga.esito_logico_col_pareggio is False
+
+
+def test_l_esito_a_logica_non_e_un_mercato_e_non_finisce_nel_registro():
+    """La regola che tiene in piedi tutto il lavoro 9.
+
+    Se un giorno qualcuno lo aggiungesse a ``righe_mercati`` diventerebbe una
+    riga di ``prediction_markets``, poi un esito risolto, poi un Brier — e a
+    quel punto ogni partita avrebbe due risposte alla stessa domanda contate
+    come due osservazioni. E' il difetto A1, e nessuno se ne accorse per un
+    anno. Questo test e' l'unico posto in cui quel divieto e' scritto.
+    """
+    from serie_a_analyzer.data.predictions import righe_mercati
+
+    prob = _probabilita(_VICINE)
+    mercati = righe_mercati(prob)
+
+    assert all("logic" not in mercato for mercato, _, _ in mercati)
+    assert all(selezione not in ("1X", "X2") for _, selezione, _ in mercati)
+
+
+def test_l_hub_scrive_l_esito_a_logica(client):
+    r = client.get("/")
+    assert ">A logica<" in r.text
+
+
+def test_la_scheda_partita_scrive_l_esito_a_logica(client, motore):
+    futura = motore.snapshot().dataset.upcoming()[0]
+    r = client.get(f"/partita/{futura.api_id}")
+    assert ">A logica<" in r.text
+
+
+def test_l_esito_a_logica_non_prende_una_percentuale_accanto(client, motore):
+    """L'assenza e' voluta, e dal 9 settembre 2026 e' l'unica cosa che dice
+    che quella sigla non e' misurata.
+
+    Prima glielo diceva un paragrafo accanto; le spiegazioni del sito sono
+    finite in ISTRUZIONI.txt, e questa riga e' quel che resta a difendere il
+    confine. Le altre due sigle — l'esito e il Gol/NoGol — la percentuale la
+    hanno apposta, perche' sono misurate; questa no, perche' non lo e'.
+    """
+    import re
+
+    futura = motore.snapshot().dataset.upcoming()[0]
+    for pagina in (client.get("/").text, client.get(f"/partita/{futura.api_id}").text):
+        for blocco in re.findall(r"A logica</span>\s*<b[^>]*>(.*?)</b>", pagina, re.S):
+            assert "%" not in blocco, blocco
+
+
+# ---- le pagine mostrano i numeri, le istruzioni stanno in un file ------------
+#
+# Deciso dall'utente il 9 settembre 2026: le spiegazioni stavano nella colonna
+# accanto a ogni tabella e sporcavano la pagina. Sono state tolte tutte e messe
+# in ISTRUZIONI.txt, che si legge quando serve.
+#
+# Le due righe qui sotto sono il confine, e vale la pena dire perche' sono
+# scritte in un test invece che in un commento. Ogni volta che qualcuno
+# aggiunge una sezione al sito ha in mano un fatto misurato e la voglia di
+# raccontarlo li' accanto: e' cosi' che quelle ottantasei paragrafi sono nati,
+# uno per volta e ognuno con una buona ragione. Il posto dove raccontarlo
+# adesso e' ISTRUZIONI.txt.
+#
+# Cio' che PUO' restare in pagina e' un fatto sull'archivio — "troppi pochi
+# dati", "tabellino non ancora definitivo", un parametro misurato — e ha una
+# classe sua, `.dato`, apposta perche' il nome dica da solo quando e' nel posto
+# sbagliato.
+
+
+def test_i_template_non_contengono_spiegazioni():
+    """Nessun `.spiega` e nessuna legenda: quelle classi non esistono piu'."""
+    from pathlib import Path
+
+    cartella = Path(app_module.__file__).parent / "templates"
+    template = sorted(cartella.glob("*.html"))
+    assert template, "premessa: i template si trovano"
+
+    for f in template:
+        testo = f.read_text(encoding="utf-8")
+        assert 'class="spiega"' not in testo, f.name
+        assert 'class="chiave"' not in testo, f.name
+
+
+def test_il_file_delle_istruzioni_esiste_e_parla_di_ogni_pagina():
+    """Toglierle dal sito senza scriverle da nessuna parte sarebbe perderle."""
+    from pathlib import Path
+
+    istruzioni = Path(app_module.__file__).parents[3] / "ISTRUZIONI.txt"
+    assert istruzioni.exists(), istruzioni
+
+    testo = istruzioni.read_text(encoding="utf-8")
+    for pagina in ("LA PRIMA PAGINA", "LA SCHEDA PARTITA", "IL REGISTRO",
+                   "IL CALENDARIO", "I GIOCATORI"):
+        assert pagina in testo, pagina
