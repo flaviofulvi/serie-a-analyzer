@@ -524,6 +524,61 @@ SE LA SEZIONE NON C'E' AFFATTO
 
 
 ================================================================================
+LA SCHEDA PARTITA — probabili marcatori
+================================================================================
+
+Per ogni squadra i cinque giocatori con la probabilita' piu' alta di segnare
+ALMENO UN GOL, rigori compresi. Compare solo prima del fischio d'inizio.
+
+DA DOVE VIENE IL NUMERO
+  Dalla stessa matrice dei risultati esatti di tutto il resto. Di ogni
+  giocatore si stima soltanto quale parte dei gol della sua squadra gli spetta
+  — dai gol, dai tiri e dai minuti delle partite passate — e la probabilita'
+  che segni si legge dalla matrice. Se la sua squadra resta a zero non segna
+  nemmeno lui, e contro una difesa debole lo stesso attaccante vale di piu'.
+
+DUE MOMENTI, E LA PAGINA DICE QUALE
+  Prima delle formazioni i candidati sono quelli che hanno giocato nelle
+  ultime cinque partite, ognuno coi minuti che ha giocato in media — zero
+  dove non c'era. Chi e' dato per assente certo non c'e'; chi e' in dubbio
+  resta. Quando escono le formazioni ufficiali, circa quaranta minuti prima
+  del via, si guardano gli undici titolari e i minuti che ognuno gioca di
+  solito quando parte dall'inizio. Una distinta arrivata a meta' non conta:
+  si resta sui candidati finche' non e' intera.
+
+QUANTO VALE
+  Misurato sulle stagioni 2023-2025 rigiocate: il 13% meglio che dare a tutti
+  la stessa probabilita' coi titolari noti, l'11.5% prima delle formazioni.
+  E' un guadagno vero e piccolo. Un titolare segna in una partita su dodici,
+  e il piu' probabile di una partita raramente supera il 40-50%: nessuno di
+  questi numeri va letto come "segnera'".
+
+  Una cosa curiosa della misura: sapere CONTRO CHI si gioca aggiunge
+  pochissimo al sapere CHI SEGNA DI SOLITO. Il valore sta quasi tutto nel
+  giocatore.
+
+LA RIGA SUL "DI PIU'"
+  Nelle stagioni rigiocate il modello ha dichiarato circa il 7% di marcatori
+  in piu' di quanti ne siano arrivati: i numeri sono un filo alti, e lo sono
+  in tutte le fasce. Non e' corretto apposta — una correzione e' un numero
+  nuovo, e va misurata come tutti gli altri prima di fidarsene.
+
+I RIGORISTI NON SONO RICONOSCIUTI
+  Chi tira i rigori ha un tasso che li contiene, ma il modello non sa che li
+  tirera' anche stavolta.
+
+PERCHE' SPARISCE A PARTITA COMINCIATA
+  Questi numeri non vengono registrati. Dopo il fischio d'inizio l'unico modo
+  di mostrarli sarebbe ricalcolarli con un modello che ha gia' visto la
+  partita, e un ricalcolo a partita finita e' un ricordo travestito da
+  previsione.
+
+SE UNA SQUADRA NON HA NOMI
+  L'archivio non ha ancora un suo tabellino: capita a inizio stagione a chi
+  e' appena salito.
+
+
+================================================================================
 LA SCHEDA PARTITA — over / under
 ================================================================================
 

@@ -868,6 +868,103 @@ def test_la_scheda_mostra_assenti_e_in_dubbio_separati(client, motore):
     assert "non tiene conto" in r.text
 
 
+# ---- probabili marcatori ------------------------------------------------------
+
+
+def _distinta(squadra, nome, titolari, riserve=(999,)):
+    # Il Bomber col suo nome: coi titolari ufficiali la pagina scrive il nome
+    # della distinta, che e' quello vero di quel giorno.
+    nomi = {10: "Bomber"}
+
+    def voce(pid):
+        return {"player": {"id": pid, "name": nomi.get(pid, f"Giocatore {pid}"),
+                           "number": None, "pos": "M", "grid": None}}
+    return {
+        "team": {"id": squadra, "name": nome},
+        "formation": "4-3-3",
+        "coach": {"id": squadra, "name": "Un Allenatore"},
+        "startXI": [voce(pid) for pid in titolari],
+        "substitutes": [voce(squadra * 1000 + pid) for pid in riserve],
+    }
+
+
+def test_senza_tabellini_la_scheda_non_parla_di_marcatori(client):
+    """Nessun giocatore conosciuto: la sezione non compare, invece di dire "nessuno segna"."""
+    r = client.get("/partita/9001")
+    assert r.status_code == 200
+    assert "Probabili marcatori" not in r.text
+
+
+def test_la_scheda_mostra_i_probabili_marcatori(con_dettagli, client):
+    r = client.get("/partita/9001")   # Inter - Lecce, da giocare
+
+    assert "Probabili marcatori" in r.text
+    assert "Bomber" in r.text
+    # Nessuna formazione uscita: la pagina dice da dove vengono i nomi.
+    assert "Formazioni non ancora uscite" in r.text
+    # Il Lecce non ha tabellini: si dice, non si lascia una tabella vuota.
+    assert "non ha ancora tabellini di questa squadra" in r.text
+    # Il limite misurato, accanto al numero.
+    assert "in piu'" in r.text
+
+
+def test_una_partita_giocata_non_mostra_i_marcatori(con_dettagli, client_col_passato):
+    """Non si registrano: dopo il via sarebbero un ricalcolo, cioe' un ricordo."""
+    r = client_col_passato.get(f"/partita/{PARTITA_CON_DETTAGLI}")
+    assert r.status_code == 200
+    assert "Probabili marcatori" not in r.text
+
+
+def test_un_assente_certo_non_e_fra_i_marcatori(con_dettagli, client, motore):
+    from serie_a_analyzer.data.indisponibili import ASSENTE, Indisponibile
+
+    fixture = motore.snapshot().dataset.by_id[9001]
+    motore.pronostici.salva_indisponibili(
+        fixture_id=9001, kickoff_utc=fixture.kickoff_utc,
+        voci=[Indisponibile(9001, 10, "Bomber", 1, "Inter", ASSENTE, "infortunio", "Knee Injury")],
+        now=fixture.kickoff_utc - timedelta(hours=3),
+    )
+
+    r = client.get("/partita/9001")
+
+    # Era l'unico candidato conosciuto: senza di lui non resta niente da mostrare.
+    assert "Probabili marcatori" not in r.text
+    assert "Bomber" in r.text   # ma negli indisponibili c'e'
+
+
+def test_coi_titolari_ufficiali_la_scheda_lo_dice(con_dettagli, client, motore):
+    motore.store.save_detail(9001, "lineups", [
+        _distinta(1, "Inter", [10, *range(101, 111)]),
+        _distinta(6, "Lecce", range(601, 612)),
+    ])
+
+    r = client.get("/partita/9001")
+
+    assert "titolari ufficiali" in r.text
+    assert "Bomber" in r.text
+
+
+def test_una_distinta_a_meta_non_accende_i_titolari(con_dettagli, client, motore):
+    """Dieci titolari su undici e' una lettura in costruzione, non una formazione."""
+    motore.store.save_detail(9001, "lineups", [
+        _distinta(1, "Inter", [10, *range(101, 110)], riserve=()),
+        _distinta(6, "Lecce", range(601, 612)),
+    ])
+
+    r = client.get("/partita/9001")
+
+    assert "titolari ufficiali" not in r.text
+    assert "Formazioni non ancora uscite" in r.text
+
+
+def test_senza_esito_non_c_e_nessun_blocco_di_marcatori():
+    from serie_a_analyzer.web.views import blocchi_marcatori
+
+    assert blocchi_marcatori(None, 1, "Inter", 6, "Lecce") is None
+    assert blocchi_marcatori({"titolari_noti": False, "home": [], "away": []},
+                             1, "Inter", 6, "Lecce") is None
+
+
 def test_un_assente_senza_scheda_e_un_nome_non_un_collegamento(client, motore):
     """Un infortunato che l'archivio non ha mai visto giocare non ha pagina.
 

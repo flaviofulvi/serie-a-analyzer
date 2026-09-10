@@ -382,6 +382,57 @@
   </div>
 </section>
 
+{% if marcatori %}
+{# Solo prima del fischio d'inizio: questi numeri non si registrano, e dopo
+   il via sarebbero un ricalcolo. #}
+<section class="blocco disteso">
+  <div class="lato">
+    <p class="occhiello">Chi segna</p>
+    <h2>Probabili marcatori</h2>
+    <p class="dato">
+      {% if marcatori.titolari_noti %}Dai <b>titolari ufficiali</b>.
+      {% else %}Formazioni non ancora uscite: chi ha giocato nelle ultime
+        {{ marcatori.partite_recenti }} partite, senza gli assenti certi.{% endif %}
+    </p>
+    <p class="dato">
+      Almeno un gol, rigori compresi. Nelle stagioni rigiocate ne dichiara il
+      <b>{{ (marcatori.sovrastima * 100)|round|int }}% in piu'</b> di quanti ne
+      arrivino.
+    </p>
+  </div>
+
+  <div class="corpo">
+    <div class="pannelli">
+      {% for b in marcatori.squadre %}
+        <div class="pannello">
+          <h2><a href="/squadra/{{ b.squadra_id }}">{{ b.squadra }}</a></h2>
+          {% if b.righe %}
+            <table class="tabella compatta">
+              <thead>
+                <tr><th>Giocatore</th><th class="destra">Segna</th></tr>
+              </thead>
+              <tbody>
+                {% for m in b.righe %}
+                  <tr>
+                    <td>
+                      {{ nome_giocatore(m.id, m.nome, schede) }}
+                      {% if m.ruolo %}<span class="fioco">{{ m.ruolo }}</span>{% endif %}
+                    </td>
+                    <td class="destra mono">{{ (m.probabilita * 100)|round(1) }}%</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="dato">L'archivio non ha ancora tabellini di questa squadra.</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
 {% if griglia %}
 <section class="blocco">
   <div class="lato">

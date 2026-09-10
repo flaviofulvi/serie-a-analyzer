@@ -30,6 +30,7 @@ stagione diversa da quelle che il modello conosce misura un altro programma.
     python scripts/backtest.py --emivita 90     # una partita di 3 mesi fa vale la meta'
     python scripts/backtest.py --cerca-emivita        # quanto in fretta invecchia una partita
     python scripts/backtest.py --cerca-shrinkage      # quanto tirare verso la media di lega
+    python scripts/backtest.py --marcatori            # quanto vale il pronostico su chi segna
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ import argparse
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
-from math import log
+from math import exp, log
 from pathlib import Path
 from typing import Sequence
 
@@ -53,8 +54,10 @@ from serie_a_analyzer.config import (
     load_settings,
 )
 from serie_a_analyzer.data.dataset import Dataset, load_dataset
+from serie_a_analyzer.data.marcatori import StoriaMarcatori
 from serie_a_analyzer.data.panchine import Panchine, costruisci_panchine
 from serie_a_analyzer.data.parsers import FixtureRecord
+from serie_a_analyzer.data.players import costruisci_archivio
 from serie_a_analyzer.data.store import StoreUnito
 from serie_a_analyzer.model.dixon_coles import (
     DEFAULT_FATTORE_ALLENATORE,
@@ -64,7 +67,7 @@ from serie_a_analyzer.model.dixon_coles import (
     comprimi_totale,
     fit_dixon_coles,
 )
-from serie_a_analyzer.model.markets import MatchProbabilities, derive_markets
+from serie_a_analyzer.model.markets import MatchProbabilities, derive_markets, player_scores
 from serie_a_analyzer.model.scoreline import scoreline_matrix
 
 # Sotto questa soglia di partite il modello non ha abbastanza storia perche'
@@ -129,6 +132,9 @@ class Prediction:
     mu: float = 0.0
     rho: float = 0.0
     media_lega: float = 0.0
+    # Serve a ritrovare la partita — e il suo tabellino — a chi misura altro
+    # sulla stessa rigiocata, come i marcatori.
+    fixture_id: int | None = None
 
     def con_compressione(self, fattore: float) -> "Prediction":
         """Lo stesso pronostico, con un'altra compressione dei gol totali."""
@@ -187,6 +193,15 @@ def brier_1x2(preds: list[Prediction]) -> float:
 def brier_binary(probs: list[float], esiti: list[bool]) -> float:
     """Brier su un esito binario. Va da 0 a 1."""
     return sum((p - (1.0 if e else 0.0)) ** 2 for p, e in zip(probs, esiti)) / len(probs)
+
+
+def log_loss_binary(probs: list[float], esiti: list[bool]) -> float:
+    """Log loss su un esito binario. Le probabilita' si tengono lontane da 0 e 1."""
+    totale = 0.0
+    for p, e in zip(probs, esiti):
+        p = min(max(p, 1e-4), 1 - 1e-4)
+        totale -= log(p) if e else log(1 - p)
+    return totale / len(probs)
 
 
 def log_loss_1x2(preds: list[Prediction]) -> float:
@@ -334,6 +349,7 @@ def run_backtest(
                 mu=mu,
                 rho=modello.rho,
                 media_lega=modello.league_total_goals,
+                fixture_id=f.api_id,
             )
             predizioni.append(
                 grezzo if compressione == 1.0 else grezzo.con_compressione(compressione)
@@ -831,6 +847,151 @@ def cerca_allenatore(
 # ---- presentazione ---------------------------------------------------------
 
 
+# ---- i marcatori ---------------------------------------------------------------
+#
+# Non una ricerca ma una misura: i parametri di data/marcatori.py sono scelti a
+# priori, e qui si guarda soltanto se il pronostico che ne esce vale qualcosa.
+# La domanda e' "questo giocatore segna?", una riga per giocatore e partita.
+
+
+@dataclass(frozen=True)
+class RigaMarcatore:
+    stagione: int
+    ruolo: str | None
+    segna: bool
+    modello: float          # dentro la matrice: il pronostico vero
+    senza_partita: float    # lo stesso giocatore, come se ogni partita fosse uguale
+
+
+def misura_marcatori(
+    settings, store, dataset: Dataset, panchine: Panchine, stagione: int | None
+) -> int:
+    """Rigioca le stagioni coi tabellini e misura il pronostico su chi segna.
+
+    Due modi, perche' sono due momenti diversi: coi TITOLARI NOTI (le
+    formazioni escono quaranta minuti prima del via) e PRIMA DELLE FORMAZIONI,
+    in cui i candidati sono quelli delle ultime partite e chi poi non gioca
+    conta come un giocatore che non ha segnato. La prima stagione coi tabellini
+    non si rigioca: fa da rodaggio, perche' senza storia ogni giocatore
+    varrebbe la media del suo ruolo e la misura parlerebbe dello shrinkage.
+
+    Le baseline vedono la stagione intera (la frequenza vera di chi segna, in
+    tutto e per ruolo): e' la stessa convenzione del resto del backtest, e le
+    mette in vantaggio. Batterle vale di piu', non di meno.
+    """
+    titolo("MARCATORI - chi segna, contro i suoi concorrenti")
+    storici = list(build_storico_stores(settings).values())
+    archivio = costruisci_archivio(StoreUnito(stores=[store, *storici]), dataset.fixtures)
+    storia = StoriaMarcatori(archivio.prestazioni, dataset.fixtures)
+    per_partita: dict[int, list] = defaultdict(list)
+    for p in archivio.prestazioni:
+        per_partita[p.fixture_id].append(p)
+
+    con_tabellini = sorted(
+        s for s, n in archivio.con_statistiche_per_stagione.items()
+        if n >= PARTITE_STAGIONE_COMPLETA
+    )
+    stagioni = [stagione] if stagione is not None else con_tabellini[1:]
+    if not stagioni:
+        print("\nServono almeno due stagioni complete coi tabellini: la prima fa da rodaggio.\n")
+        return 1
+    print(f"Stagioni coi tabellini: {', '.join(map(str, con_tabellini))}")
+    print(f"Rigiocate:              {', '.join(map(str, stagioni))}")
+
+    righe: dict[str, list[RigaMarcatore]] = {"titolari": [], "rosa": []}
+    gol_dei_candidati = gol_di_tutti = 0
+    for s in stagioni:
+        preds, _ = run_backtest(dataset, s, panchine=panchine)
+        print(f"  stagione {s}: {len(preds)} partite rigiocate")
+        for p in preds:
+            f = dataset.by_id.get(p.fixture_id)
+            prestazioni = per_partita.get(p.fixture_id)
+            if f is None or not prestazioni:
+                continue
+            # La matrice e' quella che il sito mostrerebbe: compressa.
+            lam, mu = comprimi_totale(p.lam, p.mu, p.media_lega, DEFAULT_GOAL_COMPRESSION)
+            matrice = scoreline_matrix(lam, mu, p.rho)
+            for lato, squadra in (("home", f.home_team_id), ("away", f.away_team_id)):
+                suoi = [x for x in prestazioni if x.team_id == squadra]
+                if not suoi:
+                    continue
+                segnato = {x.player_id: x.gol > 0 for x in suoi}
+                titolari = [x for x in suoi if x.titolare]
+                rosa = storia.candidati(squadra, f.kickoff_utc)
+                in_rosa = {c.player_id for c in rosa}
+                gol_dei_candidati += sum(x.gol for x in suoi if x.player_id in in_rosa)
+                gol_di_tutti += sum(x.gol for x in suoi)
+                for modo, candidati in (
+                    ("titolari", storia.candidati(squadra, f.kickoff_utc, titolari=titolari)),
+                    ("rosa", rosa),
+                ):
+                    for c in candidati:
+                        righe[modo].append(RigaMarcatore(
+                            stagione=s,
+                            ruolo=c.ruolo,
+                            segna=segnato.get(c.player_id, False),
+                            modello=player_scores(matrice, lato, c.quota),
+                            senza_partita=1.0 - exp(-c.tasso_90 * c.minuti_attesi / 90.0),
+                        ))
+
+    _rapporto_marcatori("COI TITOLARI NOTI (a formazioni uscite)", righe["titolari"])
+    _rapporto_marcatori("PRIMA DELLE FORMAZIONI (i candidati delle ultime partite)", righe["rosa"])
+    if gol_di_tutti:
+        print(f"\nPrima delle formazioni i candidati hanno segnato {gol_dei_candidati} gol "
+              f"su {gol_di_tutti} ({gol_dei_candidati / gol_di_tutti:.1%}):")
+        print("il resto e' di chi nelle ultime partite non aveva giocato.")
+    return 0
+
+
+def _rapporto_marcatori(nome: str, righe: list[RigaMarcatore]) -> None:
+    titolo(nome)
+    if not righe:
+        print("Nessuna riga.")
+        return
+    esiti = [r.segna for r in righe]
+    frequenza = sum(esiti) / len(esiti)
+    per_ruolo: dict[str | None, list[bool]] = defaultdict(list)
+    for r in righe:
+        per_ruolo[r.ruolo].append(r.segna)
+    freq_ruolo = {k: sum(v) / len(v) for k, v in per_ruolo.items()}
+
+    metodi = (
+        ("stessa probabilita' per tutti", [frequenza] * len(righe)),
+        ("in base al ruolo", [freq_ruolo[r.ruolo] for r in righe]),
+        ("il giocatore, ogni partita uguale", [r.senza_partita for r in righe]),
+        ("il giocatore dentro la matrice", [r.modello for r in righe]),
+    )
+    base = log_loss_binary(metodi[0][1], esiti)
+    print(f"{len(righe)} righe giocatore-partita; segna il {frequenza:.1%}.\n")
+    print(f"{'metodo':<36}{'Brier':>10}{'log loss':>11}{'guadagno':>11}")
+    print("-" * 68)
+    for etichetta, probs in metodi:
+        ll = log_loss_binary(probs, esiti)
+        print(f"{etichetta:<36}{brier_binary(probs, esiti):>10.4f}{ll:>11.4f}"
+              f"{(base - ll) / base:>+11.1%}")
+    print("\nLe prime due righe vedono la stagione intera: sono baseline favorite.")
+    print("L'ultima e' il pronostico vero; la penultima dice quanto aggiunge la")
+    print("partita — l'avversario, il campo — al solo giocatore.")
+
+    print(f"\n{'stagione':<10}{'righe':>8}{'costante':>12}{'modello':>12}{'guadagno':>11}")
+    print("-" * 53)
+    for s in sorted({r.stagione for r in righe}):
+        sue = [r for r in righe if r.stagione == s]
+        e = [r.segna for r in sue]
+        f_s = sum(e) / len(e)
+        c = log_loss_binary([f_s] * len(e), e)
+        m = log_loss_binary([r.modello for r in sue], e)
+        print(f"{s:<10}{len(sue):>8}{c:>12.4f}{m:>12.4f}{(c - m) / c:>+11.1%}")
+
+    probs = [r.modello for r in righe]
+    print(f"\nMarcatori dichiarati {sum(probs):.0f}, accaduti {sum(esiti)} "
+          "(somma delle probabilita' contro chi ha segnato davvero)")
+    print(f"\n  {'fascia':<12}{'n':>7}{'previsto':>12}{'reale':>10}{'scarto':>10}")
+    print("  " + "-" * 49)
+    for etichetta, n, media, reale in calibration(probs, esiti, n_bin=20):
+        print(f"  {etichetta:<12}{n:>7}{media:>12.1%}{reale:>10.1%}{reale - media:>+10.1%}")
+
+
 def titolo(testo: str) -> None:
     print(f"\n{'=' * 74}\n{testo}\n{'=' * 74}")
 
@@ -901,6 +1062,12 @@ def main() -> int:
         help="cerca lo shrinkage rigiocando ogni stagione una volta per "
              "valore. Zero richieste, una ventina di minuti",
     )
+    parser.add_argument(
+        "--marcatori",
+        action="store_true",
+        help="misura il pronostico su chi segna sulle stagioni coi tabellini "
+             "(con --stagione, una sola). Zero richieste",
+    )
     args = parser.parse_args()
     if not 0.0 <= args.compressione <= 1.0:
         print("\n--compressione va da 0 a 1.\n")
@@ -949,6 +1116,15 @@ def main() -> int:
         print("\nUna ricerca alla volta: i parametri si parlano, e cercarne due")
         print("insieme non misura nessuno dei due.\n")
         return 1
+
+    if args.marcatori:
+        if any(ricerche):
+            print("\n--marcatori misura il modello di oggi: non va insieme a una ricerca.\n")
+            return 1
+        panchine = carica_panchine(settings, store, dataset)
+        esito = misura_marcatori(settings, store, dataset, panchine, args.stagione)
+        print(f"\nRichieste API spese: {client.budget.used - prima}")
+        return esito
 
     if any(ricerche):
         complete = [

@@ -31,6 +31,8 @@ from ..config import (
     load_settings,
 )
 from ..data.dataset import Dataset, load_dataset
+from ..data.indisponibili import ASSENTE
+from ..data.marcatori import StoriaMarcatori, probabili_marcatori
 from ..data.outcomes import (
     MODO_PREDEFINITO,
     accuratezza_per_mercato,
@@ -43,10 +45,10 @@ from ..data.outcomes import (
     risolvi_pronostici,
 )
 from ..data.panchine import Panchine, costruisci_panchine
-from ..data.players import ArchivioGiocatori, costruisci_archivio
+from ..data.players import ArchivioGiocatori, costruisci_archivio, formazioni_partita
 from ..data.predictions import MODE_SECCO, istante, registra_partite
 from ..data.importato import firma_importato
-from ..data.store import SeasonStore, StoreUnito
+from ..data.store import SeasonStore, StoreUnito, formazione_provvisoria
 from ..data.storico import firma_storico
 from ..model.dixon_coles import FittedModel, TeamEvidence, fit_dixon_coles
 from ..model.markets import MatchProbabilities, derive_markets
@@ -114,6 +116,10 @@ class Engine:
         self._giocatori: ArchivioGiocatori | None = None
         self._firma_giocatori: tuple | None = None
         self._lock_giocatori = threading.Lock()
+        # L'indice dei probabili marcatori nasce dall'archivio dei giocatori e
+        # dai punteggi delle partite: si rifa' quando cambia l'uno o l'altro.
+        self._marcatori: StoriaMarcatori | None = None
+        self._firma_marcatori: tuple | None = None
 
     # ---- ciclo di vita dello snapshot --------------------------------------
 
@@ -454,6 +460,78 @@ class Engine:
         except Exception as exc:  # sqlite, file mancante, schema vecchio
             logger.warning("indisponibili non letti per la partita %s: %s", fixture_id, exc)
             return []
+
+    # ---- probabili marcatori -----------------------------------------------
+
+    def storia_marcatori(self) -> StoriaMarcatori:
+        """L'indice da cui escono i probabili marcatori, tenuto caldo.
+
+        Ha due ingredienti con due vite diverse — i tabellini, che arrivano
+        quando vogliono, e i punteggi, che muovono lo snapshot — e si rifa'
+        quando cambia uno dei due: un gol di ieri sera cambia quanto segna "di
+        solito" una squadra anche se il tabellino non e' ancora arrivato.
+        """
+        # Fuori dal lucchetto, come in `giocatori`: prendono il loro.
+        archivio = self.giocatori()
+        snap = self.snapshot()
+        chiave = (self._firma_giocatori, snap.archive_signature)
+        with self._lock_giocatori:
+            if self._marcatori is not None and self._firma_marcatori == chiave:
+                return self._marcatori
+            self._marcatori = StoriaMarcatori(archivio.prestazioni, snap.dataset.fixtures)
+            self._firma_marcatori = chiave
+            return self._marcatori
+
+    def probabili_marcatori(self, fixture) -> dict | None:
+        """Chi puo' segnare in una partita, dal piu' probabile, per le due squadre.
+
+        Coi titolari ufficiali se la distinta e' intera — undici per parte, e
+        non una lettura a meta' (`formazione_provvisoria`) — altrimenti coi
+        candidati delle ultime partite, meno gli assenti certi. Un dubbio non
+        toglie nessuno: non e' un'assenza.
+
+        Chi chiama decide QUANDO chiederlo: questi numeri non si registrano,
+        quindi dopo il fischio d'inizio sarebbero un ricalcolo. Qui si
+        risponde e basta, e un guasto vale ``None`` come ogni sezione della
+        scheda: la pagina si deve aprire.
+        """
+        snap = self.snapshot()
+        if snap.model is None:
+            return None
+        try:
+            matrice = snap.model.scoreline(
+                snap.dataset.name(fixture.home_team_id),
+                snap.dataset.name(fixture.away_team_id),
+            )
+            storia = self.storia_marcatori()
+
+            distinta = self.store.load_detail(fixture.api_id, "lineups")
+            formazioni = {}
+            if distinta and not formazione_provvisoria(distinta):
+                formazioni = {f.team_id: f for f in formazioni_partita(self.store, fixture.api_id)}
+            squadre = (fixture.home_team_id, fixture.away_team_id)
+            titolari_noti = all(
+                t in formazioni and len(formazioni[t].titolari) == 11 for t in squadre
+            )
+            assenti = {
+                int(r["player_id"]) for r in self.indisponibili(fixture.api_id)
+                if r["stato"] == ASSENTE
+            }
+
+            esito: dict = {"titolari_noti": titolari_noti}
+            for lato, team_id in zip(("home", "away"), squadre):
+                if titolari_noti:
+                    candidati = storia.candidati(
+                        team_id, fixture.kickoff_utc, titolari=formazioni[team_id].titolari
+                    )
+                else:
+                    candidati = storia.candidati(team_id, fixture.kickoff_utc, assenti=assenti)
+                esito[lato] = probabili_marcatori(matrice, lato, candidati)
+            return esito
+        except Exception as exc:
+            logger.warning("probabili marcatori non calcolati per la partita %s: %s",
+                           fixture.api_id, exc)
+            return None
 
     # ---- giocatori ---------------------------------------------------------
 

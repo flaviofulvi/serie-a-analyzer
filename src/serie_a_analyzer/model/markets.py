@@ -112,6 +112,37 @@ def expected_goals(matrix: np.ndarray) -> tuple[float, float]:
     return float((matrix * home_goals).sum()), float((matrix * away_goals).sum())
 
 
+def team_goal_distribution(matrix: np.ndarray, team: str) -> np.ndarray:
+    """P(la squadra segna k gol), per k = 0, 1, 2...: le righe o le colonne sommate."""
+    if team == "home":
+        return matrix.sum(axis=1)
+    if team == "away":
+        return matrix.sum(axis=0)
+    raise ValueError(f"squadra sconosciuta: {team!r} (attesi 'home' o 'away')")
+
+
+def player_scores(matrix: np.ndarray, team: str, share: float) -> float:
+    """P(che un giocatore segni almeno un gol), se gli spetta ``share`` dei gol della squadra.
+
+    Anche questo e' una somma di celle, pesata. Ogni gol della squadra e' suo
+    con probabilita' ``share``, indipendentemente dagli altri, quindi in un
+    risultato con k gol della sua squadra segna almeno una volta con
+    probabilita' ``1 - (1 - share)^k``. Si somma quel peso su tutte le celle.
+
+    E' la forma che tiene il giocatore agganciato alla partita: non puo'
+    segnare in un risultato in cui la sua squadra non segna, e se la matrice
+    da' alla squadra piu' gol, ne da' di piu' anche a lui. Una formula a parte
+    — un tasso per minuto, per esempio — direbbe "segna al 40%" in una
+    partita in cui la stessa pagina da' alla sua squadra il 45% di restare a
+    zero, e i due numeri litigherebbero.
+    """
+    if not 0.0 <= share <= 1.0:
+        raise ValueError(f"la quota dei gol va da 0 a 1 (ricevuto {share})")
+    gol = team_goal_distribution(matrix, team)
+    k = np.arange(gol.size)
+    return float((gol * (1.0 - (1.0 - share) ** k)).sum())
+
+
 def top_scorelines(matrix: np.ndarray, n: int = 5) -> list[tuple[tuple[int, int], float]]:
     """Gli ``n`` risultati esatti piu' probabili, in ordine decrescente."""
     flat = matrix.flatten()

@@ -12,6 +12,8 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from ..data.indisponibili import ASSENTE, traduci_motivo
+from ..data.marcatori import PARTITE_RECENTI, SOVRASTIMA_MISURATA
+from ..data.players import ruolo_esteso
 from ..data.outcomes import SOGLIA_SIGNIFICATIVITA
 from ..data.panchine import Panchine
 from ..data.parsers import FixtureRecord
@@ -1499,6 +1501,47 @@ def blocchi_formazione(formazioni, prestazioni) -> list[dict]:
         }
         for f in formazioni
     ]
+
+
+# Quanti nomi per squadra nella scheda partita. Dal sesto in giu' si scende
+# quasi sempre sotto il 10%, e una lista lunga si leggerebbe come la rosa.
+MARCATORI_PER_SQUADRA = 5
+
+
+def blocchi_marcatori(
+    esito: dict | None, casa_id: int, casa: str, ospite_id: int, ospite: str
+) -> dict | None:
+    """I probabili marcatori, pronti per la scheda partita, prima la squadra di casa.
+
+    ``None`` se non c'e' niente da mostrare — nessun esito, o nessun
+    candidato per nessuna delle due — cosi' la sezione non compare invece di
+    comparire vuota: una tabella vuota direbbe "non segna nessuno".
+    """
+    if not esito:
+        return None
+    squadre = []
+    for lato, squadra_id, nome in (("home", casa_id, casa), ("away", ospite_id, ospite)):
+        squadre.append({
+            "squadra_id": squadra_id,
+            "squadra": nome,
+            "righe": [
+                {
+                    "id": m.candidato.player_id,
+                    "nome": m.candidato.nome,
+                    "ruolo": ruolo_esteso(m.candidato.ruolo),
+                    "probabilita": m.probabilita,
+                }
+                for m in esito.get(lato, [])[:MARCATORI_PER_SQUADRA]
+            ],
+        })
+    if not any(b["righe"] for b in squadre):
+        return None
+    return {
+        "titolari_noti": bool(esito.get("titolari_noti")),
+        "partite_recenti": PARTITE_RECENTI,
+        "sovrastima": SOVRASTIMA_MISURATA,
+        "squadre": squadre,
+    }
 
 
 def blocchi_indisponibili(righe, casa_id: int, casa: str, ospite: str) -> list[dict]:

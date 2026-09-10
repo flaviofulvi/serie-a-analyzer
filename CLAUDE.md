@@ -24,6 +24,7 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-allenatore    # quanto pesa il cambio di panchina
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-emivita       # quanto in fretta invecchia una partita
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-shrinkage     # quanto tirare verso la media di lega
+.\.venv\Scripts\python.exe .\scripts\backtest.py --marcatori           # quanto vale il pronostico su chi segna
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py       # raccolta giornaliera (spende budget)
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py --solo-al-momento-giusto # raccoglie solo se serve adesso
 .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py   # la raccolta e' sana? (non spende)
@@ -35,6 +36,7 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\riempi_storico.py     # ricompra la scorsa stagione (a pagamento)
 .\.venv\Scripts\python.exe .\scripts\importa_risultati.py file.csv --solo-verifica  # cosa entrerebbe
 .\.venv\Scripts\python.exe .\scripts\importa_risultati.py file.csv  # importa una stagione (gratis)
+.\.venv\Scripts\python.exe .\scripts\recupera_quote_marcatori.py  # le quote marcatori rimaste in cache (gratis)
 .\scripts\schedule_windows.ps1                              # registra le attivita' pianificate
 ```
 
@@ -417,6 +419,19 @@ Da qui l'intera forma di `data/`:
   ricavate dalle quote devono combaciare esattamente con quelle di
   `righe_mercati`: se divergessero il confronto non aggancerebbe nulla e la
   pagina resterebbe vuota senza errori — un test lo impedisce.
+  Dall'11 settembre 2026 si salvano anche le **quote sui marcatori**
+  (`parse_marcatori`, tabella `quote_marcatori`). Arrivavano già nella stessa
+  risposta pagata e venivano buttate, e come tutte le quote non tornano. Stanno
+  in una tabella loro per tre ragioni: non hanno una probabilità («chi segna»
+  non è un gruppo esaustivo — possono segnare in tre o nessuno — quindi il
+  margine non si toglie normalizzando), non hanno una selezione di
+  `righe_mercati` con cui agganciarsi, e nominano il giocatore **per nome**,
+  senza id: abbinarlo all'archivio è lavoro di chi le userà, non di chi le
+  salva. Le offre Bet365 su tutte le partite e Betano solo nelle varianti
+  casa/trasferta: uno o due bookmaker, quindi di consenso non si parla.
+  Arrivano anche sul **piano gratuito** — le letture del 18-23 agosto 2026,
+  prima del Pro, le contengono già. Sono la base del lavoro sui probabili
+  marcatori: il metro di paragone, come le altre quote lo sono per l'1X2.
 - `indisponibili.py` — chi non gioca: infortunati, squalificati e giocatori in
   dubbio. Si chiedono **per partita** (`/injuries?fixture=`), mai per stagione:
   il filtro `league+season` è bloccato sul piano gratuito esattamente come per
@@ -545,6 +560,33 @@ Da qui l'intera forma di `data/`:
   vero e non si ricuce con una soglia inventata sulla lunghezza; se capita di
   essere l'ultima partita nota, quella squadra pesa meno per una giornata e
   torna com'era.
+- `marcatori.py` — chi segna (lavoro 10, 11 settembre 2026). Non è un modello
+  nuovo: la matrice dice già quanti gol farà la squadra, qui si stima solo la
+  **quota** di quei gol che spetta a ciascun giocatore, e la probabilità che
+  segni è una somma pesata di celle della stessa matrice (`player_scores` in
+  `model/markets.py`: in un risultato con k gol della sua squadra segna con
+  probabilità 1 − (1 − quota)^k). È la regola dei mercati applicata a un
+  giocatore — non può segnare dove la sua squadra resta a zero. La quota è il
+  suo tasso (gol veri e gol «da tiri», metà e metà, tirato verso la media del
+  ruolo) per i minuti attesi, diviso i gol **veri** della squadra: autogol a
+  favore compresi, perché la matrice li conta. Due modi, perché le formazioni
+  escono quaranta minuti prima del via: coi titolari noti, e prima delle
+  formazioni (chi ha giocato nelle ultime cinque partite, meno gli assenti
+  certi). `StoriaMarcatori` risponde sempre «prima di un istante», ed è ciò
+  che rende onesta la misura. I parametri sono **scelti a priori** e non
+  cercati. Misurato con `backtest.py --marcatori` sul 2023-2025, log loss su
+  24926 titolari: tutti uguali 0.2900, ruolo 0.2618, il giocatore 0.2531, il
+  giocatore dentro la matrice 0.2524 — **+13.0%**, fra 11.6% e 14.0% per
+  stagione; prima delle formazioni +11.5%, coi candidati che coprono il 97.3%
+  dei gol. Un candidato di prima delle formazioni deve aver giocato la sua
+  **ultima partita con quella maglia** (`squadra_attuale`): l'11 settembre
+  2026 Gaetano compariva sia nell'Atalanta sia nel Cagliari, ceduto a fine
+  mercato ma ancora nelle ultime cinque partite di chi l'aveva venduto. Due cose da non perdere. **La partita aggiunge pochissimo** al
+  giocatore (0.2531 → 0.2524), coerente con quanto già misurato sui gol: il
+  valore sta nel sapere chi segna di solito, non contro chi. E il pronostico
+  **sovrastima di circa il 7%** (2273 marcatori dichiarati contro 2110),
+  spalmato su tutte le fasce: non è corretto, perché una correzione è un
+  parametro e va scelta col metodo del progetto.
 - `notifiche.py` (fuori da `data/`, perché non è una sorgente ma un'uscita) —
   i messaggi su Telegram. Quattro regole, tutte difensive: **il silenzio è il
   default** (senza token il sistema gira identico), **non solleva mai** (un
@@ -951,6 +993,17 @@ significherebbe allarmare per un problema che il decadimento temporale ha già
 risolto. A differenza dell'affidabilità basta una squadra sola: che il Milan
 abbia cambiato allenatore non dice niente di falso sull'avversario, mentre
 l'affidabilità è un confronto e va mostrata a coppie.
+Dall'11 settembre 2026 la scheda mostra anche i **probabili marcatori**
+(`Engine.probabili_marcatori`, `blocchi_marcatori` in `web/views.py`), cinque
+per squadra e **solo prima del fischio d'inizio**: non vengono registrati,
+quindi dopo il via l'unico modo di mostrarli sarebbe un ricalcolo — è la
+regola di `_riga`. Coi titolari ufficiali quando la distinta è intera (undici
+per parte e non `formazione_provvisoria`), altrimenti coi candidati delle
+ultime partite meno gli assenti certi, e la pagina dice quale dei due. Accanto,
+in una riga, la sovrastima misurata (`SOVRASTIMA_MISURATA`), che il numero non
+corregge. L'indice (`StoriaMarcatori`) sta in cache nel motore con l'impronta
+dell'archivio giocatori più quella degli archivi: un punteggio nuovo cambia
+quanto segna di solito una squadra anche prima che arrivi il tabellino.
 Quando di una partita esiste anche il pronostico **rifatto con le formazioni
 ufficiali**, la scheda mostra i due affiancati (`confronto_ufficiale` in
 `web/views.py`): 1/X/2 dell'uno, dell'altro e la differenza. Tre regole, tutte
@@ -1224,6 +1277,12 @@ comincia il 6 passi prima di qui.
                                        accanto a esito e punteggio. Le tre
                                        colonne non hanno la stessa
                                        difficoltà e i verdi non si sommano
+  le quote sui marcatori  11/09/2026   salvate invece che buttate; le 31
+                                       letture rimaste in cache (13784
+                                       quote) recuperate a zero richieste
+  il pronostico marcatori 11/09/2026   dentro la matrice; +13% sul
+                                       costante, la sovrastima del 7%
+                                       dichiarata e non corretta
 
 ### Le idee che sembrano buone e non lo sono
 

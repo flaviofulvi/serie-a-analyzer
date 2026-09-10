@@ -27,6 +27,7 @@ from .engine import Congelato, Engine
 from .views import (
     blocchi_formazione,
     blocchi_indisponibili,
+    blocchi_marcatori,
     confronto_ufficiale,
     formatta_data,
     formatta_giorno,
@@ -307,9 +308,22 @@ def partita(request: Request, fixture_id: int):
         snap.dataset.name(fixture.away_team_id),
     )
 
+    # Chi puo' segnare. Solo prima del fischio d'inizio, ed e' la regola di
+    # `_riga` e non una scelta di gusto: questi numeri non si registrano, e
+    # dopo il via l'unico modo di mostrarli sarebbe ricalcolarli con un
+    # modello che ha gia' visto la partita.
+    marcatori = None
+    if riga.ha_pronostico and not riga.iniziata:
+        marcatori = blocchi_marcatori(
+            motore.probabili_marcatori(fixture),
+            fixture.home_team_id, snap.dataset.name(fixture.home_team_id),
+            fixture.away_team_id, snap.dataset.name(fixture.away_team_id),
+        )
+
     return templates.TemplateResponse(request, "partita.html", {
         "p": riga,
         "griglia": griglia,
+        "marcatori": marcatori,
         # Di chi esiste davvero una scheda. Questa pagina nomina anche chi
         # l'archivio non ha mai visto giocare — gli infortunati per
         # definizione — e collegarli tutti significava offrire un 404. Costa
