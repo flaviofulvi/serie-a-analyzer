@@ -435,6 +435,7 @@ def main() -> int:
             separatore("Quote del mercato")
             print(f"Partite quotate:    {quote['partite']}")
             print(f"Quote archiviate:   {quote['quote']}")
+            print(f"Quote marcatori:    {quote['marcatori']}")
             print(f"Senza quote ancora: {quote['senza_quote']}")
             print(f"Richieste spese:    {quote['richieste']}")
 

@@ -20,6 +20,7 @@ from serie_a_analyzer.data.odds import (
     QuotaLetta,
     consenso,
     consenso_per_partita,
+    parse_marcatori,
     parse_quote,
     partite_da_quotare,
     raccogli_quote,
@@ -368,6 +369,118 @@ def test_letture_ripetute_si_accumulano_senza_sovrascriversi(store, risposta_quo
     raccogli_quote(client, store, partita, now=ADESSO + timedelta(hours=6))
 
     assert store.conteggi()["quote"] == prime * 2
+
+
+# ---- quote sui marcatori -----------------------------------------------------
+
+
+def _marcatori(nome="Bet365"):
+    """I mercati su chi segna, con i nomi veri di ``/odds`` (verificati l'11/09/2026)."""
+    return {
+        "id": 8,
+        "name": nome,
+        "bets": [
+            {"id": 92, "name": "Anytime Goal Scorer", "values": [
+                {"value": "Lautaro Martinez", "odd": "2.20"},
+                {"value": "Marcus Thuram", "odd": "2.75"},
+            ]},
+            {"name": "First Goal Scorer", "values": [
+                {"value": "Lautaro Martinez", "odd": "4.50"},
+            ]},
+            {"name": "Home Anytime Goal Scorer", "values": [
+                {"value": "Lautaro Martinez", "odd": "2.10"},
+            ]},
+            {"name": "Away Last Goal Scorer", "values": [
+                {"value": "Che Adams", "odd": "9.00"},
+            ]},
+        ],
+    }
+
+
+def test_le_quote_sui_marcatori_si_leggono_col_loro_tipo_e_lato():
+    lette = parse_marcatori({"bookmakers": [_marcatori()]})
+
+    assert {(q.tipo, q.lato, q.giocatore): q.decimal_odds for q in lette} == {
+        ("segna", "partita", "Lautaro Martinez"): 2.20,
+        ("segna", "partita", "Marcus Thuram"): 2.75,
+        ("primo", "partita", "Lautaro Martinez"): 4.50,
+        ("segna", "casa", "Lautaro Martinez"): 2.10,
+        ("ultimo", "trasferta", "Che Adams"): 9.00,
+    }
+    assert {q.bookmaker for q in lette} == {"Bet365"}
+
+
+def test_i_marcatori_non_entrano_fra_i_mercati_del_registro():
+    """Nel registro non avrebbero una selezione con cui agganciarsi."""
+    assert parse_quote({"bookmakers": [_marcatori()]}) == []
+
+
+def test_una_quota_marcatore_malformata_viene_saltata():
+    bookmaker = {"name": "Bet365", "bets": [{"name": "Anytime Goal Scorer", "values": [
+        {"value": "Lautaro Martinez", "odd": "abc"},
+        {"value": "", "odd": "3.00"},
+        {"value": "Marcus Thuram", "odd": "1.00"},
+        {"value": "Nicolo Barella"},
+        {"value": "Hakan Calhanoglu", "odd": "5.00"},
+    ]}]}
+
+    lette = parse_marcatori({"bookmakers": [bookmaker]})
+
+    assert [q.giocatore for q in lette] == ["Hakan Calhanoglu"]
+
+
+def test_la_raccolta_archivia_anche_i_marcatori(store, risposta_quote):
+    risposta_quote["bookmakers"].append(_marcatori())
+
+    esito = raccogli_quote(
+        ClientFinto(risposta_quote), store, [PartitaFinta(1, FISCHIO)], now=ADESSO
+    )
+
+    assert esito["marcatori"] == 5
+    assert store.conteggi()["quote_marcatori"] == 5
+    assert store.partite_con_marcatori() == [1]
+    # Le quote di sempre restano quelle di sempre: i marcatori non ci finiscono.
+    assert store.conteggi()["quote"] == esito["quote"]
+    assert {r["market"] for r in store.quote_di_chiusura(fixture_id=1)} == {
+        "1x2", "over_under", "btts", "clean_sheet",
+    }
+
+
+def test_i_marcatori_si_salvano_anche_senza_gli_altri_mercati(store):
+    """Una risposta con i soli marcatori non si butta: quelle quote non tornano."""
+    risposta = {"fixture": {"id": 1}, "bookmakers": [_marcatori()]}
+
+    esito = raccogli_quote(
+        ClientFinto(risposta), store, [PartitaFinta(1, FISCHIO)], now=ADESSO
+    )
+
+    assert esito["marcatori"] == 5
+    assert esito["senza_quote"] == 1
+    assert store.partite_quotate() == []
+
+
+def test_letture_ripetute_dei_marcatori_si_accumulano(store):
+    risposta = {"bookmakers": [_marcatori()]}
+    partita = [PartitaFinta(1, FISCHIO)]
+
+    raccogli_quote(ClientFinto(risposta), store, partita, now=ADESSO)
+    raccogli_quote(ClientFinto(risposta), store, partita, now=ADESSO + timedelta(hours=6))
+
+    assert store.conteggi()["quote_marcatori"] == 10
+
+
+def test_la_stessa_lettura_dei_marcatori_non_si_duplica(store):
+    """E' cio' che rende innocuo rilanciare il recupero dalla cache."""
+    lette = parse_marcatori({"bookmakers": [_marcatori()]})
+
+    primo = store.salva_quote_marcatori(
+        fixture_id=1, kickoff_utc=FISCHIO, quote=lette, now=ADESSO
+    )
+    secondo = store.salva_quote_marcatori(
+        fixture_id=1, kickoff_utc=FISCHIO, quote=lette, now=ADESSO
+    )
+
+    assert (primo, secondo) == (5, 0)
 
 
 # ---- chiusura e confronto ----------------------------------------------------

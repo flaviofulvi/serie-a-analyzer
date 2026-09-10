@@ -27,6 +27,16 @@ stessa linea, Si'/No. E' il metodo standard e ha un limite noto: tende a
 gonfiare gli esiti improbabili, dove il margine e' concentrato. Va bene per
 un confronto onesto fra Brier; sarebbe da raffinare (Shin, power) solo se un
 giorno si volesse scommetterci davvero.
+
+**Le quote sui marcatori si salvano a parte** (`parse_marcatori`). Arrivano
+nella stessa risposta, gia' pagata, e per un mese sono state buttate: come
+tutte le quote non tornano, quindi ogni giornata persa e' persa per sempre.
+Stanno fuori dalle altre per tre ragioni. Non hanno una probabilita': "chi
+segna" non e' un gruppo esaustivo — possono segnare in tre o nessuno — e il
+margine non si toglie normalizzando. Non hanno una selezione di
+`righe_mercati` con cui agganciarsi. E nominano il giocatore **per nome**,
+senza id: abbinarlo all'archivio e' lavoro di chi le usera', non di chi le
+salva, e un abbinamento sbagliato scritto oggi resterebbe per sempre.
 """
 
 from __future__ import annotations
@@ -177,6 +187,69 @@ def parse_quote(elemento: dict[str, Any]) -> list[QuotaLetta]:
     return lette
 
 
+# ---- marcatori -----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class QuotaMarcatore:
+    """Una quota su chi segna: solo la quota, perche' una probabilita' qui non si ricava."""
+
+    bookmaker: str
+    tipo: str            # 'segna' (in qualsiasi momento), 'primo', 'ultimo'
+    lato: str            # 'partita' (tutti i giocatori), 'casa', 'trasferta'
+    giocatore: str       # il nome come lo scrive il bookmaker: l'id non c'e'
+    decimal_odds: float
+
+
+# I nomi dei mercati come li scrive API-Football, verificati l'11/09/2026 sulle
+# risposte in cache. Le varianti "Home"/"Away" non sono doppioni: Betano offre
+# solo quelle, e sono l'unico secondo bookmaker che si abbia sui marcatori.
+_MARCATORI = {
+    "Anytime Goal Scorer": ("segna", "partita"),
+    "First Goal Scorer": ("primo", "partita"),
+    "Last Goal Scorer": ("ultimo", "partita"),
+    "Home Anytime Goal Scorer": ("segna", "casa"),
+    "Home First Goal Scorer": ("primo", "casa"),
+    "Home Last Goal Scorer": ("ultimo", "casa"),
+    "Away Anytime Goal Scorer": ("segna", "trasferta"),
+    "Away First Goal Scorer": ("primo", "trasferta"),
+    "Away Last Goal Scorer": ("ultimo", "trasferta"),
+}
+
+
+def parse_marcatori(elemento: dict[str, Any]) -> list[QuotaMarcatore]:
+    """Da un elemento di ``/odds`` alle quote su chi segna, di tutti i bookmaker.
+
+    Si scarta solo cio' che non e' una quota: un nome vuoto o una quota che non
+    si legge. Nessuna normalizzazione, per la ragione scritta in cima al modulo.
+    """
+    lette: list[QuotaMarcatore] = []
+    for bookmaker in elemento.get("bookmakers") or []:
+        nome_bk = str(bookmaker.get("name") or "").strip()
+        if not nome_bk:
+            continue
+        for bet in bookmaker.get("bets") or []:
+            tipo_lato = _MARCATORI.get(str(bet.get("name") or ""))
+            if tipo_lato is None:
+                continue
+            for v in bet.get("values") or []:
+                giocatore = str(v.get("value") or "").strip()
+                try:
+                    quota = float(v["odd"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not giocatore or quota <= 1.0:
+                    continue
+                lette.append(QuotaMarcatore(
+                    bookmaker=nome_bk,
+                    tipo=tipo_lato[0],
+                    lato=tipo_lato[1],
+                    giocatore=giocatore,
+                    decimal_odds=quota,
+                ))
+    return lette
+
+
 def consenso(quote: Iterable[QuotaLetta], minimo: int = MINIMO_BOOKMAKER) -> dict[tuple[str, str], float]:
     """La probabilita' su cui il mercato converge, per esito.
 
@@ -253,7 +326,7 @@ def raccogli_quote(
     interrotta e' un danno.
     """
     adesso = now or datetime.now(timezone.utc)
-    esito = {"partite": 0, "quote": 0, "senza_quote": 0, "richieste": 0}
+    esito = {"partite": 0, "quote": 0, "senza_quote": 0, "richieste": 0, "marcatori": 0}
 
     for f in partite_da_quotare(fixtures, now=adesso, entro_ore=entro_ore):
         if max_richieste is not None and esito["richieste"] >= max_richieste:
@@ -267,6 +340,17 @@ def raccogli_quote(
         esito["richieste"] += 1
 
         lette = [q for elemento in risposta for q in parse_quote(elemento)]
+
+        # Prima del controllo qui sotto, non dopo: una risposta con i soli
+        # marcatori resta "senza quote" per il confronto col modello, ma quelle
+        # che porta non tornano, e buttarle sarebbe lo spreco da cui nasce
+        # questo pezzo.
+        marcatori = [m for elemento in risposta for m in parse_marcatori(elemento)]
+        if marcatori:
+            esito["marcatori"] += registro.salva_quote_marcatori(
+                fixture_id=f.api_id, kickoff_utc=f.kickoff_utc, quote=marcatori, now=adesso
+            )
+
         if not lette:
             # Normale piu' di quanto sembri: non tutte le partite hanno quote,
             # e i bookmaker le pubblicano quando vogliono.

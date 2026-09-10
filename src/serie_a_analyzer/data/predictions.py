@@ -201,6 +201,29 @@ create table if not exists indisponibili (
 create index if not exists idx_indisponibili_fixture
     on indisponibili(fixture_id, minuti_al_via);
 
+-- Le quote su chi segna. Fuori da `odds` e non per ordine: li' ogni riga ha una
+-- probabilita' ripulita dal margine e una selezione che combacia col registro,
+-- e qui non c'e' ne' l'una ne' l'altra (vedi data/odds.py). Il giocatore e' un
+-- NOME, come lo scrive il bookmaker: l'id non arriva, e abbinarlo e' compito
+-- di chi legge, perche' un abbinamento sbagliato scritto qui resterebbe.
+create table if not exists quote_marcatori (
+    id            integer primary key,
+    fixture_id    integer not null,
+    bookmaker     text    not null,
+    tipo          text    not null check (tipo in ('segna', 'primo', 'ultimo')),
+    lato          text    not null check (lato in ('partita', 'casa', 'trasferta')),
+    giocatore     text    not null,
+    decimal_odds  real    not null check (decimal_odds > 1),
+    kickoff_utc   text    not null,
+    collected_at  text    not null,
+    -- Come per `odds`: la chiusura e' l'ultima lettura con valore >= 0.
+    minuti_al_via integer not null,
+    unique (fixture_id, bookmaker, tipo, lato, giocatore, collected_at)
+);
+
+create index if not exists idx_quote_marcatori_fixture
+    on quote_marcatori(fixture_id, minuti_al_via);
+
 -- I pronostici sono immutabili, e non per convenzione: il database rifiuta.
 create trigger if not exists predictions_sono_immutabili
 before update on predictions
@@ -738,6 +761,45 @@ class PredictionStore:
                 )
             ]
 
+    def salva_quote_marcatori(
+        self,
+        *,
+        fixture_id: int,
+        kickoff_utc: datetime,
+        quote: Iterable[Any],
+        now: datetime | None = None,
+    ) -> int:
+        """Archivia una lettura delle quote sui marcatori. Stessa forma di `salva_quote`.
+
+        La stessa lettura salvata due volte non si duplica: e' cio' che rende
+        innocuo rilanciare il recupero dalla cache.
+        """
+        adesso = now or _adesso()
+        minuti = int((kickoff_utc - adesso).total_seconds() // 60)
+        istante = adesso.isoformat(timespec="seconds")
+
+        with self._connessione() as conn:
+            prima = conn.total_changes
+            conn.executemany(
+                "insert or ignore into quote_marcatori (fixture_id, bookmaker, tipo, lato, "
+                "giocatore, decimal_odds, kickoff_utc, collected_at, minuti_al_via) "
+                "values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (fixture_id, q.bookmaker, q.tipo, q.lato, q.giocatore,
+                     float(q.decimal_odds), kickoff_utc.isoformat(), istante, minuti)
+                    for q in quote
+                ],
+            )
+            return conn.total_changes - prima
+
+    def partite_con_marcatori(self) -> list[int]:
+        with self._connessione() as conn:
+            return [
+                int(r[0]) for r in conn.execute(
+                    "select distinct fixture_id from quote_marcatori"
+                )
+            ]
+
     # ---- indisponibili ------------------------------------------------------
 
     def salva_indisponibili(
@@ -844,6 +906,10 @@ class PredictionStore:
                 "quote": quanti("odds"),
                 "partite_quotate": int(conn.execute(
                     "select count(distinct fixture_id) from odds"
+                ).fetchone()[0]),
+                "quote_marcatori": quanti("quote_marcatori"),
+                "partite_con_marcatori": int(conn.execute(
+                    "select count(distinct fixture_id) from quote_marcatori"
                 ).fetchone()[0]),
                 "indisponibili": quanti("indisponibili"),
                 "partite_con_indisponibili": int(conn.execute(
