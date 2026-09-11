@@ -20,6 +20,7 @@ from serie_a_analyzer.data.pesi import (
     PESO_PRODUZIONE,
     Rapporto,
     aggiusta_gol_attesi,
+    archivio_alla_vigilia,
     partite_recenti,
     pesi_squadra,
     produzione,
@@ -348,6 +349,36 @@ def test_la_finestra_prende_solo_le_concluse_e_recenti():
     scelte = partite_recenti(partite, ADESSO, giorni=120)
     assert len(scelte) == 1
     assert scelte[0].kickoff_utc == ADESSO - timedelta(days=5)
+
+
+class PartitaConId(PartitaFinta):
+    def __init__(self, api_id, giorni_fa, season=2026):
+        super().__init__(giorni_fa, season=season)
+        self.api_id = api_id
+
+
+def test_alla_vigilia_la_partita_da_pronosticare_non_entra_nei_suoi_pesi():
+    """Rigiocando il passato ogni partita e' finita, anche quella che si pronostica.
+
+    `partite_recenti` include l'istante stesso, e dal vivo va bene: la partita
+    non e' ancora finita. Nel backtest (lavoro 1b) la stessa finestra
+    metterebbe nei pesi i tre gol segnati quel giorno, e il metodo verrebbe
+    premiato per aver letto il risultato.
+    """
+    oggi = PartitaConId(1, 0)                     # comincia proprio ADESSO
+    ieri = PartitaConId(2, 1)
+    anno_prima = PartitaConId(3, 10, season=2025)  # oltre il mercato estivo
+    archivio = ArchivioGiocatori(prestazioni=[
+        _prestazione(1, 9, 90, gol=3, quando=ADESSO),
+        _prestazione(2, 9, 90, quando=ADESSO - timedelta(days=1)),
+        _prestazione(3, 9, 90, quando=ADESSO - timedelta(days=10)),
+    ])
+
+    # La trappola, com'e': la finestra di tutti i giorni la prenderebbe.
+    assert oggi in partite_recenti([oggi], ADESSO)
+
+    vista = archivio_alla_vigilia(archivio, [oggi, ieri, anno_prima], ADESSO, stagione=2026)
+    assert {p.fixture_id for p in vista.prestazioni} == {2}
 
 
 def test_la_finestra_non_scavalca_il_mercato_estivo():

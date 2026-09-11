@@ -108,11 +108,12 @@ PARTITE_DI_PRIOR = 5.0
 
 # Quanto dell'aggiustamento suggerito si applica davvero.
 #
-# ATTENZIONE: questo numero **non e' calibrato**. Dovra' uscire dal backtest —
-# si rigioca il passato con e senza aggiustamento e si guarda quale Brier e'
-# migliore — e finche' quel confronto non esiste resta una scelta prudente,
-# scritta qui perche' si veda. Meta' significa: credo alla direzione che il
-# metodo indica, non alla sua ampiezza.
+# Misurato l'11 settembre 2026 (`backtest.py --cerca-fattore`, quattro
+# stagioni): la curva e' piatta fra 0 e 0.5 e peggiora sopra. Il migliore e'
+# 0.25, ma sul secco vale 0.58 errori standard, e questo 0.5 vale quanto il
+# secco. Non si cambia: un ottimo che non si distingue dal caso non si
+# propone, e la macchina che lo userebbe e' spenta per la stessa misura
+# (`MACCHINA_ACCESA` in data/ufficiali.py).
 FATTORE_PREDEFINITO = 0.5
 
 # Tetto al movimento dei gol attesi, in entrambi i versi. Un giocatore
@@ -430,3 +431,39 @@ def partite_recenti(
         and inizio <= f.kickoff_utc <= adesso
         and (stagione is None or getattr(f, "season", None) == stagione)
     ]
+
+
+def archivio_alla_vigilia(
+    archivio,
+    fixtures: Iterable[Any],
+    prima_di,
+    stagione: int | None,
+    giorni: int = GIORNI_FINESTRA,
+):
+    """Le prestazioni che la macchina delle formazioni vedrebbe poco prima di ``prima_di``.
+
+    Serve a rigiocare il passato (`backtest.py --cerca-fattore`, lavoro 1b)
+    con la stessa finestra della macchina vera: `partite_recenti`, stessi
+    giorni e stessa stagione. Si parte da un archivio gia' costruito su tutto
+    e lo si restringe, invece di rileggere i tabellini dal disco a ogni
+    giornata: le prestazioni sono le stesse, e cambia solo il tempo.
+
+    Una differenza c'e', ed e' tutta qui: il taglio e' STRETTO. Dal vivo la
+    macchina gira prima del fischio, e la partita da pronosticare non e'
+    ancora finita — `partite_recenti` puo' permettersi di includere l'istante
+    stesso. Rigiocando il passato ogni partita e' finita, e con quel ``<=`` la
+    partita che si sta pronosticando entrerebbe nei suoi stessi pesi: il
+    backtest vedrebbe chi ha segnato quel giorno, e premierebbe il metodo per
+    aver letto il risultato.
+    """
+    from datetime import timedelta
+
+    from .players import ArchivioGiocatori
+
+    recenti = partite_recenti(
+        fixtures, prima_di - timedelta(microseconds=1), giorni=giorni, stagione=stagione
+    )
+    ids = {f.api_id for f in recenti}
+    return ArchivioGiocatori(
+        prestazioni=[p for p in archivio.prestazioni if p.fixture_id in ids]
+    )

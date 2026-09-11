@@ -29,6 +29,18 @@ partite in cui non c'era niente da confrontare.
 La macchina si accende da sola quando i tabellini bastano. Nessuno deve
 ricordarsi di accenderla.
 
+SPENTA PER MISURA, dall'11 settembre 2026
+
+Poi la misura e' arrivata prima dell'accensione (`backtest.py
+--cerca-fattore`, lavoro 1b): rigiocate quattro stagioni, il pronostico con le
+formazioni non batte il secco — ne' in media, ne' sulle formazioni piu'
+lontane dal solito. Da allora `MACCHINA_ACCESA` e' falso e qui non si scrive
+niente, pesi o non pesi. La distinta pero' si legge lo stesso, UNA volta per
+partita appena e' completa: serve ai probabili marcatori della scheda partita
+e all'archivio. Tutto il resto di questo modulo descrive la macchina accesa, e
+resta com'e' per il giorno in cui un metodo nuovo la riaccendesse — rifacendo
+prima la misura, perche' dalla prima riga non si torna indietro.
+
 DUE TRAPPOLE DA NON RIPETERE
 
 **Una formazione vuota non si salva.** Prima che escano, l'endpoint risponde
@@ -90,6 +102,12 @@ logger = logging.getLogger(__name__)
 # quarto d'ora e la prima lettura che trova qualcosa vince.
 FINESTRA_MINUTI = 75
 
+# Se la macchina scrive pronostici 'formazione ufficiale'. Spenta l'11
+# settembre 2026 per misura, prima della prima riga: vedi in cima al modulo e
+# `backtest.py --cerca-fattore`. Chi la riaccende rifaccia prima quella misura
+# con un metodo nuovo — i pronostici non si cancellano.
+MACCHINA_ACCESA = False
+
 
 def partite_imminenti(
     fixtures: Iterable[Any],
@@ -139,13 +157,20 @@ def pronostica_con_formazioni(
     entro_minuti: int = FINESTRA_MINUTI,
     fattore: float = FATTORE_PREDEFINITO,
     max_richieste: int | None = None,
+    accesa: bool | None = None,
 ) -> dict[str, int]:
     """Per ogni partita imminente: formazioni, pesi, e un pronostico in piu'.
 
     Non solleva. Ogni motivo per cui una partita viene saltata ha il suo
     contatore, perche' "non ha fatto niente" e "non ha potuto fare niente" sono
     due diagnosi diverse e chi guarda l'uscita deve poterle distinguere.
+
+    ``accesa`` a ``None`` vuol dire `MACCHINA_ACCESA`, letto al momento della
+    chiamata e non a quello della definizione: e' cio' che permette ai test di
+    provare la macchina accesa senza riaccenderla per tutti.
     """
+    if accesa is None:
+        accesa = MACCHINA_ACCESA
     adesso = now or datetime.now(timezone.utc)
     esito = {
         "esaminate": 0,
@@ -157,6 +182,10 @@ def pronostica_con_formazioni(
         "senza_modello": 0,
         "gia_iniziate": 0,
         "letture": 0,
+        # Solo a macchina spenta: distinte lette per l'archivio, e partite in
+        # cui la distinta completa c'era gia' e non si e' spesa niente.
+        "spenta": 0,
+        "gia_lette": 0,
     }
 
     for f in partite_imminenti(dataset.upcoming(), now=adesso, entro_minuti=entro_minuti):
@@ -167,6 +196,27 @@ def pronostica_con_formazioni(
 
         if registro.ultimo_per_partita(f.api_id, mode=MODE_UFFICIALE):
             esito["gia_registrate"] += 1
+            continue
+
+        if not accesa:
+            # Spenta per misura: nessun pronostico, ma la distinta serve lo
+            # stesso — ai probabili marcatori e all'archivio. Si legge finche'
+            # non e' completa e poi non piu': la cache delle formazioni dura
+            # cinque minuti, e da accesa la riga scritta chiudeva il caso. Da
+            # spenta nessuna riga lo chiude, e rileggerla a ogni giro sarebbe
+            # sul gratuito una manciata di richieste buttate per partita.
+            gia = store.load_detail(f.api_id, "lineups")
+            if gia and not formazione_provvisoria(gia):
+                esito["gia_lette"] += 1
+                continue
+            formazioni = leggi_formazioni(client, store, f.api_id)
+            esito["letture"] += 1
+            if not formazioni:
+                esito["senza_formazioni"] += 1
+            elif formazione_provvisoria(store.load_detail(f.api_id, "lineups")):
+                esito["formazioni_a_meta"] += 1
+            else:
+                esito["spenta"] += 1
             continue
 
         formazioni = leggi_formazioni(client, store, f.api_id)

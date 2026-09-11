@@ -324,6 +324,14 @@ La sezione non c'e' finche' di pronostici con le formazioni non ne esiste
 nessuno, ed e' giusto: una tabella vuota si leggerebbe come "provato e non ha
 reso", che e' diverso da "non ancora provato".
 
+DALL'11 SETTEMBRE 2026 NON COMPARIRA'
+  La prova e' stata fatta prima, sul passato: rigiocando quattro stagioni,
+  rifare il pronostico pesando chi scende in campo non lo migliorava — ne' in
+  media, ne' quando la formazione era molto diversa dal solito. I pronostici
+  con le formazioni quindi non si scrivono, e questa sezione resta vuota. Non
+  vuol dire che chi gioca non conti: vuol dire che il nostro modo di pesarlo
+  (gol, assist e tiri) ne coglie troppo poco.
+
 
 ================================================================================
 LA PRIMA PAGINA — classifica e forza stimata
@@ -410,6 +418,10 @@ LA SCHEDA PARTITA — il pronostico rifatto con le formazioni
 Compare solo se esiste davvero. Quando sono uscite le formazioni ufficiali il
 pronostico e' stato **rifatto**, pesando chi scende in campo davvero, e il
 vecchio non e' stato sostituito: restano tutti e due.
+
+Dall'11 settembre 2026 non compare piu': rigiocando quattro stagioni il
+pronostico rifatto non era migliore di quello secco, e non si scrive. Il
+perche' e' nella sezione della prima pagina sulle formazioni ufficiali.
 
 IL PRONOSTICO GRANDE IN CIMA RESTA IL SECCO
   Non perche' sia migliore — e' esattamente cio' che non si sa ancora — ma

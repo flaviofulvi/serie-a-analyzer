@@ -31,6 +31,7 @@ stagione diversa da quelle che il modello conosce misura un altro programma.
     python scripts/backtest.py --cerca-emivita        # quanto in fretta invecchia una partita
     python scripts/backtest.py --cerca-shrinkage      # quanto tirare verso la media di lega
     python scripts/backtest.py --marcatori            # quanto vale il pronostico su chi segna
+    python scripts/backtest.py --cerca-fattore        # quanto credere alle formazioni ufficiali
 """
 
 from __future__ import annotations
@@ -57,8 +58,18 @@ from serie_a_analyzer.data.dataset import Dataset, load_dataset
 from serie_a_analyzer.data.marcatori import StoriaMarcatori
 from serie_a_analyzer.data.panchine import Panchine, costruisci_panchine
 from serie_a_analyzer.data.parsers import FixtureRecord
-from serie_a_analyzer.data.players import costruisci_archivio
-from serie_a_analyzer.data.store import StoreUnito
+from serie_a_analyzer.data.pesi import (
+    FATTORE_PREDEFINITO,
+    Rapporto,
+    aggiusta_gol_attesi,
+    archivio_alla_vigilia,
+    pesi_squadra,
+    rapporto_produzione,
+    titolari_da_formazione,
+    vale_la_pena,
+)
+from serie_a_analyzer.data.players import costruisci_archivio, formazioni_partita
+from serie_a_analyzer.data.store import StoreUnito, formazione_provvisoria
 from serie_a_analyzer.model.dixon_coles import (
     DEFAULT_FATTORE_ALLENATORE,
     DEFAULT_GOAL_COMPRESSION,
@@ -844,6 +855,288 @@ def cerca_allenatore(
     return cerca_nella_stima(dataset, stagioni, RICERCA_ALLENATORE, panchine)
 
 
+# ---- le formazioni ufficiali ---------------------------------------------------
+#
+# Il lavoro 1b. `data/ufficiali.py` rifa' il pronostico quando escono le
+# formazioni, spostando i gol attesi di ogni squadra in proporzione alla
+# produzione che ha in campo (`data/pesi.py`); quanto spostarli lo decide
+# FATTORE_PREDEFINITO, scelto a occhio. Qui lo si sceglie col metodo del
+# progetto, sulle stagioni ricomprate, che hanno formazioni e tabellini di
+# ogni partita.
+#
+# Come la compressione, questo numero agisce DOPO la stima: ogni stagione si
+# rigioca una volta sola, e i fattori si provano rifacendo la matrice.
+#
+# Due scelte fatte PRIMA di guardare i numeri, perche' fatte dopo varrebbero
+# poco:
+#
+#   * si misura solo sulle partite in cui la macchina vera avrebbe scritto una
+#     riga (`vale_la_pena`), perche' e' su quelle che il sito confrontera' i
+#     due Brier (`confronto_fra_modi`). Sulle altre il pronostico con le
+#     formazioni non esiste, e contarle come pareggi annacquerebbe la misura;
+#   * il fattore si sceglie sulla SOMMA dei tre Brier, non sul solo 1X2 come i
+#     parametri della stima. I pesi spostano i gol attesi, cioe' tutti i
+#     mercati insieme, e i mercati dei gol sono proprio la parte che si spera
+#     di guadagnare (LAVORI.txt, 1b: "calibrare guardando solo l'1X2
+#     butterebbe via la parte che si spera di guadagnare").
+
+GRIGLIA_FATTORE = (0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0)
+assert FATTORE_PREDEFINITO in GRIGLIA_FATTORE, "il valore di oggi deve stare nella griglia"
+
+
+@dataclass(frozen=True)
+class PartitaConFormazioni:
+    """Un pronostico rigiocato, con la produzione che le due squadre avevano in campo."""
+
+    pred: Prediction
+    r_casa: Rapporto | None
+    r_ospite: Rapporto | None
+
+    @property
+    def scritta(self) -> bool:
+        """La macchina vera avrebbe scritto una riga 'formazione ufficiale'?"""
+        return vale_la_pena(self.r_casa, self.r_ospite)
+
+    def con_fattore(self, fattore: float) -> Prediction:
+        """Il pronostico con le formazioni, come lo farebbe `data/ufficiali.py`.
+
+        Si parte dai gol attesi COMPRESSI, perche' e' cio' che il modello vero
+        restituisce, e l'aggiustamento si applica dopo, senza ricomprimere.
+        Col fattore a zero l'aggiustamento non sposta niente: e' il pronostico
+        secco, e il confronto e' "con e senza" a un parametro solo.
+        """
+        p = self.pred
+        lam, mu = comprimi_totale(p.lam, p.mu, p.media_lega, DEFAULT_GOAL_COMPRESSION)
+        lam = aggiusta_gol_attesi(lam, self.r_casa, fattore)
+        mu = aggiusta_gol_attesi(mu, self.r_ospite, fattore)
+        return replace(p, probs=derive_markets(scoreline_matrix(lam, mu, p.rho)))
+
+
+def partite_con_formazioni(
+    dataset: Dataset, unito: StoreUnito, archivio, preds: list[Prediction], stagione: int
+) -> tuple[list[PartitaConFormazioni], Counter]:
+    """Per ogni pronostico rigiocato, i pesi che la macchina avrebbe avuto.
+
+    I pesi si calcolano al calcio d'inizio della prima partita della giornata,
+    lo stesso istante in cui `run_backtest` stima il modello. Dal vivo la
+    macchina gira 75 minuti prima di ogni partita, quindi la domenica sera
+    vede anche i tabellini del sabato: qui no. La misura e' quindi un po'
+    piu' povera del vero, mai piu' ricca.
+
+    I conteggi hanno gli stessi nomi dell'esito di `pronostica_con_formazioni`,
+    perche' raccontano le stesse cose.
+    """
+    tagli: dict[int, object] = {}
+    for f in dataset.finished:
+        if f.season == stagione and f.matchday is not None:
+            if f.matchday not in tagli or f.kickoff_utc < tagli[f.matchday]:
+                tagli[f.matchday] = f.kickoff_utc
+
+    per_giornata: dict[int, list[Prediction]] = defaultdict(list)
+    for p in preds:
+        per_giornata[p.matchday].append(p)
+
+    conti: Counter = Counter()
+    righe: list[PartitaConFormazioni] = []
+    for giornata in sorted(per_giornata):
+        vista = archivio_alla_vigilia(archivio, dataset.fixtures, tagli[giornata], stagione)
+        pesi: dict[int, object] = {}
+        for p in per_giornata[giornata]:
+            conti["partite"] += 1
+            f = dataset.by_id[p.fixture_id]
+            per_squadra = {fo.team_id: fo for fo in formazioni_partita(unito, f.api_id)}
+            casa = per_squadra.get(f.home_team_id)
+            ospite = per_squadra.get(f.away_team_id)
+            if casa is None or ospite is None:
+                conti["senza_formazioni"] += 1
+                righe.append(PartitaConFormazioni(p, None, None))
+                continue
+            if formazione_provvisoria(unito.load_detail(f.api_id, "lineups")):
+                conti["formazioni_a_meta"] += 1
+                righe.append(PartitaConFormazioni(p, None, None))
+                continue
+
+            rapporti = []
+            for squadra, formazione in ((f.home_team_id, casa), (f.away_team_id, ospite)):
+                if squadra not in pesi:
+                    pesi[squadra] = pesi_squadra(vista, squadra)
+                suoi = pesi[squadra]
+                rapporti.append(
+                    rapporto_produzione(suoi, titolari_da_formazione(formazione))
+                    if suoi else None
+                )
+            riga = PartitaConFormazioni(p, *rapporti)
+            conti["registrate" if riga.scritta else "senza_pesi"] += 1
+            righe.append(riga)
+    return righe, conti
+
+
+def _criterio_fattore(riga: tuple[float, float, float]) -> float:
+    """Cio' che il fattore minimizza: i tre Brier insieme. Vedi in cima alla sezione."""
+    return riga[0] + riga[1] + riga[2]
+
+
+def _migliore_fattore(scansioni: Sequence[dict[float, tuple[float, float, float]]]) -> float:
+    griglia = sorted(scansioni[0])
+    return min(
+        griglia,
+        key=lambda f: sum(_criterio_fattore(s[f]) for s in scansioni) / len(scansioni),
+    )
+
+
+def _costo_partita(p: Prediction) -> float:
+    """Il criterio su una partita sola, per la prova appaiata."""
+    uno_x_due = sum(
+        (prob - (1.0 if esito == p.outcome else 0.0)) ** 2
+        for esito, prob in (("1", p.probs.home_win), ("X", p.probs.draw), ("2", p.probs.away_win))
+    )
+    over = (p.probs.over[2.5] - (1.0 if p.total_goals >= 3 else 0.0)) ** 2
+    gol = (p.probs.btts - (1.0 if p.both_scored else 0.0)) ** 2
+    return uno_x_due + over + gol
+
+
+def _appaiata(coppie: list[tuple[PartitaConFormazioni, float]], contro: float = 0.0):
+    """Differenza media partita per partita, col suo errore standard.
+
+    E' la prova seria, la stessa che ha fermato la cura del difetto P1: la
+    media puo' migliorare perche' poche partite migliorano molto, e quella e'
+    la forma tanto di un effetto vero quanto del caso. Il rapporto fra media
+    ed errore standard dice quale dei due.
+    """
+    diff = [
+        _costo_partita(r.con_fattore(f)) - _costo_partita(r.con_fattore(contro))
+        for r, f in coppie
+    ]
+    n = len(diff)
+    media = sum(diff) / n
+    varianza = sum((d - media) ** 2 for d in diff) / (n - 1) if n > 1 else 0.0
+    errore = (varianza / n) ** 0.5
+    migliorate = sum(1 for d in diff if d < 0)
+    peggiorate = sum(1 for d in diff if d > 0)
+    return n, media, errore, migliorate, peggiorate
+
+
+def cerca_fattore(settings, store, dataset: Dataset, panchine: Panchine) -> int:
+    """Sceglie FATTORE_PREDEFINITO, e lo misura senza barare (lavoro 1b)."""
+    titolo("LE FORMAZIONI UFFICIALI - quanto credere ai pesi dei giocatori")
+    print("Quando escono le formazioni, la macchina sposta i gol attesi di ogni")
+    print("squadra in proporzione alla produzione che ha in campo. Il FATTORE")
+    print("decide quanto: 0.00 = niente (il pronostico secco), 1.00 = tutto")
+    print(f"quello che il metodo suggerisce. Oggi vale {FATTORE_PREDEFINITO:.2f}, scelto a occhio.")
+    print("Si misura solo sulle partite in cui la macchina avrebbe scritto una")
+    print("riga, e il fattore si sceglie sulla somma dei tre Brier.\n")
+
+    storici = list(build_storico_stores(settings).values())
+    unito = StoreUnito(stores=[store, *storici])
+    archivio = costruisci_archivio(unito, dataset.fixtures)
+    stagioni = sorted(
+        s for s, n in archivio.con_statistiche_per_stagione.items()
+        if n >= PARTITE_STAGIONE_COMPLETA
+    )
+    if len(stagioni) < 2:
+        print("Servono almeno due stagioni complete coi tabellini.\n")
+        return 1
+
+    per_stagione: dict[int, list[PartitaConFormazioni]] = {}
+    for s in stagioni:
+        preds, _ = run_backtest(dataset, s, compressione=1.0, panchine=panchine)
+        righe, conti = partite_con_formazioni(dataset, unito, archivio, preds, s)
+        scritte = [r for r in righe if r.scritta]
+        print(f"  stagione {s}: {conti['partite']} partite rigiocate, "
+              f"{conti['registrate']} con la riga 'formazione ufficiale' "
+              f"(senza pesi o spostamenti {conti['senza_pesi']}, senza formazioni "
+              f"{conti['senza_formazioni']}, distinta a meta' {conti['formazioni_a_meta']})")
+        if scritte:
+            per_stagione[s] = scritte
+
+    if len(per_stagione) < 2:
+        print("\nTroppo poche partite con una riga: non c'e' niente da scegliere.\n")
+        return 1
+
+    scansioni = {
+        s: {f: brier_dei_tre([r.con_fattore(f) for r in righe]) for f in GRIGLIA_FATTORE}
+        for s, righe in per_stagione.items()
+    }
+
+    titolo("La misura onesta: fattore scelto sulle altre stagioni, contro il secco")
+    print(f"{'stagione':<10}{'partite':>8}{'fattore':>9}{'1X2':>17}{'Over 2.5':>17}"
+          f"{'Gol/NoGol':>17}")
+    print("-" * 78)
+    deltas = [0.0, 0.0, 0.0]
+    scelti: dict[int, float] = {}
+    for s, scan in scansioni.items():
+        altre = [x for y, x in scansioni.items() if y != s]
+        f = _migliore_fattore(altre)
+        scelti[s] = f
+        base, con = scan[0.0], scan[f]
+        for i in range(3):
+            deltas[i] += con[i] - base[i]
+        print(f"{s:<10}{len(per_stagione[s]):>8}{f:>9.2f}"
+              f"{f'{base[0]:.4f}->{con[0]:.4f}':>17}"
+              f"{f'{base[1]:.4f}->{con[1]:.4f}':>17}"
+              f"{f'{base[2]:.4f}->{con[2]:.4f}':>17}")
+    n = len(scansioni)
+    print("-" * 78)
+    print(f"{'variazione media':<27}"
+          f"{deltas[0] / n:>+17.4f}{deltas[1] / n:>+17.4f}{deltas[2] / n:>+17.4f}")
+    print("\nNegativo = il pronostico con le formazioni fa meglio del secco.")
+
+    titolo("Il quadro intero: ogni fattore, in media sulle stagioni")
+    print("Serve a vedere la forma della curva, non a scegliere: qui il fattore")
+    print("e' misurato sulle stesse stagioni su cui e' scelto.\n")
+    print(f"{'fattore':<10}{'1X2':>12}{'Over 2.5':>12}{'Gol/NoGol':>12}{'somma':>12}")
+    print("-" * 58)
+    for f in GRIGLIA_FATTORE:
+        medie = [sum(s[f][i] for s in scansioni.values()) / n for i in range(3)]
+        segno = "  <- oggi" if f == FATTORE_PREDEFINITO else ""
+        print(f"{f:<10.2f}{medie[0]:>12.4f}{medie[1]:>12.4f}{medie[2]:>12.4f}"
+              f"{sum(medie):>12.4f}{segno}")
+    print(f"\n{'stagione':<10}" + "".join(f"{f:>9.2f}" for f in GRIGLIA_FATTORE))
+    print("-" * (10 + 9 * len(GRIGLIA_FATTORE)))
+    for s, scan in scansioni.items():
+        print(f"{s:<10}" + "".join(f"{_criterio_fattore(scan[f]):>9.4f}" for f in GRIGLIA_FATTORE))
+    print("(la somma dei tre Brier per stagione e fattore: se il minimo salta da")
+    print(" un valore all'altro, il fattore vero non e' determinato dai dati.)")
+
+    titolo("La prova appaiata, partita per partita")
+    coppie_oneste = [(r, scelti[s]) for s, righe in per_stagione.items() for r in righe]
+    coppie_oggi = [(r, FATTORE_PREDEFINITO) for righe in per_stagione.values() for r in righe]
+    for etichetta, coppie in (
+        ("fattore scelto sulle altre, contro il secco", coppie_oneste),
+        (f"il {FATTORE_PREDEFINITO:.2f} di oggi, contro il secco", coppie_oggi),
+    ):
+        quante, media, errore, meglio, peggio = _appaiata(coppie)
+        rapporto = media / errore if errore else 0.0
+        print(f"{etichetta}:")
+        print(f"  {quante} partite, differenza media {media:+.5f} "
+              f"({rapporto:+.2f} errori standard)")
+        print(f"  migliorate {meglio}, peggiorate {peggio}\n")
+    print("Sotto i due errori standard la differenza non si distingue dal caso:")
+    print("e' la regola con cui e' stata fermata la cura del difetto P1.")
+
+    scelto = _migliore_fattore(list(scansioni.values()))
+    guadagno = sum(deltas) / n
+    _, media, errore, _, _ = _appaiata(coppie_oneste)
+    rapporto = media / errore if errore else 0.0
+    titolo(f"IL VERDETTO - fattore migliore sulle stagioni insieme: {scelto:.2f}")
+    if scelto == 0.0 or guadagno >= 0:
+        print("Scelto senza guardare la risposta, il pronostico con le formazioni")
+        print(f"non fa meglio del secco ({guadagno:+.4f} sulla somma dei Brier).")
+        print("Attenzione a cosa vorrebbe dire metterlo a zero: `vale_la_pena`")
+        print("guarda i rapporti, non il fattore, quindi la macchina scriverebbe")
+        print("righe identiche al secco. Spegnerla e' un'altra decisione.")
+    elif rapporto > -2.0:
+        print(f"Scelto sulle altre stagioni migliora di {guadagno:+.4f} la somma dei")
+        print(f"Brier, ma la prova appaiata si ferma a {rapporto:+.2f} errori standard:")
+        print("non si distingue dal caso. Con la regola del progetto non passa.")
+    else:
+        print(f"Scelto sulle altre stagioni migliora di {guadagno:+.4f} la somma dei")
+        print(f"Brier, e la prova appaiata dice {rapporto:+.2f} errori standard: e' un")
+        print("effetto vero. E' il valore da mettere in FATTORE_PREDEFINITO")
+        print("(data/pesi.py).")
+    return 0
+
+
 # ---- presentazione ---------------------------------------------------------
 
 
@@ -1068,6 +1361,12 @@ def main() -> int:
         help="misura il pronostico su chi segna sulle stagioni coi tabellini "
              "(con --stagione, una sola). Zero richieste",
     )
+    parser.add_argument(
+        "--cerca-fattore",
+        action="store_true",
+        help="sceglie quanto credere alle formazioni ufficiali (FATTORE_PREDEFINITO) "
+             "rigiocando le stagioni coi tabellini. Zero richieste",
+    )
     args = parser.parse_args()
     if not 0.0 <= args.compressione <= 1.0:
         print("\n--compressione va da 0 a 1.\n")
@@ -1107,7 +1406,7 @@ def main() -> int:
 
     ricerche = (
         args.cerca_compressione, args.cerca_allenatore,
-        args.cerca_emivita, args.cerca_shrinkage,
+        args.cerca_emivita, args.cerca_shrinkage, args.cerca_fattore,
     )
     if sum(bool(r) for r in ricerche) > 1:
         # Due ricerche insieme non sono due misure: la seconda partirebbe
@@ -1123,6 +1422,12 @@ def main() -> int:
             return 1
         panchine = carica_panchine(settings, store, dataset)
         esito = misura_marcatori(settings, store, dataset, panchine, args.stagione)
+        print(f"\nRichieste API spese: {client.budget.used - prima}")
+        return esito
+
+    if args.cerca_fattore:
+        panchine = carica_panchine(settings, store, dataset)
+        esito = cerca_fattore(settings, store, dataset, panchine)
         print(f"\nRichieste API spese: {client.budget.used - prima}")
         return esito
 

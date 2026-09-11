@@ -10,12 +10,13 @@ quegli orari cade dove serve.
     python scripts/formazioni_ufficiali.py --stato     # com'e' messa la macchina, 0 richieste
     python scripts/formazioni_ufficiali.py --entro 45  # solo le partite entro 45 minuti
 
-LA MACCHINA NASCE SPENTA
-Il peso di un giocatore si misura dai tabellini, e finche' sul disco non ce ne
-sono abbastanza questo comando non scrive nulla — dice perche', e non spende
-quasi niente. Si accende da sola quando i dati bastano: `--stato` risponde
-esattamente a "quanto manca". Vedi `data/pesi.py` per il metodo e
-`data/ufficiali.py` per il perche' del "non scrive nulla".
+LA MACCHINA E' SPENTA PER MISURA, dall'11 settembre 2026
+Rigiocate quattro stagioni (`backtest.py --cerca-fattore`), il pronostico con
+le formazioni non batte il secco: `MACCHINA_ACCESA` in data/ufficiali.py e'
+falso, e questo comando non scrive pronostici. Continua pero' a leggere la
+distinta, una volta per partita appena e' completa, perche' serve ai probabili
+marcatori e all'archivio. Da accesa, la macchina non scriverebbe nulla finche'
+i tabellini non bastano: `--stato` dice anche quello.
 
 Uscita 0 sempre che il giro sia arrivato in fondo: una partita senza formazioni
 non e' un guasto, e' presto.
@@ -51,6 +52,7 @@ from serie_a_analyzer.data.players import costruisci_archivio  # noqa: E402
 from serie_a_analyzer.data.store import StoreUnito  # noqa: E402
 from serie_a_analyzer.data.ufficiali import (  # noqa: E402
     FINESTRA_MINUTI,
+    MACCHINA_ACCESA,
     partite_imminenti,
     pronostica_con_formazioni,
 )
@@ -139,7 +141,9 @@ def _avvisa(settings, dataset, archivio, registro, partite) -> list[str]:
     mandati: list[str] = []
 
     pronte, per_partite = _squadre_pronte(dataset, archivio)
-    if pronte and not invii.gia_inviato("formazioni-accese"):
+    # Spenta per misura, "si e' accesa" sarebbe una bugia: i pesi ci sono, i
+    # pronostici no.
+    if MACCHINA_ACCESA and pronte and not invii.gia_inviato("formazioni-accese"):
         if telegram.manda(allarme_formazioni_accese(len(pronte), len(per_partite))):
             invii.segna("formazioni-accese")
             mandati.append("formazioni-accese")
@@ -200,7 +204,12 @@ def _stampa_stato(dataset, archivio, n_recenti: int, adesso: datetime) -> None:
     print(f"\nSquadre con pesi:       {len(pronte)}/{len(per_partite)} "
           f"(servono {MINIMO_PARTITE} partite con tabellino a testa)")
 
-    if not pronte:
+    if not MACCHINA_ACCESA:
+        print("\nLa macchina e' SPENTA PER MISURA (11 settembre 2026): rigiocate")
+        print("quattro stagioni, il pronostico con le formazioni non batte il")
+        print("secco (backtest.py --cerca-fattore). Le distinte si leggono una")
+        print("volta per partita, per i probabili marcatori e l'archivio.")
+    elif not pronte:
         mancanti = MINIMO_PARTITE - max((n for _, n in per_partite), default=0)
         print("\nLa macchina e' SPENTA, ed e' giusto cosi': senza tabellini i pesi")
         print("sarebbero numeri a caso, e una riga 'formazione ufficiale' identica")
@@ -238,7 +247,8 @@ def main() -> int:
         default=FATTORE_PREDEFINITO,
         help=(
             f"quanto dell'aggiustamento applicare (default {FATTORE_PREDEFINITO}). "
-            "NON e' calibrato: dovra' uscire dal backtest"
+            "misurato e piatto (backtest.py --cerca-fattore); conta solo a "
+            "macchina accesa"
         ),
     )
     parser.add_argument(
@@ -309,6 +319,9 @@ def main() -> int:
     print(f"Squadra senza storia: {esito['senza_modello']}")
     print(f"Gia' iniziate:        {esito['gia_iniziate']}")
     print(f"Letture spese:        {esito['letture']}")
+    if not MACCHINA_ACCESA:
+        print(f"Distinte salvate:     {esito['spenta']}  (macchina spenta: per l'archivio)")
+        print(f"Distinte gia' intere: {esito['gia_lette']}  (nessuna richiesta)")
 
     # Le notifiche per ultime e senza poter far fallire niente: un messaggio
     # perso e' un fastidio, un pronostico non registrato prima del via e' un
@@ -323,7 +336,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - vedi sopra: qui non si solleva
         logger.warning("notifiche non mandate: %s", exc)
 
-    if esito["esaminate"] and not esito["registrate"] and esito["senza_pesi"]:
+    if MACCHINA_ACCESA and esito["esaminate"] and not esito["registrate"] and esito["senza_pesi"]:
         print("\nNessun pronostico scritto perche' i tabellini non bastano ancora.")
         print("E' il comportamento voluto. `--stato` dice quanto manca.")
 

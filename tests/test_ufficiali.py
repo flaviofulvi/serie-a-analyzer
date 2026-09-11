@@ -31,6 +31,7 @@ from serie_a_analyzer.data.predictions import (
 )
 from serie_a_analyzer.data.store import SeasonStore
 from serie_a_analyzer.data.ufficiali import (
+    MACCHINA_ACCESA as ACCESA_NEL_CODICE,  # letta prima che la fixture la accenda
     leggi_formazioni,
     partite_imminenti,
     pronostica_con_formazioni,
@@ -40,6 +41,18 @@ from serie_a_analyzer.model.dixon_coles import FittedModel
 ADESSO = datetime(2026, 8, 22, 16, 0, tzinfo=timezone.utc)
 FISCHIO = datetime(2026, 8, 22, 16, 30, tzinfo=timezone.utc)
 CASA, OSPITE = 505, 503
+
+
+@pytest.fixture(autouse=True)
+def macchina_accesa(monkeypatch):
+    """I test di questo file descrivono la macchina ACCESA.
+
+    Cioe' come si comporterebbe il giorno in cui un metodo nuovo la
+    riaccendesse. Dall'11 settembre 2026 e' spenta per misura
+    (`MACCHINA_ACCESA`), quindi qui va accesa apposta; la macchina spenta ha i
+    suoi test in fondo, e passano ``accesa=False`` per esteso.
+    """
+    monkeypatch.setattr("serie_a_analyzer.data.ufficiali.MACCHINA_ACCESA", True)
 
 
 @dataclass
@@ -463,3 +476,68 @@ def test_il_fattore_a_zero_spegne_l_aggiustamento(store, registro, formazioni_ve
     ufficiale = registro.ultimo_per_partita(1, mode=MODE_UFFICIALE)
     assert esito["registrate"] == 1
     assert ufficiale["lambda_home"] == pytest.approx(lam)
+
+
+# ---- la macchina spenta ------------------------------------------------------
+#
+# Dall'11 settembre 2026, per misura: rigiocate quattro stagioni il pronostico
+# con le formazioni non batte il secco (`backtest.py --cerca-fattore`).
+
+
+def _spenta(cliente, store, registro):
+    return pronostica_con_formazioni(
+        cliente, store, registro,
+        model=_modello(),
+        dataset=DatasetFinto([PartitaFinta()]),
+        archivio=_archivio_pieno(),
+        now=ADESSO,
+        accesa=False,
+    )
+
+
+def test_la_macchina_vera_e_spenta():
+    """La costante com'e' nel codice, non come la accende la fixture qui sopra.
+
+    Chi la rimette a True deve aver rifatto la misura con un metodo nuovo: dal
+    primo pronostico scritto non si torna indietro.
+    """
+    assert ACCESA_NEL_CODICE is False
+
+
+def test_spenta_non_scrive_niente_nemmeno_coi_pesi(store, registro, formazioni_vere):
+    """Pesi pronti, distinta intera, bomber in panchina: da accesa scriverebbe."""
+    esito = _spenta(ClienteFinto(formazioni_vere), store, registro)
+    assert esito["registrate"] == 0
+    assert esito["spenta"] == 1
+    assert registro.ultimo_per_partita(1, mode=MODE_UFFICIALE) is None
+
+
+def test_spenta_la_distinta_si_salva_lo_stesso(store, registro, formazioni_vere):
+    """Serve ai probabili marcatori della scheda partita e all'archivio."""
+    _spenta(ClienteFinto(formazioni_vere), store, registro)
+    assert store.load_detail(1, "lineups")
+
+
+def test_spenta_una_distinta_intera_non_si_rilegge(store, registro, formazioni_vere):
+    """Da accesa la riga scritta chiudeva il caso; da spenta lo chiude la distinta.
+
+    Senza, sul gratuito, ogni partita si rileggerebbe a ogni quarto d'ora
+    della finestra: cinque richieste per sapere una cosa gia' saputa.
+    """
+    cliente = ClienteFinto(formazioni_vere)
+    _spenta(cliente, store, registro)
+    secondo = _spenta(cliente, store, registro)
+    assert cliente.chiamate == 1
+    assert secondo["gia_lette"] == 1
+    assert secondo["letture"] == 0
+
+
+def test_spenta_una_distinta_a_meta_si_rilegge(store, registro, formazioni_vere):
+    dieci = [_blocco(CASA, "Inter", [100 + i for i in range(1, 11)]), formazioni_vere[1]]
+    primo = _spenta(ClienteFinto(dieci), store, registro)
+    assert primo["formazioni_a_meta"] == 1
+
+    cliente = ClienteFinto(formazioni_vere)
+    secondo = _spenta(cliente, store, registro)
+    assert cliente.chiamate == 1
+    assert secondo["spenta"] == 1

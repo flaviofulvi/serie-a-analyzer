@@ -509,12 +509,28 @@ Da qui l'intera forma di `data/`:
   mancanti: una distinta a dieci ha esattamente l'aspetto di una completa. Il metodo **vede gli
   attaccanti, non i difensori**, ed è un limite da dichiarare in pagina, non da
   compensare con un'ipotesi — i tiri **non** lo curano, misurano chi sta
-  davanti esattamente come gol e assist. `FATTORE_PREDEFINITO` **non è calibrato**: dovrà
-  uscire dal backtest.
+  davanti esattamente come gol e assist. `FATTORE_PREDEFINITO` è stato
+  **misurato l'11 settembre 2026** (`backtest.py --cerca-fattore`) ed è
+  piatto: vedi `ufficiali.py` qui sotto.
 - `ufficiali.py` — il pronostico rifatto quando escono le formazioni, in
   `MODE_UFFICIALE` **accanto** a quello secco e mai al suo posto: due
   pronostici sulla stessa partita sono l'unico modo di scoprire se il lavoro
-  serve, confrontando i Brier fra qualche mese. Non scrive **nessuna riga**
+  serve, confrontando i Brier fra qualche mese.
+  **Dall'11 settembre 2026 è spenta per misura** (`MACCHINA_ACCESA = False`),
+  prima ancora di scrivere una riga. Rigiocate quattro stagioni
+  (`backtest.py --cerca-fattore`, 1124 partite), il pronostico con le
+  formazioni non batte il secco: fattore migliore 0.25, 0.58 errori standard
+  nella prova appaiata, e **peggio** del secco proprio sulle formazioni più
+  lontane dal solito (+1.22). I pesi puntano nella direzione giusta ma
+  spostano troppo poco — una formazione si scosta da quella tipo del 6% in
+  mediana — e non vedono difensori e portiere. Il confronto dal vivo non
+  sarebbe mai arrivato a un verdetto. Spenta, legge comunque la distinta
+  **una volta per partita**, appena è completa: serve ai probabili marcatori
+  e all'archivio, e rileggerla a ogni giro (la cache delle formazioni dura
+  cinque minuti) sarebbe sul gratuito una manciata di richieste buttate per
+  partita. Il resto di questo paragrafo descrive la macchina accesa, e resta
+  vero per il giorno in cui un metodo nuovo la riaccendesse — rifacendo prima
+  la misura. Non scrive **nessuna riga**
   finché i pesi non esistono o non spostano niente (`vale_la_pena`): i
   pronostici sono immutabili, e una riga identica a quella secca non sarebbe
   inutile ma dannosa — direbbe "misurato" dove non c'era niente da misurare.
@@ -1191,13 +1207,12 @@ fosse, questa sezione è l'unica traccia che ne rimane.
 **I numeri dei lavori non si riusano**: quelli chiusi lasciano il posto vuoto,
 così i riferimenti nei commenti del codice continuano a puntare alla cosa
 giusta. Vale anche per i numeri dei difetti, che nel file unito conservano le
-lettere che avevano. All'11 settembre 2026 — chiuso **C1** — l'ordine è:
-l'**1b** (calibrare il fattore delle formazioni, **prima del 10 ottobre**),
-le tre righe del **24 settembre** e il **5** da quel giorno, poi il **6**, il
-resto del **10**, il **2**; l'**1** si accende da solo e **P1** aspetta una
-quinta stagione, perché prima di allora rifarlo darebbe lo stesso numero. Il
-perché dell'ordine sta in `LAVORI.txt`. Solo il 5 costa una richiesta; tutto
-il resto è gratis e si paga in tempo.
+lettere che avevano. All'11 settembre 2026 — chiusi **C1** e, misurati e
+spenti, l'**1**, l'**1b** e il **2** — l'ordine è: le tre righe del **24
+settembre** e il **5** da quel giorno, poi il **6** e il resto del **10**;
+**P1** aspetta una quinta stagione, perché prima di allora rifarlo darebbe lo
+stesso numero. Il perché dell'ordine sta in `LAVORI.txt`. Solo il 5 costa una
+richiesta; tutto il resto è gratis e si paga in tempo.
 
 Il 9 — chiuso lo stesso giorno in cui è nato — saltava il **7**, e P1 salta
 la **O**: i due motivi sono diversi. Del 7
@@ -1218,19 +1233,17 @@ serve a dimenticare la *forma di una squadra*, e viene applicata anche a
 anni, non con le settimane. La prova è un'emivita separata per i parametri di
 lega, misurata col metodo del progetto. Se è piatta, muore.
 
-**1 — le formazioni ufficiali.** Predisposte e **spente**, ed è la regola, non
-un bug: `data/pesi.py` e `data/ufficiali.py` non scrivono niente finché una
-squadra non ha 5 partite con tabellino nella stagione in corso. Si accende da
-sola dopo la giornata del 18-20 settembre, e dopo la sosta — **10 ottobre** —
-scrive le prime righe. `FATTORE_PREDEFINITO`, l'unico numero di quel lavoro
-scelto a occhio, va calibrato **prima**: è l'**1b**, e non aspetta nessun dato
-— le quattro stagioni ricomprate hanno formazioni e tabellini di ogni partita.
-Manca il codice del backtest.
+**1, 1b — le formazioni ufficiali. CHIUSI l'11 settembre 2026.** Il fattore
+è stato misurato prima che la macchina scrivesse una riga, sulle quattro
+stagioni ricomprate (che hanno formazioni e tabellini di ogni partita), ed è
+piatto: vedi `ufficiali.py` qui sopra e le idee morte qui sotto. La macchina
+è spenta (`MACCHINA_ACCESA`), il codice resta.
 
-**2 — gli indisponibili dentro il pronostico.** Metà fatto: si raccolgono e si
-vedono (`data/indisponibili.py`), e la scheda partita dichiara che il
-pronostico non ne tiene conto. L'altra metà — quanto pesa chi manca — è
-esattamente il metodo del lavoro 1 e ne ha la stessa dipendenza.
+**2 — gli indisponibili dentro il pronostico. CHIUSO con l'1.** Si
+raccolgono e si vedono (`data/indisponibili.py`), e la scheda partita
+dichiara che il pronostico non ne tiene conto. L'altra metà — quanto pesa chi
+manca — era esattamente il metodo del lavoro 1 applicato a un'altra lista, e
+quel metodo non migliora il pronostico.
 
 **5 — gli xG della stagione in corso.** Si aspetta il downgrade, e la prova è
 **una richiesta**: `/fixtures/statistics?fixture=<una partita del 2026>` dice
@@ -1317,6 +1330,10 @@ comincia il 6 passi prima di qui.
   i limiti dagli header   11/09/2026   C1: contatore e freno seguono il
                                        server, e il 24 settembre non va
                                        ricordato niente; salire resta a mano
+  le formazioni ufficiali 11/09/2026   1b misurato e piatto: macchina
+                                       spenta, la distinta si legge una
+                                       volta per partita (lavori 1 e 2
+                                       chiusi con lei)
 
 ### Le idee che sembrano buone e non lo sono
 
@@ -1360,6 +1377,16 @@ l'elenco, perché è la parte che si tende a riproporre.
   quattro, e il modello è già troppo largo.
 - **ritoccare l'emivita o lo shrinkage.** Misurati, e lo shrinkage è l'unico
   parametro con un ottimo interno vero. Chi li tocca deve rifare la misura.
+- **accendere le formazioni ufficiali col metodo dei pesi.** Misurato l'11
+  settembre 2026 (`backtest.py --cerca-fattore`), zero richieste: pesare chi
+  scende in campo da gol, assist e tiri non migliora il pronostico, né in
+  media (0.58 errori standard) né sulle formazioni più lontane dal solito,
+  dove fa **peggio** (+1.22, pendenza −0.05 ± 0.24). Non vuol dire che chi
+  gioca non conti — i bookmaker spostano le quote quando escono le
+  formazioni — ma che questo metodo ne coglie troppo poco: vede la direzione
+  giusta (pendenza +0.28 ± 0.18 su tutto) e non vede difensori e portiere.
+  Chi riprova porti un'idea nuova — i difensori, il movimento delle quote fra
+  vigilia e fischio — e rifaccia la misura prima di accendere.
 
 Sui mercati dei gol, due cose da ricordare ora che il lavoro è fatto. La
 compressione **toglie un danno, non aggiunge una capacità**: si arriva a
