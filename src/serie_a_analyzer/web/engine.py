@@ -598,6 +598,26 @@ class Engine:
             logger.warning("registro dei pronostici illeggibile", exc_info=True)
             return None
 
+    def _stato_budget(self) -> dict:
+        """Il budget come lo mostra `/stato`.
+
+        ``budget_limite`` e' il tetto IN VIGORE, non quello del .env: il giorno
+        del downgrade la testata deve dire 100 anche se il .env dice ancora
+        7500, perche' e' 100 quello che il contatore rispetta.
+        """
+        budget = self.client.budget
+        usate, limite = budget.usate_e_limite()
+        piano = budget.piano_dichiarato() or {}
+        return {
+            "budget_usato": usate,
+            "budget_limite": limite,
+            # None finche' nessuna risposta vera ha portato gli header: "non
+            # lo so", e non un limite.
+            "limite_dichiarato_giorno": piano.get("giorno"),
+            "limite_dichiarato_minuto": piano.get("minuto"),
+            "freno_secondi": self.client.intervallo_in_vigore,
+        }
+
     def health(self) -> dict:
         """Cosa sa e cosa non sa il sistema, in forma mostrabile all'utente."""
         snap = self.snapshot()
@@ -657,7 +677,6 @@ class Engine:
             "esiti_risolti": quante("esiti_risolti"),
             "partite_quotate": quante("partite_quotate"),
             "partite_con_indisponibili": quante("partite_con_indisponibili"),
-            "budget_usato": self.client.budget.used,
-            "budget_limite": self.settings.daily_request_limit,
+            **self._stato_budget(),
             "errore": snap.error,
         }

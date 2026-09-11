@@ -285,7 +285,7 @@ def main() -> int:
         return 0
 
     separatore("FORMAZIONI UFFICIALI")
-    print(f"Budget disponibile: {motore.client.budget.remaining}/{settings.daily_request_limit}")
+    print(f"Budget disponibile: {motore.client.budget.remaining}/{motore.client.budget.limite_in_vigore}")
     print(f"Partite con tabellino nella finestra: {archivio.partite_con_statistiche}")
 
     esito = pronostica_con_formazioni(

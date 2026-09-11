@@ -323,7 +323,7 @@ def main() -> int:
         dettagli_rimandati = True
 
     separatore("RACCOLTA GIORNALIERA")
-    print(f"Budget disponibile: {client.budget.remaining}/{settings.daily_request_limit}")
+    print(f"Budget disponibile: {client.budget.remaining}/{client.budget.limite_in_vigore}")
     print(f"Archivio:           {settings.store_dir}")
     if dettagli_rimandati:
         print(
@@ -496,7 +496,7 @@ def main() -> int:
     print(f"Partite di Serie A in archivio: {s['partite']}")
     print(f"Partite con dettagli:           {s['con_dettagli']}")
     print(f"Giorni raccolti finora:         {len(raccolti)}")
-    print(f"Budget usato oggi:              {client.budget.used}/{settings.daily_request_limit}")
+    print(f"Budget usato oggi:              {client.budget.used}/{client.budget.limite_in_vigore}")
     print(f"Per priorita':                  {client.budget.usage_by_priority()}")
 
     if errori:

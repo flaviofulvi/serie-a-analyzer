@@ -27,6 +27,8 @@ RADICE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RADICE / "src"))
 
 from serie_a_analyzer.config import ConfigError, load_settings  # noqa: E402
+from serie_a_analyzer.data.budget import RequestBudget  # noqa: E402
+from serie_a_analyzer.data.client import intervallo_per_tetto  # noqa: E402
 from serie_a_analyzer.data.daily import window_days  # noqa: E402
 from serie_a_analyzer.data.store import DayJournal, SeasonStore  # noqa: E402
 
@@ -314,19 +316,38 @@ def controlla_finestra(journal) -> None:
 
 def controlla_budget(settings) -> None:
     sezione("Budget e archivio")
-    stato = {}
-    if settings.budget_file.exists():
-        try:
-            stato = json.loads(settings.budget_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            avviso("file del budget illeggibile: verra' ricreato")
-
-    usate = int(stato.get("used", 0)) if stato.get("day") == date.today().isoformat() else 0
-    residuo = settings.daily_request_limit - usate
+    # Il contatore si legge com'e' letto dal client e non riaprendo il JSON a
+    # mano: il giorno e' quello UTC dell'API e non quello locale — che fra
+    # mezzanotte e le due d'estate avrebbe dato un giorno diverso — e il
+    # limite e' il piu' basso fra .env e ultima dichiarazione del server.
+    budget = RequestBudget(
+        state_path=settings.budget_file, daily_limit=settings.daily_request_limit
+    )
+    usate, limite = budget.usate_e_limite()
+    residuo = max(0, limite - usate)
     if residuo <= 10:
-        avviso(f"budget quasi esaurito: {residuo}/{settings.daily_request_limit} richieste")
+        avviso(f"budget quasi esaurito: {residuo}/{limite} richieste")
     else:
-        ok(f"budget: {residuo}/{settings.daily_request_limit} richieste disponibili oggi")
+        ok(f"budget: {residuo}/{limite} richieste disponibili oggi")
+
+    piano = budget.piano_dichiarato()
+    if piano is None:
+        print("       (l'API non ha ancora dichiarato i suoi limiti: vale il .env)")
+    else:
+        giorno, minuto = piano.get("giorno"), piano.get("minuto")
+        ok(f"limiti dichiarati dall'API: {giorno} al giorno, {minuto} al minuto "
+           f"(dal {str(piano.get('dal', '?'))[:10]})")
+        configurato = settings.daily_request_limit
+        if giorno and giorno < configurato:
+            avviso(f"DAILY_REQUEST_LIMIT nel .env dice {configurato}, l'API {giorno}: "
+                   f"il contatore usa gia' {giorno}, il .env va solo messo in pari")
+        elif giorno and giorno > configurato:
+            avviso(f"DAILY_REQUEST_LIMIT nel .env dice {configurato}, l'API {giorno}: "
+                   "un limite piu' alto non si prende da solo, va alzato il .env")
+        if minuto and settings.api_min_interval_seconds < intervallo_per_tetto(minuto):
+            avviso(f"API_MIN_INTERVAL_SECONDS nel .env e' {settings.api_min_interval_seconds:g}s, "
+                   f"un tetto di {minuto} al minuto ne vuole "
+                   f"{intervallo_per_tetto(minuto):g}: il freno li usa gia' da solo")
 
     s = SeasonStore(root=settings.store_dir).stats()
     ok(f"archivio: {s['partite']} partite, {s['con_dettagli']} con dettagli")

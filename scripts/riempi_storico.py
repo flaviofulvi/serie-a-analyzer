@@ -182,7 +182,7 @@ def main() -> int:
     # --- cosa costa ----------------------------------------------------------
     separatore("STAGIONI DA RIEMPIRE")
     print(f"Archivio di destinazione: {settings.storico_dir}")
-    print(f"Budget disponibile oggi:  {client.budget.remaining}/{settings.daily_request_limit}")
+    print(f"Budget disponibile oggi:  {client.budget.remaining}/{client.budget.limite_in_vigore}")
     print(f"Stagioni richieste:       {', '.join(str(s) for s in stagioni)}")
     print(f"Dettagli richiesti:       {', '.join(tipi)}"
           + ("" if len(tipi) == len(DETAIL_KINDS) else "  (gli altri si comprano dopo)"))
@@ -275,7 +275,7 @@ def main() -> int:
               f"{dettagli_in_sospeso(store, tipi)} richieste ancora da fare"
               + ("" if len(tipi) == len(DETAIL_KINDS)
                  else f" di {', '.join(tipi)} ({dettagli_in_sospeso(store)} contando tutto)"))
-    print(f"\nBudget usato oggi: {client.budget.used}/{settings.daily_request_limit}")
+    print(f"\nBudget usato oggi: {client.budget.used}/{client.budget.limite_in_vigore}")
     print(
         "\nLe stagioni riempite entrano nel modello da sole: il sito se ne accorge\n"
         "alla prima pagina aperta, senza riavvii e senza toccare il .env."

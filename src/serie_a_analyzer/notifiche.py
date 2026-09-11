@@ -558,6 +558,46 @@ def allarme_budget(rimaste: int, limite: int) -> str:
     ])
 
 
+def allarme_piano_diverso(dichiarato: int, configurato: int, minuto: int | None) -> str:
+    """Il server dichiara un tetto giornaliero diverso da quello del .env.
+
+    Non e' un allarme di guasto: da quando il client legge i limiti dagli
+    header il contatore usa gia' il piu' basso dei due, e il freno si adegua
+    da solo al tetto al minuto. Si dice lo stesso perche' e' il modo in cui ci
+    si accorge che il piano e' cambiato — il 24 settembre 2026, o il giorno in
+    cui se ne comprera' un altro — e perche' nel secondo caso il .env va
+    toccato per davvero: un tetto piu' ALTO non viene preso da solo.
+    """
+    from .data.client import intervallo_per_tetto
+
+    concede = f"{dichiarato} richieste al giorno"
+    if minuto:
+        concede += f" e {minuto} al minuto"
+    righe = [
+        "<b>Il piano API e' cambiato</b>",
+        "",
+        f"Il server concede {concede}.",
+        f"Nel .env DAILY_REQUEST_LIMIT dice {configurato}.",
+        "",
+    ]
+    if dichiarato < configurato:
+        da_scrivere = f"DAILY_REQUEST_LIMIT={dichiarato}"
+        if minuto:
+            da_scrivere += f" e API_MIN_INTERVAL_SECONDS={intervallo_per_tetto(minuto):g}"
+        righe += [
+            "<i>Non serve fare niente: il contatore usa gia' il limite del",
+            "server e il freno al minuto si e' alzato da solo. Per mettere in",
+            f"pari il .env: {da_scrivere}.</i>",
+        ]
+    else:
+        righe += [
+            f"<i>Il contatore resta a {configurato}, quello del .env: un limite",
+            "piu' alto non si prende da solo, per prudenza. Per usarlo:",
+            f"DAILY_REQUEST_LIMIT={dichiarato} nel .env.</i>",
+        ]
+    return "\n".join(righe)
+
+
 def allarme_formazioni_accese(pronte: int, totale: int) -> str:
     """L'unico allarme che porta una buona notizia, ed e' per questo che c'e'.
 
@@ -733,7 +773,18 @@ def invia_quel_che_serve(
             prova(f"raccolta-ferma:{oggi}", allarme_raccolta_ferma(ultima_raccolta, ore))
 
     if budget is not None and budget.remaining <= SOGLIA_BUDGET:
-        prova(f"budget:{oggi}", allarme_budget(budget.remaining, budget.daily_limit))
+        prova(f"budget:{oggi}", allarme_budget(budget.remaining, budget.limite_in_vigore))
+
+    if budget is not None:
+        # La chiave porta i due numeri e non la data: il messaggio riguarda
+        # QUELLA discordanza, e si ripete solo se ne nasce un'altra.
+        piano = budget.piano_dichiarato() or {}
+        dichiarato = piano.get("giorno")
+        if dichiarato and dichiarato != budget.daily_limit:
+            prova(
+                f"piano:{dichiarato}:{budget.daily_limit}",
+                allarme_piano_diverso(dichiarato, budget.daily_limit, piano.get("minuto")),
+            )
 
     if tabellini_fermi:
         # La chiave porta gli id e non la data: e' un fatto che riguarda quelle

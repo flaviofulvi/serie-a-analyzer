@@ -23,6 +23,17 @@ budget: e' l'unico punto da cui passano tutte le richieste, e una regola che
 vive in un posto solo non si puo' dimenticare in un ramo nuovo del codice.
 Vale sulle richieste **davvero spedite**: una risposta servita dalla cache non
 tocca la rete e non aspetta niente.
+
+Dall'11 settembre 2026 i due tetti non sono piu' soltanto numeri scritti nel
+.env. API-Football li dichiara negli header di OGNI risposta — al giorno, al
+minuto, e quante richieste restano — e il client li legge
+(`_impara_i_limiti`): il contatore si allinea a quello del server, il limite
+giornaliero scende da solo se il server ne concede meno, e il freno si alza da
+solo se il tetto al minuto lo chiede. Serve per un giorno preciso, il ritorno
+al piano gratuito del 24 settembre 2026: prima la sicurezza stava in due righe
+del .env ricordate a mano, e la seconda — il freno — era quella che si
+dimentica. Vale in una direzione sola: da soli si diventa piu' prudenti, mai
+meno.
 """
 
 from __future__ import annotations
@@ -30,11 +41,12 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from typing import Any
 
 import httpx
 
-from .budget import Priority, RequestBudget
+from .budget import LimitiDichiarati, Priority, RequestBudget, stessi_limiti
 from .cache import (
     TTL_FOREVER,
     TTL_INJURIES,
@@ -71,8 +83,67 @@ SERIE_A_LEAGUE_ID = 135
 #
 # Chi passa a un piano a pagamento lo abbassa da .env con
 # API_MIN_INTERVAL_SECONDS: con 7 secondi le 4500 richieste al giorno di un
-# riempimento storico vorrebbero quasi nove ore di esecuzione.
+# riempimento storico vorrebbero quasi nove ore di esecuzione. Nella direzione
+# opposta non serve toccarlo: tornando al gratuito il freno si rialza da solo,
+# perche' il server dichiara il suo tetto (vedi `intervallo_in_vigore`).
 DEFAULT_MIN_INTERVAL_SECONDS = 7.0
+
+# Il tetto al minuto del piano gratuito: e' quello su cui i 7 secondi qui sopra
+# sono tarati, e da cui si ricava il freno per qualunque altro tetto.
+TETTO_MINUTO_GRATUITO = 10
+
+# Quanto aspettare quando il server dice che le richieste di questo minuto sono
+# finite. Non dice quando la sua finestra si riapre, quindi se ne aspetta una
+# intera: e' l'unica attesa sicuramente abbastanza lunga.
+ATTESA_MINUTO_ESAURITO = 60.0
+
+# Gli header con cui API-Football dichiara i suoi limiti in ogni risposta.
+# Letti da una risposta vera l'11 settembre 2026, piano Pro: 7500 al giorno e
+# 300 al minuto (non 450, come si credeva). httpx li confronta senza badare
+# alle maiuscole, e il server le mescola.
+HEADER_LIMITE_GIORNO = "x-ratelimit-requests-limit"
+HEADER_RIMASTE_GIORNO = "x-ratelimit-requests-remaining"
+HEADER_LIMITE_MINUTO = "x-ratelimit-limit"
+HEADER_RIMASTE_MINUTO = "x-ratelimit-remaining"
+
+
+def _intero(valore: Any, minimo: int = 0) -> int | None:
+    """Un numero da un header, o ``None`` se manca o non e' un numero."""
+    try:
+        numero = int(str(valore).strip())
+    except (TypeError, ValueError):
+        return None
+    return numero if numero >= minimo else None
+
+
+def limiti_dagli_header(headers: Any) -> LimitiDichiarati | None:
+    """I limiti che una risposta dichiara, o ``None`` se non ne dichiara.
+
+    Un TETTO a zero si scarta come un tetto assente: nessun piano concede zero
+    richieste, e crederci fermerebbe tutto per un header malformato. Una
+    RIMANENZA a zero invece e' un'informazione vera, ed e' la piu' preziosa.
+    """
+    if headers is None:
+        return None
+    limiti = LimitiDichiarati(
+        giorno=_intero(headers.get(HEADER_LIMITE_GIORNO), minimo=1),
+        rimaste_giorno=_intero(headers.get(HEADER_RIMASTE_GIORNO)),
+        minuto=_intero(headers.get(HEADER_LIMITE_MINUTO), minimo=1),
+        rimaste_minuto=_intero(headers.get(HEADER_RIMASTE_MINUTO)),
+    )
+    if limiti == LimitiDichiarati():
+        return None
+    return limiti
+
+
+def intervallo_per_tetto(tetto: int) -> float:
+    """I secondi fra due richieste che un tetto al minuto richiede.
+
+    La stessa proporzione dei 7 secondi scelti per il gratuito — otto
+    richieste e mezza al minuto su dieci — applicata a qualunque tetto: 7
+    secondi su 10 al minuto, 0,23 su 300.
+    """
+    return DEFAULT_MIN_INTERVAL_SECONDS * TETTO_MINUTO_GRATUITO / tetto
 
 
 class ApiFootballError(RuntimeError):
@@ -96,6 +167,13 @@ class ApiFootballClient:
     # Quando e' partita l'ultima richiesta, su orologio monotono. `None`
     # finche' non se n'e' spedita nessuna: la prima non aspetta mai.
     _ultima_richiesta: float | None = field(default=None, init=False, repr=False)
+    # Il tetto al minuto dichiarato dal server, e quante richieste gli restano
+    # in questo minuto. Il primo si ricorda anche fra un processo e l'altro
+    # (sta nel contatore, vedi `_tetto_al_minuto`); il secondo vale solo per
+    # la prossima richiesta, ed e' giusto che muoia col processo.
+    _limite_minuto: int | None = field(default=None, init=False, repr=False)
+    _rimaste_minuto: int | None = field(default=None, init=False, repr=False)
+    _piano_letto: bool = field(default=False, init=False, repr=False)
 
     @classmethod
     def for_rapidapi(cls, api_key: str, cache: ResponseCache, budget: RequestBudget, **kw):
@@ -147,9 +225,9 @@ class ApiFootballClient:
         # Prenota la richiesta PRIMA di spedirla: se il processo muore a meta',
         # meglio aver contato una richiesta di troppo che una di meno.
         self.budget.spend(priority)
+        usate, limite = self.budget.usate_e_limite()
         logger.info(
-            "richiesta API: %s %s (budget usato %d/%d)",
-            endpoint, params, self.budget.used, self.budget.daily_limit,
+            "richiesta API: %s %s (budget usato %d/%d)", endpoint, params, usate, limite,
         )
 
         self._attendi_il_turno()
@@ -168,11 +246,20 @@ class ApiFootballClient:
         Il tempo si misura su ``time.monotonic``, non sull'ora del giorno: un
         aggiustamento dell'orologio di sistema — o l'ora legale — non deve
         poter far credere al freno che sia passato un secolo, o meno di zero.
+
+        Quanto aspettare lo decide `intervallo_in_vigore`, con un caso in piu':
+        se l'ultima risposta ha detto che le richieste di questo minuto sono
+        finite, si aspetta un minuto intero. Il freno di un processo non vede
+        gli altri due che spendono insieme a lui — il sito e le due raccolte —
+        e il server e' l'unico che li conta tutti.
         """
-        if self.min_interval_seconds <= 0:
+        intervallo = self.intervallo_in_vigore
+        if intervallo <= 0:
             return
+        if self._rimaste_minuto == 0:
+            intervallo = max(intervallo, ATTESA_MINUTO_ESAURITO)
         if self._ultima_richiesta is not None:
-            attesa = self.min_interval_seconds - (time.monotonic() - self._ultima_richiesta)
+            attesa = intervallo - (time.monotonic() - self._ultima_richiesta)
             if attesa > 0:
                 logger.debug("freno: attendo %.1fs prima della prossima richiesta", attesa)
                 time.sleep(attesa)
@@ -182,20 +269,109 @@ class ApiFootballClient:
         # minuto esattamente come uno riuscito.
         self._ultima_richiesta = time.monotonic()
 
+    @property
+    def intervallo_in_vigore(self) -> float:
+        """I secondi fra due richieste: il piu' prudente fra .env e server.
+
+        Il piu' prudente, come per il budget e per la stessa ragione: il giorno
+        del ritorno al gratuito il .env dira' ancora 1 secondo, il server 10
+        richieste al minuto, e un 429 si paga senza ricevere niente. Da allora
+        il freno si alza da solo a 7 secondi. Sul Pro invece vince il .env (1
+        secondo contro 0,23): il server lascerebbe correre di piu', ma nessuno
+        ha fretta.
+
+        Zero nel .env spegne il freno del tutto, dichiarazioni comprese: ha
+        senso solo nei test, dove la rete e' finta.
+        """
+        if self.min_interval_seconds <= 0:
+            return 0.0
+        tetto = self._tetto_al_minuto()
+        if not tetto:
+            return self.min_interval_seconds
+        return max(self.min_interval_seconds, intervallo_per_tetto(tetto))
+
+    def _tetto_al_minuto(self) -> int | None:
+        """Il tetto al minuto noto: dall'ultima risposta, o dal contatore.
+
+        Il contatore si legge una volta sola per processo, e serve a chi non
+        ha ancora spedito niente: `/stato` mostra il freno del sito, che puo'
+        non fare una richiesta per giorni, e un numero preso dal solo .env
+        direbbe il falso proprio il giorno del downgrade.
+        """
+        if self._limite_minuto is None and not self._piano_letto:
+            self._piano_letto = True
+            piano = self.budget.piano_dichiarato() or {}
+            self._limite_minuto = _intero(piano.get("minuto"), minimo=1)
+        return self._limite_minuto
+
+    def _impara_i_limiti(self, headers: Any, spedita_il: date) -> None:
+        """Legge dagli header quanto concede il piano, e lo porta nel contatore.
+
+        Non solleva mai, ed e' la regola di tutto cio' che sta attorno a una
+        richiesta gia' pagata: la risposta e' arrivata, e un guasto nel
+        leggerne gli header non deve costare il dato. Si torna al .env, cioe'
+        esattamente al mondo di prima.
+        """
+        try:
+            limiti = limiti_dagli_header(headers)
+            if limiti is None:
+                return
+            if limiti.minuto is not None:
+                self._limite_minuto = limiti.minuto
+                self._piano_letto = True
+            self._rimaste_minuto = limiti.rimaste_minuto
+            prima, dopo = self.budget.registra_dichiarazione(limiti, giorno=spedita_il)
+        except Exception:  # vedi la docstring: qui niente puo' costare il dato
+            logger.warning("limiti dichiarati dall'API non registrati", exc_info=True)
+            return
+        self._racconta_il_piano(prima, dopo)
+
+    def _racconta_il_piano(
+        self, prima: dict[str, Any] | None, dopo: dict[str, Any] | None,
+    ) -> None:
+        """Dice nel log che il piano e' cambiato: una volta, non a ogni risposta."""
+        if not dopo or stessi_limiti(prima, dopo):
+            return
+        giorno, minuto = dopo.get("giorno"), dopo.get("minuto")
+        if prima is None:
+            logger.info("l'API dichiara %s richieste al giorno e %s al minuto", giorno, minuto)
+        else:
+            logger.warning(
+                "il piano dell'API e' cambiato: da %s al giorno e %s al minuto a %s e %s",
+                prima.get("giorno"), prima.get("minuto"), giorno, minuto,
+            )
+        if giorno and giorno != self.budget.daily_limit:
+            logger.warning(
+                "DAILY_REQUEST_LIMIT nel .env dice %d, l'API %d: il contatore usa %d",
+                self.budget.daily_limit, giorno, min(giorno, self.budget.daily_limit),
+            )
+
     def _fetch(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         headers = {self.key_header: self.api_key, **self.extra_headers}
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        spedita_il = datetime.now(timezone.utc).date()
         try:
             response = httpx.get(url, params=params, headers=headers, timeout=self.timeout)
         except httpx.HTTPError as exc:
             raise ApiFootballError(f"chiamata fallita a {endpoint}: {exc}") from exc
 
+        # Prima di guardare lo status: anche un 429 dichiara i limiti, ed e'
+        # proprio la risposta da cui conviene impararli.
+        self._impara_i_limiti(response.headers, spedita_il)
+
         if response.status_code == 429:
+            usate, limite = self.budget.usate_e_limite()
+            tetto = (
+                f", che il server dichiara di {self._limite_minuto}"
+                if self._limite_minuto else ""
+            )
             raise ApiFootballError(
                 "limite di richieste superato lato API (429). Se il budget "
-                f"giornaliero non e' esaurito ({self.budget.used}/"
-                f"{self.budget.daily_limit}), il tetto superato e' quello al "
-                f"MINUTO: alza API_MIN_INTERVAL_SECONDS, oggi a "
+                f"giornaliero non e' esaurito ({usate}/{limite}), il tetto "
+                f"superato e' quello al MINUTO{tetto}: il freno era a "
+                f"{self.intervallo_in_vigore:g}s. Di solito vuol dire piu' "
+                "processi che spendono insieme, che il freno di ognuno non "
+                "vede: alza API_MIN_INTERVAL_SECONDS, oggi a "
                 f"{self.min_interval_seconds:g}s."
             )
         if response.status_code >= 400:

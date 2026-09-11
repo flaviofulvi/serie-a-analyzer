@@ -102,17 +102,24 @@ adesso c'è spazio». Le tre forme che ne discendono — il contatore col budget
 riserve, la cache che non scade, la finestra di tre giorni — restano giuste
 anche col Pro e tornano indispensabili fra tre settimane.
 
-Il giorno del downgrade servono **due righe** nel `.env`, e la seconda è
-quella che si dimentica:
+Il giorno del downgrade **non serve più ricordarsi di niente**, ed è la cosa
+nuova dall'11 settembre 2026 (lavoro C1). API-Football dichiara i suoi limiti
+negli header di ogni risposta e il client li legge: il contatore usa il più
+basso fra `.env` e server, il freno il più prudente. Il Pro concede **300**
+richieste al minuto — letto dagli header, non le 450 che si credevano — e il
+gratuito dieci: col `.env` fermo a 1 secondo il freno si alza da solo a 7. Le
+due righe nel `.env` restano da scrivere, ma per mettere in pari la
+configurazione e non per evitare un danno (un messaggio su Telegram lo
+ricorda):
 
     DAILY_REQUEST_LIMIT=100
     API_MIN_INTERVAL_SECONDS=7
 
-L'intervallo oggi è a 1 secondo perché il Pro concede 450 richieste al minuto;
-il gratuito ne concede dieci. Lasciarlo com'è fa prendere 429 alla raccolta —
-**e un 429 viene contato lo stesso**. Più `--no-calendario` nel wrapper della
-raccolta: il calendario di stagione è l'unica richiesta che passi dal filtro
-`league+season`, e sul gratuito risponderà zero partite senza errore.
+Prima di C1 la seconda era quella che si dimentica, e lasciarla a 1 faceva
+prendere 429 alla raccolta — **e un 429 viene contato lo stesso**. Resta da
+fare a mano `--no-calendario` nel wrapper della raccolta: il calendario di
+stagione è l'unica richiesta che passi dal filtro `league+season`, e sul
+gratuito risponderà zero partite senza errore.
 
 Cosa **non** smette di funzionare, così nessuno si spaventa: gli endpoint per
 singola partita rispondono anche sul gratuito, stagione in corso compresa. A
@@ -129,15 +136,35 @@ Da qui l'intera forma di `data/`:
   client per la stessa ragione del budget: è l'unico punto da cui passano
   tutte le richieste. Vale solo su quelle davvero spedite (una risposta dalla
   cache non aspetta), e si regola da `.env` con `API_MIN_INTERVAL_SECONDS` —
-  7 secondi di default, **oggi a 1** perché il Pro concede 450 richieste al
-  minuto invece di dieci. Va **rimesso a 7 il 24 settembre**, ed è la riga che
-  si dimentica: senza, la raccolta prende 429 su richieste che vengono contate
-  lo stesso. Con 7 secondi un riempimento storico vuole nove ore invece di
-  venti minuti, ed è il motivo per cui è stato abbassato.
+  7 secondi di default, **oggi a 1** sul Pro. Dall'11 settembre 2026 il
+  client legge anche i **limiti dichiarati** negli header di ogni risposta
+  (`limiti_dagli_header`, `_impara_i_limiti`), e il freno in vigore è il più
+  prudente fra `.env` e tetto al minuto del server (`intervallo_in_vigore`,
+  con la stessa proporzione dei 7 secondi del gratuito): il giorno del
+  downgrade si rialza da solo, e se il server dice che il minuto è finito si
+  aspetta un minuto intero — l'unico modo di accorgersi degli altri due
+  processi che spendono insieme. Vale in una direzione sola, e vale per tutto
+  C1: **da soli si diventa più prudenti, mai meno**. Leggere gli header non
+  solleva mai, perché la risposta è già pagata. Con 7 secondi un riempimento
+  storico vuole nove ore invece di venti minuti, ed è il motivo per cui il
+  `.env` è stato abbassato.
 - `budget.py` — contatore persistente (`data/budget.json`) con **riserve per
   priorità**: `BACKFILL` si ferma prima di intaccare la quota di `CRITICAL`
   (formazioni ufficiali). Toccando le priorità si rischia di restare a secco
   la domenica alle 14:30.
+  Il tetto giornaliero ha **due fonti** dall'11 settembre 2026 e vale la più
+  bassa (`limite_in_vigore`): il `.env` e l'ultima dichiarazione del server,
+  che si ricorda nel file anche dopo mezzanotte (`registra_dichiarazione`).
+  L'asimmetria è voluta: un server che concede meno ha sempre ragione, uno che
+  concede di più no — il `.env` è una scelta, e un tetto che si alza da solo
+  è il modo di scoprirlo a budget speso. Le **riserve** si calcolano sul
+  limite in vigore, altrimenti il 24 settembre quella delle formazioni
+  varrebbe da sola diciotto giornate del gratuito. Il conto delle richieste si
+  allinea a quello del server **solo verso l'alto**: un conto locale più alto
+  è una richiesta in volo di un altro processo, e abbassarlo la ridarebbe via.
+  E non si allinea su una risposta spedita ieri: col contatore che non scende
+  mai, il conto di ieri portato nel giorno nuovo costerebbe la giornata
+  intera.
   Ci scrivono **tre processi insieme** — il sito, la raccolta giornaliera e la
   corsa del quarto d'ora — e contare una richiesta è leggi-modifica-scrivi,
   quindi il lucchetto (`_blocco`) è un file creato con `O_EXCL`, l'unica
@@ -1164,12 +1191,13 @@ fosse, questa sezione è l'unica traccia che ne rimane.
 **I numeri dei lavori non si riusano**: quelli chiusi lasciano il posto vuoto,
 così i riferimenti nei commenti del codice continuano a puntare alla cosa
 giusta. Vale anche per i numeri dei difetti, che nel file unito conservano le
-lettere che avevano. Al 9 settembre 2026 restano aperti **C1** (l'unico con
-una scadenza: prima del 24 settembre), il **6**, l'**1**, il **2**, il **5**
-e il difetto **P1**, ed è anche l'ordine in cui conviene affrontarli
-— tranne P1, che non è in coda con gli altri: aspetta una quinta stagione, e
-prima di allora rifarlo darebbe lo stesso numero. Solo il 5 costa una
-richiesta; tutto il resto è gratis e si paga in tempo.
+lettere che avevano. All'11 settembre 2026 — chiuso **C1** — l'ordine è:
+l'**1b** (calibrare il fattore delle formazioni, **prima del 10 ottobre**),
+le tre righe del **24 settembre** e il **5** da quel giorno, poi il **6**, il
+resto del **10**, il **2**; l'**1** si accende da solo e **P1** aspetta una
+quinta stagione, perché prima di allora rifarlo darebbe lo stesso numero. Il
+perché dell'ordine sta in `LAVORI.txt`. Solo il 5 costa una richiesta; tutto
+il resto è gratis e si paga in tempo.
 
 Il 9 — chiuso lo stesso giorno in cui è nato — saltava il **7**, e P1 salta
 la **O**: i due motivi sono diversi. Del 7
@@ -1193,8 +1221,11 @@ lega, misurata col metodo del progetto. Se è piatta, muore.
 **1 — le formazioni ufficiali.** Predisposte e **spente**, ed è la regola, non
 un bug: `data/pesi.py` e `data/ufficiali.py` non scrivono niente finché una
 squadra non ha 5 partite con tabellino nella stagione in corso. Si accende da
-sola verso fine settembre. Poi va calibrato `FATTORE_PREDEFINITO`, che è
-l'unico numero di quel lavoro scelto a occhio.
+sola dopo la giornata del 18-20 settembre, e dopo la sosta — **10 ottobre** —
+scrive le prime righe. `FATTORE_PREDEFINITO`, l'unico numero di quel lavoro
+scelto a occhio, va calibrato **prima**: è l'**1b**, e non aspetta nessun dato
+— le quattro stagioni ricomprate hanno formazioni e tabellini di ogni partita.
+Manca il codice del backtest.
 
 **2 — gli indisponibili dentro il pronostico.** Metà fatto: si raccolgono e si
 vedono (`data/indisponibili.py`), e la scheda partita dichiara che il
@@ -1283,6 +1314,9 @@ comincia il 6 passi prima di qui.
   il pronostico marcatori 11/09/2026   dentro la matrice; +13% sul
                                        costante, la sovrastima del 7%
                                        dichiarata e non corretta
+  i limiti dagli header   11/09/2026   C1: contatore e freno seguono il
+                                       server, e il 24 settembre non va
+                                       ricordato niente; salire resta a mano
 
 ### Le idee che sembrano buone e non lo sono
 

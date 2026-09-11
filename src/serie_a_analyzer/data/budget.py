@@ -9,6 +9,14 @@ Il contatore e' persistito su disco e si azzera da solo al cambio di giorno
 (UTC, come il reset dell'API). Le prenotazioni sono suddivise per priorita':
 le richieste di bassa priorita' (backfill storico) vengono rifiutate prima di
 intaccare la riserva destinata a quelle critiche.
+
+Il tetto giornaliero ha DUE fonti, e vale la piu' bassa. Una e' il .env
+(`DAILY_REQUEST_LIMIT`), scritto a mano; l'altra e' cio' che il server ha
+dichiarato nell'ultima risposta (`registra_dichiarazione`, chiamata dal
+client a ogni richiesta spedita). Prima dell'11 settembre 2026 la seconda non
+c'era, e il giorno del ritorno al piano gratuito la sicurezza stava tutta in
+una riga del .env ricordata a mano: lasciata a 7500, il contatore avrebbe
+lasciato passare richieste che il server avrebbe rifiutato — contandole.
 """
 
 from __future__ import annotations
@@ -95,6 +103,27 @@ class BudgetExhausted(RuntimeError):
     """Sollevata quando la richiesta eccede il budget della sua priorita'."""
 
 
+@dataclass(frozen=True)
+class LimitiDichiarati:
+    """Cio' che API-Football dice di se' negli header di ogni risposta.
+
+    Ogni campo puo' mancare: una risposta senza header (un proxy, un errore di
+    rete a meta') non deve inventare un limite, e ``None`` vuol dire "non lo
+    ha detto", non "zero".
+    """
+
+    giorno: int | None = None           # richieste concesse al giorno
+    rimaste_giorno: int | None = None   # quante ne restano oggi, per il server
+    minuto: int | None = None           # richieste concesse al minuto
+    rimaste_minuto: int | None = None   # quante ne restano in questo minuto
+
+
+def stessi_limiti(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
+    """Due piani uguali nei numeri, qualunque sia la data in cui sono stati letti."""
+    a, b = a or {}, b or {}
+    return all(a.get(k) == b.get(k) for k in ("giorno", "minuto"))
+
+
 @dataclass
 class RequestBudget:
     """Contatore persistente delle richieste giornaliere."""
@@ -120,8 +149,17 @@ class RequestBudget:
     def _today(self) -> date:
         return datetime.now(timezone.utc).date()
 
-    def _stato_vuoto(self) -> dict[str, Any]:
-        return {"day": self._today().isoformat(), "used": 0, "by_priority": {}}
+    def _stato_vuoto(self, piano: dict[str, Any] | None = None) -> dict[str, Any]:
+        stato: dict[str, Any] = {
+            "day": self._today().isoformat(), "used": 0, "by_priority": {},
+        }
+        if piano:
+            # Il piano non e' un conto del giorno: e' cio' che il server ha
+            # dichiarato l'ultima volta, e resta vero anche dopo mezzanotte.
+            # Azzerarlo col contatore farebbe cominciare ogni giornata col
+            # solo limite del .env, cioe' proprio quello che si dimentica.
+            stato["piano"] = dict(piano)
+        return stato
 
     def _load(self) -> dict[str, Any]:
         """Legge il contatore, distinguendo "non c'e'" da "non si riesce".
@@ -160,7 +198,7 @@ class RequestBudget:
             )
             return self._stato_vuoto()
         if state.get("day") != self._today().isoformat():
-            return self._stato_vuoto()
+            return self._stato_vuoto(state.get("piano"))
         return state
 
     def _provvisorio(self) -> Path:
@@ -319,16 +357,66 @@ class RequestBudget:
         return int(self._load()["used"])
 
     @property
+    def limite_in_vigore(self) -> int:
+        """Il tetto giornaliero che vale davvero oggi. Vedi `_limite_da`."""
+        return self._limite_da(self._load())
+
+    def _limite_da(self, state: dict[str, Any]) -> int:
+        """Il piu' basso fra il limite del .env e quello dichiarato dal server.
+
+        Il piu' basso e non quello del server, e l'asimmetria e' voluta. Un
+        server che dichiara MENO del .env ha sempre ragione: e' il giorno del
+        downgrade, e ogni richiesta oltre il suo tetto verrebbe rifiutata e
+        contata lo stesso. Un server che dichiara DI PIU' ha ragione anche lui,
+        ma il .env e' una scelta: chi scrive 100 su un piano da 7500 puo'
+        volerlo, e un tetto che si alza da solo e' il modo di scoprirlo a
+        budget speso. Salire resta un gesto; scendere no.
+        """
+        dichiarato = (state.get("piano") or {}).get("giorno")
+        if not dichiarato:
+            return self.daily_limit
+        return min(self.daily_limit, int(dichiarato))
+
+    @property
     def remaining(self) -> int:
-        return max(0, self.daily_limit - self.used)
+        usate, limite = self.usate_e_limite()
+        return max(0, limite - usate)
+
+    def usate_e_limite(self) -> tuple[int, int]:
+        """Richieste usate oggi e tetto in vigore, da UNA sola lettura.
+
+        Chi le vuole tutte e due — il log di ogni richiesta, `/stato` — le
+        chiede qui e non con due proprieta': ogni lettura del file sta fuori
+        dal lucchetto, e su Windows ogni lettore in piu' e' un'occasione di
+        contesa per chi scrive (vedi `_save`).
+        """
+        state = self._load()
+        return int(state["used"]), self._limite_da(state)
+
+    def piano_dichiarato(self) -> dict[str, Any] | None:
+        """L'ultima dichiarazione del server: ``giorno``, ``minuto``, ``dal``.
+
+        ``None`` finche' nessuna risposta vera e' arrivata con gli header: e'
+        "non lo so", e chi legge deve continuare a fidarsi del .env.
+        """
+        piano = self._load().get("piano")
+        return dict(piano) if piano else None
 
     def usage_by_priority(self) -> dict[str, int]:
         return dict(self._load().get("by_priority", {}))
 
-    def reserved_for(self, priority: Priority) -> int:
-        """Richieste riservate a una priorita', in valore assoluto."""
+    def reserved_for(self, priority: Priority, limite: int | None = None) -> int:
+        """Richieste riservate a una priorita', in valore assoluto.
+
+        Si calcolano sul limite IN VIGORE, non su quello del .env: le riserve
+        sono frazioni apposta, e il giorno in cui il tetto scende da 7500 a
+        100 devono scendere con lui — altrimenti la riserva delle formazioni
+        varrebbe da sola piu' dell'intera giornata.
+        """
         assert self.reserve_fraction is not None
-        return int(self.daily_limit * self.reserve_fraction.get(priority, 0.0))
+        if limite is None:
+            limite = self.limite_in_vigore
+        return int(limite * self.reserve_fraction.get(priority, 0.0))
 
     def allowance(self, priority: Priority) -> int:
         """Quante richieste restano davvero disponibili a questa priorita'.
@@ -336,20 +424,23 @@ class RequestBudget:
         Le priorita' basse "vedono" meno budget di quello nominale, perche' la
         riserva delle priorita' alte e' sottratta a monte.
         """
-        return self._allowance_da(self.used, priority)
+        return self._allowance_da(self._load(), priority)
 
-    def _allowance_da(self, usate: int, priority: Priority) -> int:
-        """La stessa cosa, a partire da un conteggio gia' letto.
+    def _allowance_da(self, state: dict[str, Any], priority: Priority) -> int:
+        """La stessa cosa, a partire da uno stato gia' letto.
 
         Esiste perche' `spend` deve decidere e scrivere sullo STESSO stato:
         rileggere il file fra il controllo e l'incremento riaprirebbe proprio
         la finestra che il lucchetto serve a chiudere.
         """
         assert self.reserve_fraction is not None
+        usate = int(state["used"])
+        limite = self._limite_da(state)
         protetto = sum(
-            self.reserved_for(prio) for prio in self.reserve_fraction if prio < priority
+            self.reserved_for(prio, limite)
+            for prio in self.reserve_fraction if prio < priority
         )
-        return max(0, max(0, self.daily_limit - usate) - protetto)
+        return max(0, max(0, limite - usate) - protetto)
 
     def can_spend(self, priority: Priority = Priority.NORMAL, n: int = 1) -> bool:
         return self.allowance(priority) >= n
@@ -369,19 +460,86 @@ class RequestBudget:
         with self._blocco():
             state = self._load()
             usate = int(state["used"])
-            disponibili = self._allowance_da(usate, priority)
+            disponibili = self._allowance_da(state, priority)
             if disponibili < n:
                 raise BudgetExhausted(
                     f"budget esaurito per priorita' {priority.name}: "
                     f"disponibili {disponibili}, richieste {n} "
-                    f"(usate oggi {usate}/{self.daily_limit})"
+                    f"(usate oggi {usate}/{self._limite_da(state)})"
                 )
             state["used"] = usate + n
             by_priority = state.setdefault("by_priority", {})
             by_priority[priority.name] = int(by_priority.get(priority.name, 0)) + n
             self._save(state)
 
-    def reset(self) -> None:
-        """Azzera il contatore. Utile nei test e dopo un cambio di piano."""
+    def registra_dichiarazione(
+        self, limiti: LimitiDichiarati, giorno: date | None = None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Porta nel contatore cio' che il server ha appena dichiarato.
+
+        Due cose, dentro lo stesso lucchetto di `spend` perche' sono la stessa
+        operazione leggi-modifica-scrivi:
+
+        - il PIANO (tetto al giorno e al minuto) si ricorda, anche da un giorno
+          all'altro: e' cosi' che il limite in vigore scende da solo il giorno
+          del downgrade, senza aspettare che qualcuno tocchi il .env;
+        - le richieste USATE si allineano a quelle che il server dice di aver
+          contato, ma SOLO VERSO L'ALTO. Il server e' la verita', ma un
+          contatore locale piu' alto del suo non e' un errore da correggere:
+          e' una richiesta prenotata da un altro processo e ancora in volo, o
+          una partita a vuoto che il server non ha mai visto (la rete caduta
+          prima di arrivarci). Abbassarlo ridarebbe via proprio quelle.
+          Alzarlo invece recupera cio' che si e' perso davvero — i conteggi
+          che il lucchetto a perdere lascia cadere, o richieste fatte con la
+          stessa chiave fuori da questo programma. La differenza si accumula
+          in ``dal_server``, cosi' si vede quanto il conto locale sbagliava.
+
+        ``giorno`` e' il giorno UTC in cui la richiesta e' partita. Se non e'
+        piu' oggi il conto del server non si usa: una risposta spedita alle
+        23:59:59 e letta dopo la mezzanotte porterebbe nel giorno nuovo il
+        totale di quello vecchio — e con 100 richieste al giorno, siccome il
+        contatore non scende mai, significherebbe perdere la giornata intera.
+        Il piano invece si registra comunque: e' vero a qualunque ora.
+
+        Restituisce il piano di prima e quello di dopo, perche' chi chiama deve
+        poter dire che e' cambiato. Non riscrive il file se non cambia niente:
+        succede a quasi ogni risposta, e ogni scrittura in piu' e' un'occasione
+        in piu' di contesa con i lettori (vedi `_save`).
+        """
         with self._blocco():
-            self._save({"day": self._today().isoformat(), "used": 0, "by_priority": {}})
+            state = self._load()
+            prima = dict(state["piano"]) if state.get("piano") else None
+
+            piano = dict(prima or {})
+            if limiti.giorno is not None:
+                piano["giorno"] = limiti.giorno
+            if limiti.minuto is not None:
+                piano["minuto"] = limiti.minuto
+            cambiato = not stessi_limiti(prima, piano)
+            if cambiato:
+                piano["dal"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                state["piano"] = piano
+
+            allineato = False
+            stesso_giorno = giorno is None or giorno == self._today()
+            if stesso_giorno and limiti.giorno is not None and limiti.rimaste_giorno is not None:
+                contate = limiti.giorno - limiti.rimaste_giorno
+                usate = int(state["used"])
+                if contate > usate:
+                    state["used"] = contate
+                    state["dal_server"] = int(state.get("dal_server", 0)) + contate - usate
+                    allineato = True
+
+            if cambiato or allineato:
+                self._save(state)
+            dopo = dict(state["piano"]) if state.get("piano") else None
+            return prima, dopo
+
+    def reset(self) -> None:
+        """Azzera il contatore. Utile nei test e dopo un cambio di piano.
+
+        Il piano dichiarato resta: azzerare i conti non rende falso cio' che il
+        server ha detto di se'.
+        """
+        with self._blocco():
+            self._save(self._stato_vuoto(self._load().get("piano")))
