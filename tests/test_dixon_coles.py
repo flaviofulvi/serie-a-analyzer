@@ -106,6 +106,38 @@ def test_campione_efficace_minore_del_numero_di_partite(lega):
     assert 0 < m.effective_sample_size < m.n_matches
 
 
+# ---- l'emivita dei parametri di lega (lavoro 6) -------------------------------
+
+
+def test_con_la_stessa_emivita_la_lega_non_cambia_niente(lega):
+    """E' cio' che rende il valore di oggi la colonna di confronto della ricerca."""
+    oggi = fit_dixon_coles(lega.matches, half_life_days=180.0)
+    uguale = fit_dixon_coles(lega.matches, half_life_days=180.0, emivita_lega=180.0)
+    assert uguale.home_advantage == oggi.home_advantage
+    assert uguale.base == oggi.base
+    assert uguale.rho == oggi.rho
+    assert uguale.attack == oggi.attack
+    assert uguale.emivita_lega is None
+
+
+def test_i_parametri_di_lega_vengono_dalla_memoria_lunga(lega):
+    """La lega dalla stima lunga, le squadre da quella corta: due passi, due memorie."""
+    lunga = fit_dixon_coles(lega.matches, half_life_days=1000.0)
+    corta = fit_dixon_coles(lega.matches, half_life_days=90.0)
+    due = fit_dixon_coles(lega.matches, half_life_days=90.0, emivita_lega=1000.0)
+
+    assert due.home_advantage == pytest.approx(lunga.home_advantage)
+    assert due.base == pytest.approx(lunga.base)
+    assert due.rho == pytest.approx(lunga.rho)
+    assert due.emivita_lega == 1000.0
+
+    # Le forze restano quelle della memoria corta, non della lunga.
+    verso_corta = sum(abs(due.attack[t] - corta.attack[t]) for t in due.teams)
+    verso_lunga = sum(abs(due.attack[t] - lunga.attack[t]) for t in due.teams)
+    assert verso_corta < verso_lunga
+    assert due.converged
+
+
 def test_squadra_sconosciuta(modello):
     with pytest.raises(KeyError):
         modello.expected_goals("Inter", modello.teams[0])

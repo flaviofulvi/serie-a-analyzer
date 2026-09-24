@@ -83,6 +83,43 @@ DEFAULT_HALF_LIFE_DAYS = 180.0
 # dimensione, non solo quando cambia il codice.
 DEFAULT_REGULARIZATION = 2.0
 
+# L'emivita dei parametri di LEGA — vantaggio di casa, livello base dei gol,
+# rho — quando e' diversa da quella delle squadre. ``None`` vuol dire la stessa,
+# cioe' il modello di sempre.
+#
+# Il perche' e' il lavoro 6. L'emivita esiste per dimenticare la FORMA di una
+# squadra, ma una stima sola la applica a tutto, e i parametri di lega non sono
+# proprieta' di una squadra: sono costanti del campionato, che cambiano con gli
+# anni e non con le settimane. Con 180 giorni il campione efficace e' di ~234
+# partite equivalenti su ~1540, e su quel campione l'errore standard del
+# vantaggio di casa e' grande quanto il parametro stesso (0.0798 contro il
+# +0.146 dell'archivio intero, a 0.80 errori standard).
+#
+# Non c'e' un modo di dare due emivite dentro una verosimiglianza sola — il
+# peso e' della partita, non del parametro — quindi la stima va in DUE passi
+# (vedi `fit_dixon_coles`). Con le due emivite uguali i due passi danno lo
+# stesso modello di uno solo, e il codice non li fa nemmeno.
+#
+# **Resta None perche' e' stato misurato, non perche' non e' stato provato.**
+# L'11 settembre 2026, `backtest.py --cerca-emivita-lega`, quattro stagioni
+# rigiocate una volta per valore, zero richieste. Brier 1X2 medio:
+#
+#     emivita lega   180 (oggi)   365      730      1095     1825
+#     1X2            0.5968       0.5965   0.5965   0.5965   0.5965
+#
+# Piatta, col minimo che salta da una stagione all'altra (365 nel 2024 e nel
+# 2025, 1825 nel 2022 e nel 2023). Scelta sulle altre stagioni migliora l'1X2
+# di 0.0002, e la prova appaiata partita per partita la ferma: -0.38 errori
+# standard su 1313 partite, con Over 2.5 e Gol/NoGol che si muovono di un
+# decimo di millesimo in versi opposti. I parametri si spostano davvero — con
+# cinque anni di memoria il vantaggio di casa passa da x1.07 a x1.14 e rho
+# diventa negativo, come in letteratura — ma i pronostici no: una partita
+# sbagliata di un 7% nel vantaggio di casa si sposta di un punto percentuale.
+# E il pareggio dichiarato non si muove (25.8% contro 25.7%, accaduto 27.7%):
+# il rho negativo NON cura il difetto P1. Il codice resta perche' e' un
+# parametro solo, e la misura si rifa' in mezz'ora con un archivio piu' grande.
+DEFAULT_EMIVITA_LEGA: float | None = None
+
 # rho e' negativo nel calcio reale; i limiti tengono la correzione tau valida.
 RHO_BOUNDS = (-0.3, 0.1)
 
@@ -313,6 +350,11 @@ class FittedModel:
     # se ha spostato qualcosa, l'ha spostato dentro attacco e difesa, che
     # nell'impronta ci sono gia'.
     fattore_allenatore: float = DEFAULT_FATTORE_ALLENATORE
+    # Con quale emivita sono stati stimati i parametri di lega, se diversa da
+    # quella delle squadre. Come il fattore dell'allenatore non entra
+    # nell'impronta: se ha spostato qualcosa, l'ha spostato in base, vantaggio
+    # di casa e rho, che ci sono gia'.
+    emivita_lega: float | None = DEFAULT_EMIVITA_LEGA
     # Quanto il modello sa di ogni squadra. Non entra nell'impronta della
     # versione (`data/predictions.py`): descrive la stima, non la definisce,
     # e due modelli con gli stessi parametri restano lo stesso modello.
@@ -569,6 +611,7 @@ def fit_dixon_coles(
     goal_compression: float = DEFAULT_GOAL_COMPRESSION,
     fattore_allenatore: float = DEFAULT_FATTORE_ALLENATORE,
     max_iterations: int = 500,
+    emivita_lega: float | None = DEFAULT_EMIVITA_LEGA,
 ) -> FittedModel:
     """Stima attacco, difesa, fattore campo e rho per massima verosimiglianza.
 
@@ -587,6 +630,12 @@ def fit_dixon_coles(
             allenatore (1 = niente correzione). Questo invece entra eccome
             nella stima: cambia i pesi, quindi le forze.
         max_iterations: tetto di iterazioni dell'ottimizzatore.
+        emivita_lega: l'emivita dei parametri di lega (vantaggio di casa,
+            base, rho), se diversa da ``half_life_days``. Allora la stima e'
+            in due passi: prima il modello intero con questa emivita, da cui
+            si tengono solo i tre parametri di lega; poi le forze delle
+            squadre con ``half_life_days``, a parametri di lega fermi.
+            ``None``, o un valore uguale, e' la stima di sempre in un passo.
 
     Returns:
         Il modello stimato, con ``converged`` a indicare se l'ottimizzatore ha
@@ -602,6 +651,24 @@ def fit_dixon_coles(
         raise ValueError("servono almeno due squadre distinte")
 
     reference = as_of or max(m.played_on for m in matches)
+
+    # Il primo passo, se serve: i parametri di lega con la loro memoria. Le
+    # forze delle squadre di questa stima si buttano — sono quelle di una
+    # memoria che per le squadre e' sbagliata — e restano i tre numeri che
+    # descrivono il campionato.
+    lega_fissa: tuple[float, float, float] | None = None
+    if emivita_lega is not None and emivita_lega != half_life_days:
+        lunga = fit_dixon_coles(
+            matches,
+            as_of=reference,
+            half_life_days=emivita_lega,
+            regularization=regularization,
+            goal_compression=goal_compression,
+            fattore_allenatore=fattore_allenatore,
+            max_iterations=max_iterations,
+        )
+        lega_fissa = (lunga.home_advantage, lunga.base, lunga.rho)
+
     # Due pesi che si moltiplicano e rispondono a due domande diverse: quanto
     # e' vecchia questa partita, e quanto e' ancora questa squadra.
     pesi_tempo = _time_weights(matches, reference, half_life_days)
@@ -620,7 +687,12 @@ def fit_dixon_coles(
         # ottenendo la stessa verosimiglianza.
         attack = attack - attack.mean()
         defense = defense - defense.mean()
-        home_adv, base, rho = params[2 * n_teams], params[2 * n_teams + 1], params[2 * n_teams + 2]
+        if lega_fissa is not None:
+            # Secondo passo: i parametri di lega non sono piu' variabili, e
+            # l'ottimizzatore non li vede nemmeno.
+            home_adv, base, rho = lega_fissa
+        else:
+            home_adv, base, rho = params[2 * n_teams], params[2 * n_teams + 1], params[2 * n_teams + 2]
         return attack, defense, home_adv, base, rho
 
     def negative_log_likelihood(params: np.ndarray) -> float:
@@ -658,6 +730,9 @@ def fit_dixon_coles(
         + [(-2.0, 2.0)] * n_teams
         + [(-1.0, 1.0), (math.log(0.3), math.log(5.0)), RHO_BOUNDS]
     )
+    if lega_fissa is not None:
+        initial = initial[: 2 * n_teams]
+        bounds = bounds[: 2 * n_teams]
 
     result = minimize(
         negative_log_likelihood,
@@ -708,6 +783,7 @@ def fit_dixon_coles(
         goal_compression=goal_compression,
         league_total_goals=media_gol,
         fattore_allenatore=fattore_allenatore,
+        emivita_lega=emivita_lega if lega_fissa is not None else None,
         evidence=_team_evidence(
             matches, weights, lam_finale, mu_finale, regularization
         ),

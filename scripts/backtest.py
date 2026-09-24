@@ -32,6 +32,7 @@ stagione diversa da quelle che il modello conosce misura un altro programma.
     python scripts/backtest.py --cerca-shrinkage      # quanto tirare verso la media di lega
     python scripts/backtest.py --marcatori            # quanto vale il pronostico su chi segna
     python scripts/backtest.py --cerca-fattore        # quanto credere alle formazioni ufficiali
+    python scripts/backtest.py --cerca-emivita-lega   # quanto ricordano i parametri di lega
 """
 
 from __future__ import annotations
@@ -71,6 +72,7 @@ from serie_a_analyzer.data.pesi import (
 from serie_a_analyzer.data.players import costruisci_archivio, formazioni_partita
 from serie_a_analyzer.data.store import StoreUnito, formazione_provvisoria
 from serie_a_analyzer.model.dixon_coles import (
+    DEFAULT_EMIVITA_LEGA,
     DEFAULT_FATTORE_ALLENATORE,
     DEFAULT_GOAL_COMPRESSION,
     DEFAULT_HALF_LIFE_DAYS,
@@ -119,6 +121,12 @@ GRIGLIA_EMIVITA = (60.0, 120.0, 180.0, 270.0, 365.0, 730.0, 1825.0)
 # sale a passi larghi perche' la penalita' e' quadratica: il salto da 4 a 8 vale
 # quanto quello da 0 a 4.
 GRIGLIA_SHRINKAGE = (0.0, 0.5, 1.0, 2.0, 4.0, 8.0)
+
+# Le emivite dei parametri di lega provate da `--cerca-emivita-lega` (lavoro
+# 6). I 180 giorni in testa sono l'emivita delle squadre, cioe' il modello di
+# oggi in un passo solo: e' la colonna di confronto. I 1825 in fondo sono il
+# "non dimenticare niente" dei parametri di lega su quattro stagioni.
+GRIGLIA_EMIVITA_LEGA = (180.0, 365.0, 730.0, 1095.0, 1825.0)
 
 
 @dataclass
@@ -276,6 +284,7 @@ def run_backtest(
     fattore_allenatore: float = DEFAULT_FATTORE_ALLENATORE,
     emivita: float = DEFAULT_HALF_LIFE_DAYS,
     shrinkage: float = DEFAULT_REGULARIZATION,
+    emivita_lega: float | None = DEFAULT_EMIVITA_LEGA,
 ) -> tuple[list[Prediction], dict]:
     """Rigioca la stagione ``target`` giornata per giornata. Zero richieste API.
 
@@ -336,6 +345,7 @@ def run_backtest(
             fattore_allenatore=fattore_allenatore,
             half_life_days=emivita,
             regularization=shrinkage,
+            emivita_lega=emivita_lega,
         )
         giornate_usate += 1
 
@@ -828,6 +838,32 @@ RICERCA_SHRINKAGE = Ricerca(
         "cioe' il confronto 'con e senza' a un parametro solo.",
         "Vale anche qui l'avvertenza dell'emivita: i due parametri si parlano,",
         "e qui se ne muove uno alla volta.",
+    ),
+)
+
+
+RICERCA_EMIVITA_LEGA = Ricerca(
+    parametro="emivita_lega",
+    griglia=GRIGLIA_EMIVITA_LEGA,
+    # 180 = la stessa emivita delle squadre, cioe' il modello di oggi: con le
+    # due emivite uguali `fit_dixon_coles` stima in un passo solo, come sempre.
+    predefinito=DEFAULT_HALF_LIFE_DAYS,
+    costante="DEFAULT_EMIVITA_LEGA",
+    unita="giorni",
+    formato="{:.0f}",
+    titolo="L'EMIVITA DELLA LEGA - quanto ricordano vantaggio di casa, base e rho",
+    intro=(
+        "L'emivita delle squadre serve a dimenticarne la forma. Una stima sola",
+        "la applica pero' anche ai parametri del campionato — vantaggio di",
+        "casa, livello dei gol, rho — che cambiano con gli anni e non con le",
+        "settimane. Qui quei tre si stimano con una memoria piu' lunga, e le",
+        "squadre restano a 180 giorni.",
+        "180 in testa alla griglia = la stessa memoria per tutti, cioe' oggi.",
+    ),
+    nota_predefinito=(
+        "180 vuol dire NESSUNA memoria separata: su questi dati stimare i",
+        "parametri di lega con un campione piu' lungo non migliora i",
+        "pronostici, e il vantaggio di casa resta com'e'.",
     ),
 )
 
@@ -1356,6 +1392,19 @@ def main() -> int:
              "valore. Zero richieste, una ventina di minuti",
     )
     parser.add_argument(
+        "--emivita-lega",
+        type=float,
+        default=DEFAULT_EMIVITA_LEGA,
+        help="emivita di vantaggio di casa, base e rho, se diversa da quella "
+             "delle squadre (default: la stessa)",
+    )
+    parser.add_argument(
+        "--cerca-emivita-lega",
+        action="store_true",
+        help="cerca quell'emivita rigiocando ogni stagione una volta per "
+             "valore (lavoro 6). Zero richieste, una mezz'ora",
+    )
+    parser.add_argument(
         "--marcatori",
         action="store_true",
         help="misura il pronostico su chi segna sulle stagioni coi tabellini "
@@ -1385,6 +1434,9 @@ def main() -> int:
         print("\n--shrinkage non puo' essere negativo "
               "(0 = nessuno shrinkage).\n")
         return 1
+    if args.emivita_lega is not None and args.emivita_lega <= 0:
+        print("\n--emivita-lega dev'essere positiva.\n")
+        return 1
 
     try:
         settings = load_settings()
@@ -1407,6 +1459,7 @@ def main() -> int:
     ricerche = (
         args.cerca_compressione, args.cerca_allenatore,
         args.cerca_emivita, args.cerca_shrinkage, args.cerca_fattore,
+        args.cerca_emivita_lega,
     )
     if sum(bool(r) for r in ricerche) > 1:
         # Due ricerche insieme non sono due misure: la seconda partirebbe
@@ -1447,7 +1500,12 @@ def main() -> int:
         panchine = carica_panchine(settings, store, dataset)
         if args.cerca_allenatore:
             return cerca_allenatore(dataset, complete, panchine)
-        ricerca = RICERCA_EMIVITA if args.cerca_emivita else RICERCA_SHRINKAGE
+        if args.cerca_emivita:
+            ricerca = RICERCA_EMIVITA
+        elif args.cerca_emivita_lega:
+            ricerca = RICERCA_EMIVITA_LEGA
+        else:
+            ricerca = RICERCA_SHRINKAGE
         return cerca_nella_stima(dataset, complete, ricerca, panchine)
 
     # Le panchine si leggono sempre: costano solo letture da disco, e senza di
@@ -1476,6 +1534,7 @@ def main() -> int:
             fattore_allenatore=args.fattore_allenatore,
             emivita=args.emivita,
             shrinkage=args.shrinkage,
+            emivita_lega=args.emivita_lega,
         )
     except RuntimeError as exc:
         # Chiedere una stagione che non c'e' e' un errore di chi lancia il
@@ -1507,6 +1566,9 @@ def main() -> int:
     if args.shrinkage != DEFAULT_REGULARIZATION:
         print(f"Shrinkage:            {args.shrinkage:.1f} "
               f"(di serie: {DEFAULT_REGULARIZATION})")
+    if args.emivita_lega is not None:
+        print(f"Emivita della lega:   {args.emivita_lega:.0f} giorni "
+              f"(di serie: la stessa delle squadre)")
 
     # --- 1X2 ---------------------------------------------------------------
     titolo("1X2 - il modello contro i suoi concorrenti")

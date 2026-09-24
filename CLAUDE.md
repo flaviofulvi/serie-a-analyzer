@@ -24,6 +24,8 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-allenatore    # quanto pesa il cambio di panchina
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-emivita       # quanto in fretta invecchia una partita
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-shrinkage     # quanto tirare verso la media di lega
+.\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-emivita-lega  # quanto ricordano vantaggio di casa, base e rho
+.\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-fattore       # quanto credere alle formazioni ufficiali
 .\.venv\Scripts\python.exe .\scripts\backtest.py --marcatori           # quanto vale il pronostico su chi segna
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py       # raccolta giornaliera (spende budget)
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py --solo-al-momento-giusto # raccoglie solo se serve adesso
@@ -1207,9 +1209,10 @@ fosse, questa sezione è l'unica traccia che ne rimane.
 **I numeri dei lavori non si riusano**: quelli chiusi lasciano il posto vuoto,
 così i riferimenti nei commenti del codice continuano a puntare alla cosa
 giusta. Vale anche per i numeri dei difetti, che nel file unito conservano le
-lettere che avevano. All'11 settembre 2026 — chiusi **C1** e, misurati e
-spenti, l'**1**, l'**1b** e il **2** — l'ordine è: le tre righe del **24
-settembre** e il **5** da quel giorno, poi il **6** e il resto del **10**;
+lettere che avevano. All'11 settembre 2026 — chiusi **C1**, l'**1**, l'**1b**
+e il **2** (misurati e spenti) e il **6** (misurato e piatto) — l'ordine è:
+le tre righe del **24 settembre** e il **5** da quel giorno, poi il resto del
+**10**;
 **P1** aspetta una quinta stagione, perché prima di allora rifarlo darebbe lo
 stesso numero. Il perché dell'ordine sta in `LAVORI.txt`. Solo il 5 costa una
 richiesta; tutto il resto è gratis e si paga in tempo.
@@ -1221,8 +1224,11 @@ tracciato da git — e un posto vuoto in più costa meno di un riferimento che
 punta a due cose; «O1» e «01», invece, in un commento di codice sono la
 stessa cosa.
 
-**6 — il vantaggio di casa.** Si comincia oggi: non aspetta nessun dato e
-non costa richieste. `home_advantage` è l'ultimo
+**6 — il vantaggio di casa. CHIUSO l'11 settembre 2026: misurato, piatto, e
+il modello non cambia** (i numeri stanno sopra `DEFAULT_EMIVITA_LEGA` in
+`model/dixon_coles.py`: da 180 a 1825 giorni il Brier 1X2 va da 0.5968 a
+0.5965, e la prova appaiata si ferma a −0.38 errori standard). Com'era posta
+la domanda, che resta vera: `home_advantage` è l'ultimo
 parametro del progetto mai passato dal backtest, e vale 0.0798 (la casa segna
 ×1.08) contro il ×1.16 di tutto l'archivio. Non è un errore — con l'emivita di
 180 giorni il campione efficace è di 234 partite equivalenti su 1541, e lì
@@ -1269,8 +1275,11 @@ dà ragione la trova sempre; i mercati dei gol non si muovono, coerentemente
 con quanto già verificato il 22 agosto 2026. Un'ultima cosa che lega P1 al
 lavoro 6: il `rho` del modello acceso oggi vale **+0.0340**, cioè il verso
 che i pareggi li toglie invece di aggiungerli, ed è lo stesso `rho` che il 6
-elenca fra i parametri di lega a cui l'emivita si applica per sbaglio. Chi
-comincia il 6 passi prima di qui.
+elenca fra i parametri di lega a cui l'emivita si applica per sbaglio. Il 6
+è stato fatto l'11 settembre 2026 e ha risposto anche su questo: con la
+memoria di lega lunga `rho` diventa negativo (−0.035 a cinque anni), ma il
+pareggio dichiarato non si muove — 25.8% contro 25.7%, accaduto 27.7%. Il
+`rho` positivo non era la causa di P1.
 
 ### Cosa è già stato fatto, perché nessuno lo rifaccia
 
@@ -1334,6 +1343,8 @@ comincia il 6 passi prima di qui.
                                        spenta, la distinta si legge una
                                        volta per partita (lavori 1 e 2
                                        chiusi con lei)
+  il vantaggio di casa    11/09/2026   lavoro 6: emivita di lega misurata
+                                       e piatta, il modello non cambia
 
 ### Le idee che sembrano buone e non lo sono
 
@@ -1387,6 +1398,13 @@ l'elenco, perché è la parte che si tende a riproporre.
   giusta (pendenza +0.28 ± 0.18 su tutto) e non vede difensori e portiere.
   Chi riprova porti un'idea nuova — i difensori, il movimento delle quote fra
   vigilia e fischio — e rifaccia la misura prima di accendere.
+- **una memoria più lunga per i parametri di lega** (`emivita_lega`, il
+  lavoro 6). Misurata l'11 settembre 2026, zero richieste: il vantaggio di
+  casa passa da ×1.07 a ×1.14 e `rho` diventa negativo, ma i pronostici non se
+  ne accorgono — Brier 1X2 da 0.5968 a 0.5965, minimo che salta da una
+  stagione all'altra, −0.38 errori standard nella prova appaiata — e il
+  pareggio dichiarato nemmeno. Il codice resta come parametro, come per
+  l'allenatore: si rimisura quando l'archivio cresce.
 
 Sui mercati dei gol, due cose da ricordare ora che il lavoro è fatto. La
 compressione **toglie un danno, non aggiunge una capacità**: si arriva a
