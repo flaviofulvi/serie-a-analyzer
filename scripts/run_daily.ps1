@@ -123,7 +123,13 @@ $ErrorActionPreference = "Continue"
 # ritroso, proprio quando serve capire in fretta cosa e' andato storto.
 $env:PYTHONUNBUFFERED = "1"
 
-& $Python $Script 2>&1 | ForEach-Object { $_.ToString() } | Add-Content -Path $Log -Encoding utf8 -PassThru
+# Il calendario di stagione e' l'unica richiesta della raccolta che passi dal
+# filtro league+season, cioe' esattamente cio' che il piano gratuito chiude:
+# dal 24 settembre 2026, finito il Pro, risponderebbe zero partite senza
+# errore, al prezzo di una richiesta al giorno su cento. Le 380 partite della
+# stagione sono gia' sul disco, e i cambi di data li corregge la finestra di
+# tre giorni. Se si torna a un piano a pagamento, questa opzione si toglie.
+& $Python $Script --no-calendario 2>&1 | ForEach-Object { $_.ToString() } | Add-Content -Path $Log -Encoding utf8 -PassThru
 $Esito = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
 
