@@ -37,6 +37,7 @@ from .views import (
     riga_partita,
     righe_accuratezza,
     righe_calibrazione,
+    righe_casa_e_fuori,
     righe_classifica,
     righe_affidabilita,
     righe_confronto_modi,
@@ -589,6 +590,16 @@ def squadra(request: Request, team_id: int):
     stagione_rosa = stagioni[0] if stagioni else None
 
     partite = snap.dataset.team_fixtures(team_id)
+
+    # In casa e fuori contro il pronostico: una stagione sola, la piu' recente
+    # giocata, perche' la squadra di un anno fa non e' questa.
+    concluse = [f for f in partite if f.is_finished]
+    stagione_campo = max((f.season for f in concluse), default=None)
+    campo = righe_casa_e_fuori(team_id, [
+        (f, motore.congelato(f.api_id))
+        for f in concluse if f.season == stagione_campo
+    ])
+
     return templates.TemplateResponse(request, "squadra.html", {
         "squadra": snap.dataset.name(team_id),
         "squadra_id": team_id,
@@ -598,6 +609,8 @@ def squadra(request: Request, team_id: int):
         "con_tabellino": archivio.con_statistiche_per_stagione.get(stagione_rosa, 0),
         "partite": _righe(motore, [f for f in reversed(partite) if f.is_finished][:10]),
         "prossime": _righe(motore, [f for f in partite if f.status == "scheduled"][:3]),
+        "campo": campo,
+        "stagione_campo": stagione_campo,
         "archivio": archivio,
         "salute": motore.health(),
     })

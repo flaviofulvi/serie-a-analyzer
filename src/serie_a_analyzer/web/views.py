@@ -819,6 +819,75 @@ def righe_panchina(
 
 
 @dataclass(frozen=True)
+class RigaCampo:
+    """Come e' andata una squadra in casa, o fuori, contro cio' che era stato detto.
+
+    E' una **lettura** e non una parte del modello, e la differenza e' stata
+    misurata prima di scriverla: un fattore casa per squadra dentro la stima
+    peggiora il Brier 1X2 in tutte e quattro le stagioni rigiocate (28
+    settembre 2026, CLAUDE.md). Resta il desiderio legittimo di guardare
+    quanto la realta' si stacca dal pronostico in casa e fuori, ed e' questo:
+    niente di cio' che sta qui torna nella stima, nel registro o in una misura.
+    """
+
+    dove: str
+    partite: int
+    fatti: int
+    fatti_attesi: float
+    subiti: int
+    subiti_attesi: float
+
+    @property
+    def scarto(self) -> float:
+        """Differenza reti vera meno quella attesa, in media per partita."""
+        vera = self.fatti - self.subiti
+        attesa = self.fatti_attesi - self.subiti_attesi
+        return (vera - attesa) / self.partite
+
+
+def righe_casa_e_fuori(squadra_id: int, giocate) -> list[RigaCampo]:
+    """Le due righe — in casa e fuori — su partite concluse col loro pronostico.
+
+    ``giocate`` sono coppie ``(FixtureRecord, Congelato | None)``. I gol
+    attesi vengono **solo** dal pronostico congelato prima del fischio, mai
+    dal modello caldo: quello e' stato ristimato su quelle stesse partite, e
+    lo scarto misurato contro di lui sarebbe schiacciato verso lo zero per
+    costruzione — la regola di `_riga` in `web/app.py`. Una partita senza
+    pronostico si salta, e per questo il conto delle partite sta in pagina.
+
+    Una riga con zero partite non compare: "0 in casa" si leggerebbe come
+    uno scarto nullo, cioe' come un fatto che nessuno ha osservato.
+    """
+    conti = {
+        "In casa": [0, 0, 0.0, 0, 0.0],
+        "Fuori casa": [0, 0, 0.0, 0, 0.0],
+    }
+    for partita, congelato in giocate:
+        if congelato is None or not partita.is_finished:
+            continue
+        attesi_casa, attesi_ospite = congelato.gol_attesi
+        if partita.home_team_id == squadra_id:
+            dove, fatti, subiti = "In casa", partita.home_goals, partita.away_goals
+            fatti_attesi, subiti_attesi = attesi_casa, attesi_ospite
+        elif partita.away_team_id == squadra_id:
+            dove, fatti, subiti = "Fuori casa", partita.away_goals, partita.home_goals
+            fatti_attesi, subiti_attesi = attesi_ospite, attesi_casa
+        else:
+            continue
+        c = conti[dove]
+        c[0] += 1
+        c[1] += fatti
+        c[2] += fatti_attesi
+        c[3] += subiti
+        c[4] += subiti_attesi
+    return [
+        RigaCampo(dove, n, fatti, fatti_attesi, subiti, subiti_attesi)
+        for dove, (n, fatti, fatti_attesi, subiti, subiti_attesi) in conti.items()
+        if n > 0
+    ]
+
+
+@dataclass(frozen=True)
 class ConfrontoUfficiale:
     """I due pronostici sulla stessa partita, messi uno accanto all'altro.
 

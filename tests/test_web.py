@@ -640,6 +640,78 @@ def test_squadra_inesistente(client):
     assert client.get("/squadra/424242").status_code == 404
 
 
+# ---- in casa e fuori, contro il pronostico --------------------------------
+
+def _finita(fid, casa, ospite, gol):
+    from serie_a_analyzer.data.parsers import parse_fixture
+
+    return parse_fixture(_raw(fid, casa, ospite, ADESSO - timedelta(days=fid), gol=gol))
+
+
+def _congelato(casa, ospite):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(gol_attesi=(casa, ospite))
+
+
+def test_casa_e_fuori_separa_le_due_e_misura_lo_scarto():
+    from serie_a_analyzer.web.views import righe_casa_e_fuori
+
+    giocate = [
+        # In casa: 3-0 e 1-1 contro 1.5-1.0 e 2.0-1.0 attesi.
+        (_finita(1, 1, 2, (3, 0)), _congelato(1.5, 1.0)),
+        (_finita(2, 1, 3, (1, 1)), _congelato(2.0, 1.0)),
+        # Fuori: 0-2 per l'Inter ospite, contro 1.2-1.4 attesi.
+        (_finita(3, 4, 1, (0, 2)), _congelato(1.2, 1.4)),
+    ]
+    casa, fuori = righe_casa_e_fuori(1, giocate)
+
+    assert (casa.dove, casa.partite, casa.fatti, casa.subiti) == ("In casa", 2, 4, 1)
+    assert casa.fatti_attesi == pytest.approx(3.5)
+    assert casa.subiti_attesi == pytest.approx(2.0)
+    # Differenza reti vera +3, attesa +1.5: +0.75 a partita.
+    assert casa.scarto == pytest.approx(0.75)
+
+    assert (fuori.dove, fuori.partite, fuori.fatti, fuori.subiti) == ("Fuori casa", 1, 2, 0)
+    # I gol attesi si leggono dal lato giusto: da ospite l'Inter ne aveva 1.4.
+    assert fuori.fatti_attesi == pytest.approx(1.4)
+    assert fuori.scarto == pytest.approx(2.0 - 0.2)
+
+
+def test_casa_e_fuori_salta_le_partite_senza_pronostico():
+    """Il pronostico viene solo dal registro: senza riga, la partita non conta.
+
+    E una riga con zero partite non compare, perche' si leggerebbe come uno
+    scarto nullo osservato.
+    """
+    from serie_a_analyzer.web.views import righe_casa_e_fuori
+
+    giocate = [
+        (_finita(1, 1, 2, (3, 0)), None),
+        (_finita(2, 4, 1, (0, 2)), _congelato(1.2, 1.4)),
+    ]
+    righe = righe_casa_e_fuori(1, giocate)
+
+    assert [r.dove for r in righe] == ["Fuori casa"]
+
+
+def test_la_scheda_squadra_mostra_casa_e_fuori_dai_pronostici_congelati(client_col_passato):
+    r = client_col_passato.get("/squadra/1")
+
+    assert r.status_code == 200
+    assert "In casa e fuori, contro il pronostico" in r.text
+    assert "Fuori casa" in r.text
+    assert "non ne tiene conto" in r.text
+
+
+def test_la_scheda_squadra_senza_pronostici_non_mostra_casa_e_fuori(client):
+    """Senza registro non c'e' niente da confrontare, e una tabella vuota direbbe zero."""
+    r = client.get("/squadra/1")
+
+    assert r.status_code == 200
+    assert "In casa e fuori, contro il pronostico" not in r.text
+
+
 def test_la_scheda_partita_mostra_le_formazioni(con_dettagli, client):
     r = client.get(f"/partita/{PARTITA_CON_DETTAGLI}")
 

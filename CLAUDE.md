@@ -1398,6 +1398,8 @@ pareggio dichiarato non si muove — 25.8% contro 25.7%, accaduto 27.7%. Il
                                        aneddoto fino a 200 gol
   le distinte vuote       28/09/2026   Q1: la copia vuota in cache non si
                                        serve piu'; le tre partite ricuperate
+  casa e fuori            28/09/2026   il fattore per squadra peggiora; resta
+                                       una lettura nella scheda squadra
 
 ### Le idee che sembrano buone e non lo sono
 
@@ -1458,6 +1460,15 @@ l'elenco, perché è la parte che si tende a riproporre.
   stagione all'altra, −0.38 errori standard nella prova appaiata — e il
   pareggio dichiarato nemmeno. Il codice resta come parametro, come per
   l'allenatore: si rimisura quando l'archivio cresce.
+- **un vantaggio di casa per ogni squadra.** Misurato il 28 settembre 2026,
+  zero richieste, fuori dal progetto: un delta per squadra con uno shrinkage
+  suo, e più libertà gli si dà più il Brier 1X2 peggiora — 0.5968 senza,
+  0.6031 al più libero, monotono in tutte e quattro le stagioni, +3.14 errori
+  standard di peggioramento. Lo scarto casa-fuori di una squadra contro il
+  pronostico varia quanto varierebbe per caso e non si ripete da un anno
+  all'altro (r = +0.11 ± 0.14). Qui, al contrario dell'allenatore, il codice
+  **non** è entrato nel modello: è rimasta una lettura nella scheda squadra
+  (`righe_casa_e_fuori`), dai soli pronostici congelati, fuori da ogni misura.
 
 Sui mercati dei gol, due cose da ricordare ora che il lavoro è fatto. La
 compressione **toglie un danno, non aggiunge una capacità**: si arriva a

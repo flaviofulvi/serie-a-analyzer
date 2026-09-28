@@ -105,6 +105,49 @@
   </div>
 </section>
 
+{% if campo %}
+  <section class="blocco">
+    <div class="lato">
+      <p class="occhiello">Stagione {{ stagione_campo }}/{{ "%02d"|format((stagione_campo + 1) % 100) }}</p>
+      <h2>In casa e fuori, contro il pronostico</h2>
+      {# La provenienza dei gol attesi e il limite, una riga ciascuno: il
+         perche' sta in ISTRUZIONI.txt. #}
+      <p class="dato">
+        Gol attesi dai pronostici <b>congelati prima del fischio</b>.
+        Il pronostico <b>non ne tiene conto</b>: un fattore casa per squadra
+        e' stato misurato e peggiora.
+      </p>
+    </div>
+    <div class="corpo">
+      <div class="tabella-avvolgente">
+      <table class="tabella">
+        <thead>
+          <tr>
+            <th></th><th class="destra">Partite</th>
+            <th class="destra">Fatti</th><th class="destra">Attesi</th>
+            <th class="destra">Subiti</th><th class="destra">Attesi</th>
+            <th class="destra">Scarto a partita</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in campo %}
+            <tr>
+              <td>{{ c.dove }}</td>
+              <td class="destra mono">{{ c.partite }}</td>
+              <td class="destra mono">{{ c.fatti }}</td>
+              <td class="destra mono fioco">{{ "%.1f"|format(c.fatti_attesi) }}</td>
+              <td class="destra mono">{{ c.subiti }}</td>
+              <td class="destra mono fioco">{{ "%.1f"|format(c.subiti_attesi) }}</td>
+              <td class="destra mono forte">{{ "%+.2f"|format(c.scarto) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </section>
+{% endif %}
+
 {% if partite %}
   <section class="blocco">
     <div class="lato">

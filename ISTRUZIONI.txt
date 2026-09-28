@@ -831,6 +831,24 @@ I COLORI DEI PUNTEGGI
   vinto la squadra di casa, magenta l'ospite, cenere pareggio. Nella scheda del
   giocatore, da che parte stava lo dice la pillola accanto all'avversario.
 
+IN CASA E FUORI, CONTRO IL PRONOSTICO (scheda squadra)
+  Per ogni partita giocata in questa stagione, i gol fatti e subiti veri
+  accanto a quelli che il pronostico aveva detto **prima del fischio**, divisi
+  fra casa e trasferta. Lo scarto a partita e' la differenza reti vera meno
+  quella attesa: positivo vuol dire che la squadra ha fatto meglio di quanto
+  il modello pensava.
+  I gol attesi vengono dal registro e mai dal modello di adesso, che e' stato
+  ristimato anche su quelle partite e darebbe uno scarto vicino a zero per
+  costruzione. Una partita senza pronostico registrato non entra nel conto, ed
+  e' per questo che la colonna delle partite c'e'.
+  E' una lettura e **non entra nel pronostico**. Un fattore casa per squadra
+  dentro il modello e' stato provato il 28 settembre 2026 su quattro stagioni
+  rigiocate: peggiora, e piu' liberta' gli si da' piu' peggiora. Lo scarto fra
+  casa e fuori di una squadra non si ripete ne' fra le due meta' della stessa
+  stagione ne' da un anno all'altro, cioe' e' in gran parte caso. Con poche
+  partite i numeri di questa tabella ballano molto: tre partite in casa sono
+  un aneddoto.
+
 SE LE PAGINE SONO VUOTE
   I tabellini arrivano a partita conclusa, insieme al recupero dei dettagli. Se
   le partite concluse sono parecchie e la pagina resta vuota, i dettagli non
