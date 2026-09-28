@@ -27,6 +27,8 @@ Ambiente virtuale in `.venv` (Windows, PowerShell):
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-emivita-lega  # quanto ricordano vantaggio di casa, base e rho
 .\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-fattore       # quanto credere alle formazioni ufficiali
 .\.venv\Scripts\python.exe .\scripts\backtest.py --marcatori           # quanto vale il pronostico su chi segna
+.\.venv\Scripts\python.exe .\scripts\backtest.py --cerca-correzione-marcatori  # quanto correggere la sovrastima dei marcatori
+.\.venv\Scripts\python.exe .\scripts\marcatori_contro_quote.py  # chi segna, contro Bet365 (gratis)
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py       # raccolta giornaliera (spende budget)
 .\.venv\Scripts\python.exe .\scripts\daily_collect.py --solo-al-momento-giusto # raccoglie solo se serve adesso
 .\.venv\Scripts\python.exe .\scripts\verifica_raccolta.py   # la raccolta e' sana? (non spende)
@@ -95,16 +97,21 @@ scelto sulle altre viene dichiarato rumore e non proposto.
 **Il piano è cambiato, la forma no, e capire perché è il modo giusto di
 leggere tutto questo capitolo.** `data/` è stato costruito contro il piano
 gratuito di API-Football: 100 richieste al giorno e solo le stagioni
-2022-2024. Dal 24 agosto 2026 è attivo un piano **Pro** — 7500 richieste al
-giorno, tutte le stagioni — e **scade il 24 settembre 2026**, per decisione
-dell'utente: si torna al gratuito.
+2022-2024. Dal 24 agosto al 24 settembre 2026 è stato attivo un piano **Pro**
+— 7500 richieste al giorno, tutte le stagioni — e con quello sono state
+comprate le quattro stagioni in archivio. **Dal 24 settembre 2026 si è tornati
+al gratuito**, per decisione dell'utente, e il vincolo è di nuovo quello vero.
 
-Quindi il vincolo è sospeso, non tolto, e niente qui va rilassato «perché
-adesso c'è spazio». Le tre forme che ne discendono — il contatore col budget a
-riserve, la cache che non scade, la finestra di tre giorni — restano giuste
-anche col Pro e tornano indispensabili fra tre settimane.
+Il vincolo durante il Pro era sospeso, non tolto, e niente qui va rilassato
+«perché un giorno ci sarà spazio». Le tre forme che ne discendono — il
+contatore col budget a riserve, la cache che non scade, la finestra di tre
+giorni — restano giuste con qualunque piano.
 
-Il giorno del downgrade **non serve più ricordarsi di niente**, ed è la cosa
+Il downgrade è andato come previsto: dalla prima risposta del 25 settembre il
+contatore ha letto da solo 100 al giorno e 10 al minuto (`data/budget.json`,
+voce `piano`), il `.env` ha le due righe qui sotto e il wrapper della raccolta
+passa `--no-calendario`. Quello che segue racconta perché **non serviva
+ricordarsi di niente**, ed è la cosa
 nuova dall'11 settembre 2026 (lavoro C1). API-Football dichiara i suoi limiti
 negli header di ogni risposta e il client li legge: il contatore usa il più
 basso fra `.env` e server, il freno il più prudente. Il Pro concede **300**
@@ -118,10 +125,10 @@ ricorda):
     API_MIN_INTERVAL_SECONDS=7
 
 Prima di C1 la seconda era quella che si dimentica, e lasciarla a 1 faceva
-prendere 429 alla raccolta — **e un 429 viene contato lo stesso**. Resta da
-fare a mano `--no-calendario` nel wrapper della raccolta: il calendario di
-stagione è l'unica richiesta che passi dal filtro `league+season`, e sul
-gratuito risponderà zero partite senza errore.
+prendere 429 alla raccolta — **e un 429 viene contato lo stesso**. L'unica
+cosa da fare a mano era `--no-calendario` nel wrapper della raccolta, fatta il
+24 settembre: il calendario di stagione è l'unica richiesta che passi dal
+filtro `league+season`, e sul gratuito risponde zero partite senza errore.
 
 Cosa **non** smette di funzionare, così nessuno si spaventa: gli endpoint per
 singola partita rispondono anche sul gratuito, stagione in corso compresa. A
@@ -138,7 +145,8 @@ Da qui l'intera forma di `data/`:
   client per la stessa ragione del budget: è l'unico punto da cui passano
   tutte le richieste. Vale solo su quelle davvero spedite (una risposta dalla
   cache non aspetta), e si regola da `.env` con `API_MIN_INTERVAL_SECONDS` —
-  7 secondi di default, **oggi a 1** sul Pro. Dall'11 settembre 2026 il
+  7 secondi di default, di nuovo a 7 dal ritorno al gratuito (col Pro era
+  a 1). Dall'11 settembre 2026 il
   client legge anche i **limiti dichiarati** negli header di ogni risposta
   (`limiti_dagli_header`, `_impara_i_limiti`), e il freno in vigore è il più
   prudente fra `.env` e tetto al minuto del server (`intervallo_in_vigore`,
@@ -292,7 +300,16 @@ Da qui l'intera forma di `data/`:
   dei dettagli non scade mai, quindi una ri-richiesta va fatta con
   `force_refresh`, altrimenti verrebbe servita dalla copia sbagliata e il
   contatore dei tentativi salirebbe fino al tetto senza che una sola chiamata
-  parta davvero.
+  parta davvero. Quella correzione copriva però solo il dettaglio **pieno e
+  sbagliato**, e il 28 settembre 2026 si è scoperta l'altra metà (difetto
+  Q1): una copia **vuota** in cache fa lo stesso danno. La lettura delle
+  formazioni prima del via usa la stessa chiave di cache della raccolta, e
+  quando la distinta non è ancora uscita ci lascia una risposta vuota che il
+  TTL infinito serve per sempre — tre partite si sono arrese così senza una
+  sola richiesta vera, e anche i tentativi dopo un primo vuoto vero venivano
+  serviti dalla cache. Da allora si scavalca la cache quando esiste già una
+  busta o quando la copia è vuota (`_vuota_in_cache`); una copia **piena** si
+  usa, perché è ciò che permette di ricostruire un archivio senza ripagarlo.
   La stessa forma una terza volta, il 30 agosto 2026, e stavolta la colpa non
   e' dell'API: le **formazioni** si pubblicano un pezzo per volta, e
   `data/ufficiali.py` deve per forza leggerle prima del fischio d'inizio —
@@ -631,7 +648,20 @@ Da qui l'intera forma di `data/`:
   valore sta nel sapere chi segna di solito, non contro chi. E il pronostico
   **sovrastima di circa il 7%** (2273 marcatori dichiarati contro 2110),
   spalmato su tutte le fasce: non è corretto, perché una correzione è un
-  parametro e va scelta col metodo del progetto.
+  parametro e va scelta col metodo del progetto. Il 28 settembre 2026 quel
+  metodo è stato applicato (`backtest.py --cerca-correzione-marcatori`, il
+  parametro è `CORREZIONE_QUOTA`) e la correzione **non passa**: il fattore
+  migliore sta fra 0.92 e 0.94 in tutte e tre le stagioni, ma la prova
+  appaiata per partita si ferma a −1.86 errori standard coi titolari e −0.90
+  prima delle formazioni. È il caso più vicino alla soglia mai visto qui, con
+  una forma stabile, e si rimisura a fine stagione insieme a P1. Il metro
+  vero è il bookmaker (`scripts/marcatori_contro_quote.py`): sulle 46 partite
+  2026 con le quote, matrice congelata e titolari veri, il pronostico
+  **pareggia** con Bet365 anche riscalata a posteriori — 0.2825 contro 0.2849
+  di log loss, −0.66 errori standard — ma su 85 gol è un aneddoto, e lo
+  script non dichiara un verdetto sotto i 200. I nomi del bookmaker si
+  abbinano agli id dentro le due distinte della partita (88.6% dei titolari;
+  fuori quasi solo portieri, che Bet365 non quota).
 - `notifiche.py` (fuori da `data/`, perché non è una sorgente ma un'uscita) —
   i messaggi su Telegram. Quattro regole, tutte difensive: **il silenzio è il
   default** (senza token il sistema gira identico), **non solleva mai** (un
@@ -1209,13 +1239,13 @@ fosse, questa sezione è l'unica traccia che ne rimane.
 **I numeri dei lavori non si riusano**: quelli chiusi lasciano il posto vuoto,
 così i riferimenti nei commenti del codice continuano a puntare alla cosa
 giusta. Vale anche per i numeri dei difetti, che nel file unito conservano le
-lettere che avevano. All'11 settembre 2026 — chiusi **C1**, l'**1**, l'**1b**
-e il **2** (misurati e spenti) e il **6** (misurato e piatto) — l'ordine è:
-le tre righe del **24 settembre** e il **5** da quel giorno, poi il resto del
-**10**;
-**P1** aspetta una quinta stagione, perché prima di allora rifarlo darebbe lo
-stesso numero. Il perché dell'ordine sta in `LAVORI.txt`. Solo il 5 costa una
-richiesta; tutto il resto è gratis e si paga in tempo.
+lettere che avevano. Al 28 settembre 2026 — chiusi **C1**, l'**1**, l'**1b**
+e il **2** (misurati e spenti), il **6** (misurato e piatto), il **5**
+(provato: l'xG c'è e non si accende) e il **10** tranne due ripetizioni, più
+il giorno del downgrade e il difetto **Q1** (corretto e ricuperato) —
+resta: il confronto con Bet365 da ripetere coi 200 gol, e a fine stagione **P1** insieme alla correzione dei
+marcatori, perché prima di allora rifarli darebbe lo stesso numero. Il
+perché sta in `LAVORI.txt`.
 
 Il 9 — chiuso lo stesso giorno in cui è nato — saltava il **7**, e P1 salta
 la **O**: i due motivi sono diversi. Del 7
@@ -1251,9 +1281,22 @@ dichiara che il pronostico non ne tiene conto. L'altra metà — quanto pesa chi
 manca — era esattamente il metodo del lavoro 1 applicato a un'altra lista, e
 quel metodo non migliora il pronostico.
 
-**5 — gli xG della stagione in corso.** Si aspetta il downgrade, e la prova è
-**una richiesta**: `/fixtures/statistics?fixture=<una partita del 2026>` dice
-se il gratuito li copre. Provarlo prima non serve — risponderebbe il Pro.
+**5 — gli xG della stagione in corso. PROVATO il 28 settembre 2026.** Una
+richiesta, Milan-Lecce del 20 settembre: il gratuito l'xG lo dà (2.19 a
+0.21, salvato in archivio). La raccolta quotidiana **non** li prende lo
+stesso: una giornata spende già 50-90 richieste su 100, nessuna parte del
+modello legge l'xG, e le statistiche si rileggono dall'id quando servono —
+a fine stagione 380 richieste nei giorni di sosta, se una misura nuova le
+chiedesse.
+
+**Q1 — le distinte vuote di prima del via. CHIUSO il 28 settembre 2026.**
+Vedi `store.py` qui sopra: la copia vuota in cache della lettura anticipata
+ha fatto perdere le formazioni di tre partite. Il codice è sistemato e le
+tre partite (1550098, 1550117, 1550133) sono state ricuperate lo stesso
+giorno, col sì dell'utente: tolte le buste vuote a tre tentativi, tre
+richieste, formazioni intere. Se capitasse di nuovo, il ricupero è quello —
+e va chiesto, perché `data/serie_a/details/` è la cartella che non si
+rigenera.
 
 **P1 — il pareggio nelle partite equilibrate.** Un difetto **misurato e non
 curato**, ed è la differenza che conta. Dove le due squadre si somigliano
@@ -1345,6 +1388,16 @@ pareggio dichiarato non si muove — 25.8% contro 25.7%, accaduto 27.7%. Il
                                        chiusi con lei)
   il vantaggio di casa    11/09/2026   lavoro 6: emivita di lega misurata
                                        e piatta, il modello non cambia
+  il ritorno al gratuito  24/09/2026   `--no-calendario`; contatore e freno
+                                       si sono adeguati da soli il 25
+  l'xG sul gratuito       28/09/2026   lavoro 5: una richiesta, c'e'; non
+                                       si raccoglie ogni giorno
+  la sovrastima marcatori 28/09/2026   correzione misurata: 0.92-0.94,
+                                       -1.86 errori standard, non passa
+  marcatori contro Bet365 28/09/2026   pari su 46 partite e 85 gol: un
+                                       aneddoto fino a 200 gol
+  le distinte vuote       28/09/2026   Q1: la copia vuota in cache non si
+                                       serve piu'; le tre partite ricuperate
 
 ### Le idee che sembrano buone e non lo sono
 

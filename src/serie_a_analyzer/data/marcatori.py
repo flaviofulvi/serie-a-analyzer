@@ -100,6 +100,14 @@ RUOLI = ("G", "D", "M", "F")
 # accanto al numero, e chi rifa' la misura aggiorna anche questo.
 SOVRASTIMA_MISURATA = 2273 / 2110 - 1
 
+# La correzione di quella sovrastima: un fattore sulla quota di ogni
+# giocatore, prima del tetto. A 1.00 e' spenta. Si sceglie con
+# `backtest.py --cerca-correzione-marcatori`, col metodo del progetto (il
+# valore migliore sulle stagioni diverse da quella su cui lo si misura, poi la
+# prova appaiata), e non si ritocca a occhio: chi lo cambia rifa' la misura e
+# aggiorna anche SOVRASTIMA_MISURATA, che descrive il pronostico corretto.
+CORREZIONE_QUOTA = 1.0
+
 # Le colonne delle somme cumulate.
 _MINUTI, _GOL, _TIRI, _TITOLARE, _MINUTI_DA_TITOLARE = range(5)
 _COLONNE = 5
@@ -345,7 +353,7 @@ class StoriaMarcatori:
                 ruolo=ruolo,
                 minuti_attesi=minuti_attesi,
                 tasso_90=tasso,
-                quota=min(max(quota, 0.0), QUOTA_MASSIMA),
+                quota=min(max(quota * CORREZIONE_QUOTA, 0.0), QUOTA_MASSIMA),
             ))
         return out
 

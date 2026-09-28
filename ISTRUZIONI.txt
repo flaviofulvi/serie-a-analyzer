@@ -573,7 +573,13 @@ LA RIGA SUL "DI PIU'"
   Nelle stagioni rigiocate il modello ha dichiarato circa il 7% di marcatori
   in piu' di quanti ne siano arrivati: i numeri sono un filo alti, e lo sono
   in tutte le fasce. Non e' corretto apposta — una correzione e' un numero
-  nuovo, e va misurata come tutti gli altri prima di fidarsene.
+  nuovo, e va misurata come tutti gli altri prima di fidarsene. Misurata il
+  28 settembre 2026: abbassare i numeri di circa il 7% aiuterebbe un poco,
+  ma troppo poco per distinguerlo dal caso. Si riprova a fine stagione.
+
+  Contro le quote di Bet365, sulle prime 46 partite della stagione, questi
+  numeri fanno pari col bookmaker. Sono 85 gol: troppo pochi per dire di
+  piu', e la prova si rifa' quando saranno almeno 200.
 
 I RIGORISTI NON SONO RICONOSCIUTI
   Chi tira i rigori ha un tasso che li contiene, ma il modello non sa che li

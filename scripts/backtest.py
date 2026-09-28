@@ -45,6 +45,8 @@ from math import exp, log
 from pathlib import Path
 from typing import Sequence
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from serie_a_analyzer.config import (
@@ -56,7 +58,7 @@ from serie_a_analyzer.config import (
     load_settings,
 )
 from serie_a_analyzer.data.dataset import Dataset, load_dataset
-from serie_a_analyzer.data.marcatori import StoriaMarcatori
+from serie_a_analyzer.data.marcatori import CORREZIONE_QUOTA, QUOTA_MASSIMA, StoriaMarcatori
 from serie_a_analyzer.data.panchine import Panchine, costruisci_panchine
 from serie_a_analyzer.data.parsers import FixtureRecord
 from serie_a_analyzer.data.pesi import (
@@ -80,7 +82,12 @@ from serie_a_analyzer.model.dixon_coles import (
     comprimi_totale,
     fit_dixon_coles,
 )
-from serie_a_analyzer.model.markets import MatchProbabilities, derive_markets, player_scores
+from serie_a_analyzer.model.markets import (
+    MatchProbabilities,
+    derive_markets,
+    player_scores,
+    team_goal_distribution,
+)
 from serie_a_analyzer.model.scoreline import scoreline_matrix
 
 # Sotto questa soglia di partite il modello non ha abbastanza storia perche'
@@ -1186,10 +1193,92 @@ def cerca_fattore(settings, store, dataset: Dataset, panchine: Panchine) -> int:
 @dataclass(frozen=True)
 class RigaMarcatore:
     stagione: int
+    fixture_id: int
     ruolo: str | None
     segna: bool
     modello: float          # dentro la matrice: il pronostico vero
     senza_partita: float    # lo stesso giocatore, come se ogni partita fosse uguale
+    quota: float            # la sua parte dei gol della squadra, gia' col tetto
+    gol_squadra: tuple[float, ...]  # la distribuzione dei gol della sua squadra
+
+
+@dataclass
+class RigheMarcatori:
+    """Le righe rigiocate, una per giocatore e partita, nei due modi."""
+
+    con_tabellini: list[int]
+    stagioni: list[int]
+    righe: dict[str, list[RigaMarcatore]]
+    gol_dei_candidati: int = 0
+    gol_di_tutti: int = 0
+
+
+def righe_marcatori(
+    settings, store, dataset: Dataset, panchine: Panchine, stagione: int | None
+) -> RigheMarcatori | None:
+    """Rigioca le stagioni coi tabellini e scrive una riga per giocatore e partita.
+
+    E' il lavoro comune alla misura (`--marcatori`) e alla ricerca della
+    correzione (`--cerca-correzione-marcatori`): le due devono guardare le
+    stesse righe, altrimenti la correzione scelta dall'una sarebbe misurata
+    dall'altra su un campione diverso.
+    """
+    storici = list(build_storico_stores(settings).values())
+    archivio = costruisci_archivio(StoreUnito(stores=[store, *storici]), dataset.fixtures)
+    storia = StoriaMarcatori(archivio.prestazioni, dataset.fixtures)
+    per_partita: dict[int, list] = defaultdict(list)
+    for p in archivio.prestazioni:
+        per_partita[p.fixture_id].append(p)
+
+    con_tabellini = sorted(
+        s for s, n in archivio.con_statistiche_per_stagione.items()
+        if n >= PARTITE_STAGIONE_COMPLETA
+    )
+    stagioni = [stagione] if stagione is not None else con_tabellini[1:]
+    if not stagioni:
+        return None
+    print(f"Stagioni coi tabellini: {', '.join(map(str, con_tabellini))}")
+    print(f"Rigiocate:              {', '.join(map(str, stagioni))}")
+
+    esito = RigheMarcatori(con_tabellini, stagioni, {"titolari": [], "rosa": []})
+    for s in stagioni:
+        preds, _ = run_backtest(dataset, s, panchine=panchine)
+        print(f"  stagione {s}: {len(preds)} partite rigiocate")
+        for p in preds:
+            f = dataset.by_id.get(p.fixture_id)
+            prestazioni = per_partita.get(p.fixture_id)
+            if f is None or not prestazioni:
+                continue
+            # La matrice e' quella che il sito mostrerebbe: compressa.
+            lam, mu = comprimi_totale(p.lam, p.mu, p.media_lega, DEFAULT_GOAL_COMPRESSION)
+            matrice = scoreline_matrix(lam, mu, p.rho)
+            for lato, squadra in (("home", f.home_team_id), ("away", f.away_team_id)):
+                suoi = [x for x in prestazioni if x.team_id == squadra]
+                if not suoi:
+                    continue
+                gol_squadra = tuple(team_goal_distribution(matrice, lato).tolist())
+                segnato = {x.player_id: x.gol > 0 for x in suoi}
+                titolari = [x for x in suoi if x.titolare]
+                rosa = storia.candidati(squadra, f.kickoff_utc)
+                in_rosa = {c.player_id for c in rosa}
+                esito.gol_dei_candidati += sum(x.gol for x in suoi if x.player_id in in_rosa)
+                esito.gol_di_tutti += sum(x.gol for x in suoi)
+                for modo, candidati in (
+                    ("titolari", storia.candidati(squadra, f.kickoff_utc, titolari=titolari)),
+                    ("rosa", rosa),
+                ):
+                    for c in candidati:
+                        esito.righe[modo].append(RigaMarcatore(
+                            stagione=s,
+                            fixture_id=p.fixture_id,
+                            ruolo=c.ruolo,
+                            segna=segnato.get(c.player_id, False),
+                            modello=player_scores(matrice, lato, c.quota),
+                            senza_partita=1.0 - exp(-c.tasso_90 * c.minuti_attesi / 90.0),
+                            quota=c.quota,
+                            gol_squadra=gol_squadra,
+                        ))
+    return esito
 
 
 def misura_marcatori(
@@ -1209,65 +1298,16 @@ def misura_marcatori(
     mette in vantaggio. Batterle vale di piu', non di meno.
     """
     titolo("MARCATORI - chi segna, contro i suoi concorrenti")
-    storici = list(build_storico_stores(settings).values())
-    archivio = costruisci_archivio(StoreUnito(stores=[store, *storici]), dataset.fixtures)
-    storia = StoriaMarcatori(archivio.prestazioni, dataset.fixtures)
-    per_partita: dict[int, list] = defaultdict(list)
-    for p in archivio.prestazioni:
-        per_partita[p.fixture_id].append(p)
-
-    con_tabellini = sorted(
-        s for s, n in archivio.con_statistiche_per_stagione.items()
-        if n >= PARTITE_STAGIONE_COMPLETA
-    )
-    stagioni = [stagione] if stagione is not None else con_tabellini[1:]
-    if not stagioni:
+    esito = righe_marcatori(settings, store, dataset, panchine, stagione)
+    if esito is None:
         print("\nServono almeno due stagioni complete coi tabellini: la prima fa da rodaggio.\n")
         return 1
-    print(f"Stagioni coi tabellini: {', '.join(map(str, con_tabellini))}")
-    print(f"Rigiocate:              {', '.join(map(str, stagioni))}")
 
-    righe: dict[str, list[RigaMarcatore]] = {"titolari": [], "rosa": []}
-    gol_dei_candidati = gol_di_tutti = 0
-    for s in stagioni:
-        preds, _ = run_backtest(dataset, s, panchine=panchine)
-        print(f"  stagione {s}: {len(preds)} partite rigiocate")
-        for p in preds:
-            f = dataset.by_id.get(p.fixture_id)
-            prestazioni = per_partita.get(p.fixture_id)
-            if f is None or not prestazioni:
-                continue
-            # La matrice e' quella che il sito mostrerebbe: compressa.
-            lam, mu = comprimi_totale(p.lam, p.mu, p.media_lega, DEFAULT_GOAL_COMPRESSION)
-            matrice = scoreline_matrix(lam, mu, p.rho)
-            for lato, squadra in (("home", f.home_team_id), ("away", f.away_team_id)):
-                suoi = [x for x in prestazioni if x.team_id == squadra]
-                if not suoi:
-                    continue
-                segnato = {x.player_id: x.gol > 0 for x in suoi}
-                titolari = [x for x in suoi if x.titolare]
-                rosa = storia.candidati(squadra, f.kickoff_utc)
-                in_rosa = {c.player_id for c in rosa}
-                gol_dei_candidati += sum(x.gol for x in suoi if x.player_id in in_rosa)
-                gol_di_tutti += sum(x.gol for x in suoi)
-                for modo, candidati in (
-                    ("titolari", storia.candidati(squadra, f.kickoff_utc, titolari=titolari)),
-                    ("rosa", rosa),
-                ):
-                    for c in candidati:
-                        righe[modo].append(RigaMarcatore(
-                            stagione=s,
-                            ruolo=c.ruolo,
-                            segna=segnato.get(c.player_id, False),
-                            modello=player_scores(matrice, lato, c.quota),
-                            senza_partita=1.0 - exp(-c.tasso_90 * c.minuti_attesi / 90.0),
-                        ))
-
-    _rapporto_marcatori("COI TITOLARI NOTI (a formazioni uscite)", righe["titolari"])
-    _rapporto_marcatori("PRIMA DELLE FORMAZIONI (i candidati delle ultime partite)", righe["rosa"])
-    if gol_di_tutti:
-        print(f"\nPrima delle formazioni i candidati hanno segnato {gol_dei_candidati} gol "
-              f"su {gol_di_tutti} ({gol_dei_candidati / gol_di_tutti:.1%}):")
+    _rapporto_marcatori("COI TITOLARI NOTI (a formazioni uscite)", esito.righe["titolari"])
+    _rapporto_marcatori("PRIMA DELLE FORMAZIONI (i candidati delle ultime partite)", esito.righe["rosa"])
+    if esito.gol_di_tutti:
+        print(f"\nPrima delle formazioni i candidati hanno segnato {esito.gol_dei_candidati} gol "
+              f"su {esito.gol_di_tutti} ({esito.gol_dei_candidati / esito.gol_di_tutti:.1%}):")
         print("il resto e' di chi nelle ultime partite non aveva giocato.")
     return 0
 
@@ -1319,6 +1359,175 @@ def _rapporto_marcatori(nome: str, righe: list[RigaMarcatore]) -> None:
     print("  " + "-" * 49)
     for etichetta, n, media, reale in calibration(probs, esiti, n_bin=20):
         print(f"  {etichetta:<12}{n:>7}{media:>12.1%}{reale:>10.1%}{reale - media:>+10.1%}")
+
+
+# ---- la correzione dei marcatori --------------------------------------------
+#
+# Il pronostico su chi segna dichiara circa il 7% di marcatori in piu' di
+# quelli che ci sono (lavoro 10). La correzione e' un fattore sulla quota di
+# ogni giocatore (CORREZIONE_QUOTA in data/marcatori.py), e si sceglie come la
+# compressione: il valore migliore sulle stagioni DIVERSE da quella su cui lo
+# si misura, poi la prova appaiata partita per partita.
+#
+# Un parametro solo per i due modi, perche' nel codice e' uno solo: il
+# criterio e' la somma dei due log loss, coi titolari noti e prima delle
+# formazioni, e la tabella li mostra separati perche' un fattore che aiuta
+# l'uno e danneggia l'altro si deve vedere.
+#
+# Le righe di una stessa partita non sono osservazioni indipendenti — la
+# matrice e' la stessa, e un fattore che sbaglia la sbaglia per tutti i
+# ventidue — quindi l'errore standard si calcola sulle PARTITE, sommando le
+# differenze dei suoi giocatori. Contarle una per una lo farebbe sembrare
+# molto piu' piccolo di quello che e'.
+
+GRIGLIA_CORREZIONE = tuple(round(0.80 + 0.02 * i, 2) for i in range(16))
+assert CORREZIONE_QUOTA in GRIGLIA_CORREZIONE, "il valore di oggi deve stare nella griglia"
+
+_MODI_MARCATORI = ("titolari", "rosa")
+
+
+def _probabilita_corrette(righe: list[RigaMarcatore], fattore: float) -> np.ndarray:
+    """P(segna) di ogni riga con la quota moltiplicata per ``fattore``.
+
+    E' la stessa somma di celle di `player_scores`, fatta su tutte le righe
+    insieme: a fattore 1 restituisce esattamente la colonna ``modello``.
+    """
+    gol = np.array([r.gol_squadra for r in righe])
+    quote = np.minimum(np.array([r.quota for r in righe]) * fattore, QUOTA_MASSIMA)
+    k = np.arange(gol.shape[1])
+    return (gol * (1.0 - (1.0 - quote[:, None]) ** k[None, :])).sum(axis=1)
+
+
+def _perdite(righe: list[RigaMarcatore], fattore: float) -> np.ndarray:
+    """Il log loss di ogni riga, non ancora mediato."""
+    p = np.clip(_probabilita_corrette(righe, fattore), 1e-12, 1 - 1e-12)
+    y = np.array([r.segna for r in righe], dtype=float)
+    return -(y * np.log(p) + (1 - y) * np.log(1 - p))
+
+
+def _appaiata_marcatori(righe: list[RigaMarcatore], fattore: float, contro: float):
+    """Differenza di log loss sommata per partita: quante, media, varianza, meglio, peggio."""
+    diff = _perdite(righe, fattore) - _perdite(righe, contro)
+    per_partita: dict[int, float] = defaultdict(float)
+    for r, d in zip(righe, diff):
+        per_partita[r.fixture_id] += d
+    valori = np.array(list(per_partita.values()))
+    return (
+        len(valori), float(valori.sum()), valori,
+        int((valori < 0).sum()), int((valori > 0).sum()),
+    )
+
+
+def cerca_correzione_marcatori(settings, store, dataset: Dataset, panchine: Panchine) -> int:
+    """Sceglie CORREZIONE_QUOTA e lo misura senza barare (lavoro 10)."""
+    titolo("MARCATORI - quanto correggere la sovrastima")
+    print("Il pronostico dichiara piu' marcatori di quanti ce ne siano. Il fattore")
+    print("moltiplica la quota di ogni giocatore: 1.00 = nessuna correzione.")
+    print(f"Oggi vale {CORREZIONE_QUOTA:.2f}. Si sceglie sulla somma dei log loss dei due modi.\n")
+    esito = righe_marcatori(settings, store, dataset, panchine, None)
+    if esito is None or len(esito.stagioni) < 2:
+        print("\nServono almeno tre stagioni coi tabellini: una fa da rodaggio, e il")
+        print("fattore si sceglie su una stagione e si misura su un'altra.\n")
+        return 1
+
+    per_stagione = {
+        s: {m: [r for r in esito.righe[m] if r.stagione == s] for m in _MODI_MARCATORI}
+        for s in esito.stagioni
+    }
+    # scansioni[s][fattore] = (log loss coi titolari, log loss prima delle formazioni)
+    scansioni = {
+        s: {
+            f: tuple(float(_perdite(modi[m], f).mean()) for m in _MODI_MARCATORI)
+            for f in GRIGLIA_CORREZIONE
+        }
+        for s, modi in per_stagione.items()
+    }
+
+    def migliore(scan: Sequence[dict[float, tuple[float, float]]]) -> float:
+        return min(GRIGLIA_CORREZIONE, key=lambda f: sum(sum(x[f]) for x in scan))
+
+    titolo("La misura onesta: fattore scelto sulle altre stagioni")
+    print(f"{'stagione':<10}{'fattore':>9}{'titolari':>21}{'prima delle formaz.':>23}")
+    print("-" * 63)
+    scelti: dict[int, float] = {}
+    deltas = [0.0, 0.0]
+    for s, scan in scansioni.items():
+        f = migliore([x for y, x in scansioni.items() if y != s])
+        scelti[s] = f
+        base, con = scan[1.0], scan[f]
+        for i in range(2):
+            deltas[i] += con[i] - base[i]
+        print(f"{s:<10}{f:>9.2f}"
+              f"{f'{base[0]:.4f}->{con[0]:.4f}':>21}{f'{base[1]:.4f}->{con[1]:.4f}':>23}")
+    n = len(scansioni)
+    print("-" * 63)
+    print(f"{'variazione media':<19}{deltas[0] / n:>+21.5f}{deltas[1] / n:>+23.5f}")
+    print("\nNegativo = la correzione fa meglio del pronostico senza.")
+
+    titolo("Il quadro intero: ogni fattore, in media sulle stagioni")
+    print("Serve a vedere la forma della curva, non a scegliere.\n")
+    print(f"{'fattore':<10}{'titolari':>11}{'prima':>11}{'somma':>11}"
+          f"{'dichiarati/accaduti (titolari)':>34}")
+    print("-" * 77)
+    tutte_titolari = esito.righe["titolari"]
+    accaduti = sum(r.segna for r in tutte_titolari)
+    for f in GRIGLIA_CORREZIONE:
+        medie = [sum(x[f][i] for x in scansioni.values()) / n for i in range(2)]
+        dichiarati = float(_probabilita_corrette(tutte_titolari, f).sum())
+        segno = "  <- oggi" if f == CORREZIONE_QUOTA else ""
+        rapporto_conti = f"{dichiarati:.0f}/{accaduti} ({dichiarati / accaduti - 1:+.1%})"
+        print(f"{f:<10.2f}{medie[0]:>11.4f}{medie[1]:>11.4f}{sum(medie):>11.4f}"
+              f"{rapporto_conti:>34}{segno}")
+    print(f"\n{'stagione':<10}" + "".join(f"{f:>8.2f}" for f in GRIGLIA_CORREZIONE))
+    print("-" * (10 + 8 * len(GRIGLIA_CORREZIONE)))
+    for s, scan in scansioni.items():
+        print(f"{s:<10}" + "".join(f"{sum(scan[f]):>8.4f}" for f in GRIGLIA_CORREZIONE))
+    print("(la somma dei due log loss per stagione e fattore: se il minimo salta,")
+    print(" il fattore vero non e' determinato dai dati.)")
+
+    titolo("La prova appaiata, partita per partita")
+    rapporti: dict[str, float] = {}
+    for m, nome in (("titolari", "coi titolari noti"), ("rosa", "prima delle formazioni")):
+        valori = []
+        meglio_tot = peggio_tot = 0
+        for s in esito.stagioni:
+            _, _, v, meglio, peggio = _appaiata_marcatori(per_stagione[s][m], scelti[s], 1.0)
+            valori.append(v)
+            meglio_tot += meglio
+            peggio_tot += peggio
+        tutti = np.concatenate(valori)
+        quante = len(tutti)
+        media = float(tutti.mean())
+        errore = float(tutti.std(ddof=1) / quante ** 0.5) if quante > 1 else 0.0
+        rapporto = media / errore if errore else 0.0
+        rapporti[m] = rapporto
+        print(f"{nome}, fattore scelto sulle altre contro nessuna correzione:")
+        print(f"  {quante} partite, differenza media {media:+.6f} per partita "
+              f"({rapporto:+.2f} errori standard)")
+        print(f"  migliorate {meglio_tot}, peggiorate {peggio_tot}\n")
+    print("Sotto i due errori standard la differenza non si distingue dal caso:")
+    print("e' la regola con cui e' stata fermata la cura del difetto P1.")
+
+    scelto = migliore(list(scansioni.values()))
+    guadagno = sum(deltas) / n
+    titolo(f"IL VERDETTO - fattore migliore sulle stagioni insieme: {scelto:.2f}")
+    if scelto == 1.0 or guadagno >= 0:
+        print("Scelto senza guardare la risposta, il fattore non migliora il")
+        print(f"pronostico ({guadagno:+.5f} sulla somma dei log loss). La correzione")
+        print("resta spenta, e la sovrastima resta dichiarata accanto al numero.")
+    elif max(rapporti.values()) > -2.0:
+        print(f"Scelto sulle altre stagioni migliora di {guadagno:+.5f} la somma dei")
+        print("log loss, ma la prova appaiata non supera i due errori standard in")
+        print(f"entrambi i modi ({rapporti['titolari']:+.2f} coi titolari, "
+              f"{rapporti['rosa']:+.2f} prima delle formazioni).")
+        print("Con la regola del progetto non passa.")
+    else:
+        print(f"Scelto sulle altre stagioni migliora di {guadagno:+.5f} la somma dei")
+        print(f"log loss, e la prova appaiata dice {rapporti['titolari']:+.2f} errori")
+        print(f"standard coi titolari e {rapporti['rosa']:+.2f} prima delle formazioni:")
+        print("e' un effetto vero. E' il valore da mettere in CORREZIONE_QUOTA")
+        print("(data/marcatori.py), aggiornando anche SOVRASTIMA_MISURATA.")
+    return 0
 
 
 def titolo(testo: str) -> None:
@@ -1411,6 +1620,12 @@ def main() -> int:
              "(con --stagione, una sola). Zero richieste",
     )
     parser.add_argument(
+        "--cerca-correzione-marcatori",
+        action="store_true",
+        help="sceglie quanto correggere la sovrastima del pronostico su chi "
+             "segna (CORREZIONE_QUOTA). Zero richieste",
+    )
+    parser.add_argument(
         "--cerca-fattore",
         action="store_true",
         help="sceglie quanto credere alle formazioni ufficiali (FATTORE_PREDEFINITO) "
@@ -1459,7 +1674,7 @@ def main() -> int:
     ricerche = (
         args.cerca_compressione, args.cerca_allenatore,
         args.cerca_emivita, args.cerca_shrinkage, args.cerca_fattore,
-        args.cerca_emivita_lega,
+        args.cerca_emivita_lega, args.cerca_correzione_marcatori,
     )
     if sum(bool(r) for r in ricerche) > 1:
         # Due ricerche insieme non sono due misure: la seconda partirebbe
@@ -1475,6 +1690,12 @@ def main() -> int:
             return 1
         panchine = carica_panchine(settings, store, dataset)
         esito = misura_marcatori(settings, store, dataset, panchine, args.stagione)
+        print(f"\nRichieste API spese: {client.budget.used - prima}")
+        return esito
+
+    if args.cerca_correzione_marcatori:
+        panchine = carica_panchine(settings, store, dataset)
+        esito = cerca_correzione_marcatori(settings, store, dataset, panchine)
         print(f"\nRichieste API spese: {client.budget.used - prima}")
         return esito
 
