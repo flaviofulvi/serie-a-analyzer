@@ -542,6 +542,72 @@ def test_la_ri_richiesta_di_una_formazione_scavalca_la_cache(
     assert [len(b["startXI"]) for b in store.load_detail(1, "lineups")] == [11, 11]
 
 
+def test_una_distinta_vuota_letta_prima_del_via_non_blocca_quella_vera(
+    client, store, journal, mondo
+):
+    """Il guasto del 31 agosto 2026, del 12 e del 18 settembre.
+
+    `leggi_formazioni` a quindici minuti dal via trova la distinta non ancora
+    uscita e giustamente non la salva — ma il client la mette in cache, con la
+    stessa chiave che la raccolta del dopopartita usa col TTL infinito. Senza
+    scavalcarla, quella risposta vuota veniva servita tre volte e la partita
+    restava senza formazioni per sempre, senza una sola richiesta vera.
+    """
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    mondo["dettagli"][(1, "events")] = [{"dato": "events"}]
+    mondo["dettagli"][(1, "players")] = _tabellino(90)
+
+    # Prima del via: l'API risponde vuoto, `leggi_formazioni` non salva.
+    assert client.lineups(1) == []
+    assert store.detail_envelope(1, "lineups") is None
+    mondo["dettagli"][(1, "lineups")] = _formazioni()
+    mondo["chiamate"].clear()
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+
+    assert "/fixtures/lineups" in mondo["chiamate"], (
+        "la richiesta non e' arrivata all'API: servita la copia vuota in cache"
+    )
+    assert [len(b["startXI"]) for b in store.load_detail(1, "lineups")] == [11, 11]
+
+
+def test_ogni_tentativo_su_un_dettaglio_vuoto_e_una_richiesta_vera(
+    client, store, journal, mondo
+):
+    """Il tetto dei tentativi conta richieste, non letture dalla cache."""
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    mondo["dettagli"][(1, "events")] = [{"dato": "events"}]
+    mondo["dettagli"][(1, "players")] = _tabellino(90)
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+    assert store.load_detail(1, "lineups") == []
+
+    mondo["dettagli"][(1, "lineups")] = _formazioni()
+    mondo["chiamate"].clear()
+    backfill_details(client, store)
+
+    assert mondo["chiamate"].count("/fixtures/lineups") == 1
+    assert [len(b["startXI"]) for b in store.load_detail(1, "lineups")] == [11, 11]
+
+
+def test_una_copia_piena_in_cache_si_usa_senza_ripagarla(client, store, journal, mondo):
+    """Scavalcare la cache solo quando e' vuota: una copia buona vale un archivio."""
+    mondo["per_giorno"]["2026-08-22"] = [_fixture(1)]
+    mondo["per_giorno"]["2026-08-23"] = []
+    for kind, payload in (("events", [{"dato": "events"}]), ("players", _tabellino(90)),
+                          ("lineups", _formazioni())):
+        mondo["dettagli"][(1, kind)] = payload
+        client.get(f"fixtures/{kind}", {"fixture": 1})
+    mondo["chiamate"].clear()
+
+    collect_day(client, store, journal, GIORNO, today=IL_GIORNO_DOPO)
+
+    assert not [c for c in mondo["chiamate"] if c != "/fixtures"]
+    assert store.has_detail(1, "lineups")
+
+
 def test_una_formazione_intera_non_si_richiede_due_volte(
     client, store, journal, mondo
 ):

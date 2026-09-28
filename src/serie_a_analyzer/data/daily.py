@@ -76,6 +76,13 @@ DETAIL_KINDS = ("lineups", "players", "events")
 # qui — non prima, o si sarebbe raccolto ogni giorno un dato che nessuno usa.
 # Nessun'altra parte del codice va toccata per chiederlo: `needs_detail` e
 # `save_detail` lavorano su una stringa qualunque.
+#
+# Il 28 settembre 2026 (lavoro 5) una richiesta ha detto che il piano gratuito
+# l'xG della stagione in corso lo da' (Milan-Lecce del 20 settembre: 2.19 a
+# 0.21). Resta fuori lo stesso, e ora per una ragione di budget oltre che di
+# uso: una giornata di campionato spende gia' 85-90 richieste su 100, e le
+# statistiche si rileggono dall'id quando servono — a fine stagione ne bastano
+# 380, sparse nei giorni di sosta.
 DETTAGLIO_STATISTICHE = "statistics"
 
 # Tutti i dettagli che si sa chiedere. E' contro questo che si valida una
@@ -316,6 +323,12 @@ def collect_day(
     return report
 
 
+def _vuota_in_cache(client: ApiFootballClient, endpoint: str, params: dict) -> bool:
+    """La cache ha una copia di questa richiesta, e la copia non contiene niente?"""
+    copia = client.cache.get(endpoint, params, TTL_FOREVER)
+    return isinstance(copia, dict) and not copia.get("response")
+
+
 def collect_details_for(
     client: ApiFootballClient,
     store: SeasonStore,
@@ -382,18 +395,32 @@ def collect_details_for(
                 logger.info("dettagli: budget %s esaurito, si riprende domani", prio.name)
                 continue
 
-            # Se un dettaglio ce l'abbiamo gia' e lo stiamo richiedendo, e'
+            # Se un dettaglio l'abbiamo gia' chiesto e lo stiamo richiedendo, e'
             # perche' quello che abbiamo non va (`needs_detail`): un tabellino
-            # fermo a partita in corso, o una formazione letta prima del via
-            # mentre la distinta era ancora a meta'. La cache di quei dettagli
-            # non scade mai, quindi senza `force_refresh` la richiesta verrebbe
-            # servita dalla copia sbagliata — nessuna chiamata all'API, nessuna
-            # correzione, e il contatore dei tentativi che sale fino al tetto
-            # senza aver mai chiesto niente a nessuno.
-            riprova = store.has_detail(fid, kind)
+            # fermo a partita in corso, una formazione letta prima del via
+            # mentre la distinta era ancora a meta', o una risposta vuota. La
+            # cache di quei dettagli non scade mai, quindi senza `force_refresh`
+            # la richiesta verrebbe servita dalla copia sbagliata — nessuna
+            # chiamata all'API, nessuna correzione, e il contatore dei tentativi
+            # che sale fino al tetto senza aver mai chiesto niente a nessuno.
+            #
+            # Il vuoto va scavalcato anche al PRIMO tentativo, ed e' la meta'
+            # che mancava fino al 28 settembre 2026: la lettura delle formazioni
+            # prima del via (`data/ufficiali.py`) usa la stessa chiave di cache,
+            # e quando la distinta non e' ancora uscita ci lascia una risposta
+            # vuota. Servita per sempre dal TTL infinito, ha fatto arrendere tre
+            # partite senza una sola richiesta vera (Atalanta-Bologna del 31
+            # agosto, Atalanta-Cagliari del 12 settembre, Monza-Sassuolo del
+            # 18). Una copia piena invece si usa: e' cio' che permette di
+            # ricostruire un archivio dalla cache senza ripagarlo.
+            endpoint, params = f"fixtures/{kind}", {"fixture": fid}
+            riprova = (
+                store.detail_envelope(fid, kind) is not None
+                or _vuota_in_cache(client, endpoint, params)
+            )
             try:
                 payload = client.get(
-                    f"fixtures/{kind}", {"fixture": fid},
+                    endpoint, params,
                     ttl=TTL_FOREVER, priority=prio,
                     force_refresh=riprova,
                 )
