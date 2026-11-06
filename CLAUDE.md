@@ -657,9 +657,12 @@ Da qui l'intera forma di `data/`:
   una forma stabile, e si rimisura a fine stagione insieme a P1. Il metro
   vero è il bookmaker (`scripts/marcatori_contro_quote.py`): sulle 46 partite
   2026 con le quote, matrice congelata e titolari veri, il pronostico
-  **pareggia** con Bet365 anche riscalata a posteriori — 0.2825 contro 0.2849
-  di log loss, −0.66 errori standard — ma su 85 gol è un aneddoto, e lo
-  script non dichiara un verdetto sotto i 200. I nomi del bookmaker si
+  **pareggia** con Bet365 anche riscalata a posteriori. Il 28 settembre era
+  un aneddoto (85 gol); il 6 novembre 2026, con 203 gol su 94 partite, il
+  verdetto vale ed è lo stesso: pari, 0.3157 contro 0.3133 di log loss,
+  +0.80 errori standard. Quest'anno però il pronostico **sottostima** (191.6
+  gol dichiarati contro 203), al contrario del 7% misurato sul 2023-2025: è
+  il ritardo sul livello dei gol (difetto R1, qui sotto). I nomi del bookmaker si
   abbinano agli id dentro le due distinte della partita (88.6% dei titolari;
   fuori quasi solo portieri, che Bet365 non quota).
 - `notifiche.py` (fuori da `data/`, perché non è una sorgente ma un'uscita) —
@@ -1242,10 +1245,26 @@ giusta. Vale anche per i numeri dei difetti, che nel file unito conservano le
 lettere che avevano. Al 28 settembre 2026 — chiusi **C1**, l'**1**, l'**1b**
 e il **2** (misurati e spenti), il **6** (misurato e piatto), il **5**
 (provato: l'xG c'è e non si accende) e il **10** tranne due ripetizioni, più
-il giorno del downgrade e il difetto **Q1** (corretto e ricuperato) —
-resta: il confronto con Bet365 da ripetere coi 200 gol, e a fine stagione **P1** insieme alla correzione dei
-marcatori, perché prima di allora rifarli darebbe lo stesso numero. Il
-perché sta in `LAVORI.txt`.
+il giorno del downgrade e il difetto **Q1** (corretto e ricuperato), e il 6
+novembre il confronto con Bet365 coi 200 gol (pari) — resta, a fine
+stagione, **R1** e **P1** insieme alla correzione dei marcatori, perché
+prima di allora rifarli darebbe lo stesso numero. Il perché sta in
+`LAVORI.txt`.
+
+**R1 — il livello dei gol in ritardo. Misurato il 6 novembre 2026, nessuna
+cura passa, il modello resta com'è per decisione dell'utente.** La 2026/27
+segna 3.18 gol a partita (2.43-2.61 negli anni prima, +3.65 errori standard
+contro il modello, 16 squadre su 20), e il modello ne dichiara 2.56: la media
+verso cui comprime i gol ha la memoria delle squadre, 180 giorni, quindi dice
+la media dell'anno prima. Provate tre cure. L'emivita di lega corta con
+ristima vera è **bocciata**: peggiora l'1X2 del 2022-25 (+2.6 errori
+standard), perché rende rumorosi vantaggio di casa e `rho`. Il solo livello
+dei gol più veloce (60-120 giorni, 1X2 fermo) aiuta nel 2026 (circa −2.2) e
+peggiora il 2022-25 (+1.4/+1.9): scelto sulle altre stagioni vince sempre il
+modello di oggi. Nessuna stagione passata ha avuto un salto, quindi una
+regola che si accende solo quando lo scarto è netto non si può ancora
+validare. Si rimisura a fine stagione, **prima** della correzione dei
+marcatori, che quest'anno sottostimano per la stessa ragione.
 
 Il 9 — chiuso lo stesso giorno in cui è nato — saltava il **7**, e P1 salta
 la **O**: i due motivi sono diversi. Del 7
@@ -1394,8 +1413,8 @@ pareggio dichiarato non si muove — 25.8% contro 25.7%, accaduto 27.7%. Il
                                        si raccoglie ogni giorno
   la sovrastima marcatori 28/09/2026   correzione misurata: 0.92-0.94,
                                        -1.86 errori standard, non passa
-  marcatori contro Bet365 28/09/2026   pari su 46 partite e 85 gol: un
-                                       aneddoto fino a 200 gol
+  marcatori contro Bet365 28/09 e 06/11 pari su 46 partite e 85 gol, poi
+                                       ripetuto coi 203 gol: pari, e vale
   le distinte vuote       28/09/2026   Q1: la copia vuota in cache non si
                                        serve piu'; le tre partite ricuperate
   casa e fuori            28/09/2026   il fattore per squadra peggiora; resta
@@ -1469,6 +1488,13 @@ l'elenco, perché è la parte che si tende a riproporre.
   all'altro (r = +0.11 ± 0.14). Qui, al contrario dell'allenatore, il codice
   **non** è entrato nel modello: è rimasta una lettura nella scheda squadra
   (`righe_casa_e_fuori`), dai soli pronostici congelati, fuori da ogni misura.
+
+- **una memoria corta per i parametri di lega, per seguire i gol della
+  2026/27** (difetto R1). Misurata il 6 novembre 2026, zero richieste: a 45
+  giorni l'1X2 del 2022-25 peggiora di +2.6 errori standard, perché vantaggio
+  di casa e `rho` diventano rumore, e i gol quasi non si muovono. Se mai si
+  insegue il livello dei gol, si insegue **solo quello**, con l'1X2 fermo —
+  ed è l'unica strada ancora aperta, in R1.
 
 Sui mercati dei gol, due cose da ricordare ora che il lavoro è fatto. La
 compressione **toglie un danno, non aggiunge una capacità**: si arriva a
